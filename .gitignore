@@ -1,0 +1,28 @@
+# Virtual environment — never commit this
+.venv/
+venv/
+env/
+
+# Environment secrets — never commit this
+.env
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Local scratch / dead code
+_dead_code/
+
+# TypeScript build output
+src/dist/
+
+# Editor
+.vscode/
+.idea/
+*.swp

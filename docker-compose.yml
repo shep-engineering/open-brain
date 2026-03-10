@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: open-brain-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: openbrain
+    ports:
+      - "5432:5432"
+    volumes:
+      - open_brain_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d openbrain"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  open_brain_data:
