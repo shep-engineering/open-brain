@@ -4,6 +4,8 @@
 
 Stores your thoughts as vector embeddings so any AI tool (Claude, ChatGPT, Cursor, Windsurf, VS Code, etc.) can search your memory **by meaning** — not just keywords. Local-first. You own the data. ~$0.10–$0.30/month to run.
 
+Supports both MCP stdio (editors/CLI) and streamable HTTP transport, plus a `wire` command to auto-register common MCP clients.
+
 ---
 
 ## Architecture
@@ -69,6 +71,22 @@ cp .env.example .env        # macOS / Linux
 
 Edit `.env` — defaults work out of the box for local Ollama + Docker.
 
+If you run Ollama on Windows and the MCP server from WSL, enable mirrored networking in `C:\Users\DAVE\.wslconfig`:
+
+```ini
+[wsl2]
+localhostForwarding=true
+networkingMode=mirrored
+```
+
+Then run:
+
+```powershell
+wsl --shutdown
+```
+
+This allows WSL processes to reach Windows Ollama at `http://localhost:11434` reliably.
+
 ### 3. Start PostgreSQL
 
 ```sh
@@ -87,10 +105,31 @@ python scripts/setup_db.py
 ollama pull nomic-embed-text
 ```
 
+Optional but recommended for richer metadata extraction:
+
+```sh
+ollama pull qwen2.5:32b
+```
+
+If you use both `nomic-embed-text` and a metadata model such as `qwen2.5:32b`, start Ollama with:
+
+```cmd
+set OLLAMA_MAX_LOADED_MODELS=2
+```
+
+Without this, Ollama may repeatedly evict one model to load the other, which makes captures much slower.
+
 ### 6. Add to your MCP client (see below), then verify
 
 ```sh
 python server.py   # should start without errors
+```
+
+Or use the built-in auto-wiring command:
+
+```sh
+python server.py wire
+python server.py wire --check
 ```
 
 ---
@@ -350,6 +389,8 @@ You should **never have to tell it to remember anything**. That defeats the purp
 
 The brain is wired into AI agents via system prompts and rules files (see `prompts/`). The agents call `capture_context` automatically — after completing tasks, when decisions are made, when bugs are fixed, when something about your preferences or project is learned. You just work. The brain captures.
 
+`capture_context` batches work in phases: first embeddings for all extracted items, then metadata extraction for all items, then database writes. This avoids repeated model thrashing when using separate Ollama models for embeddings and metadata.
+
 On recall, agents call `search` automatically at the start of tasks to surface relevant prior context before you even ask.
 
 **The user's only job: work. The brain's job: remember everything.**
@@ -399,14 +440,16 @@ Copy the relevant rules into your agent configuration:
 For richer people/topic/tag extraction, point at a local Ollama model:
 
 ```env
-METADATA_LLM_MODEL=llama3.2:3b
+METADATA_LLM_MODEL=qwen2.5:32b
 ```
 
 ```sh
-ollama pull llama3.2:3b
+ollama pull qwen2.5:32b
 ```
 
 Adds ~2–5 s per capture but significantly improves metadata quality for people names and nuanced topics. If the LLM call fails, it automatically falls back to fast heuristic extraction.
+
+If you use a metadata model and `nomic-embed-text` together, set `OLLAMA_MAX_LOADED_MODELS=2` before starting Ollama.
 
 ---
 
@@ -429,6 +472,7 @@ Then feed each line to `remember` to seed your Open Brain.
 ```
 F:\open-brain\
 ├── server.py               # Python MCP server — all 6 tools
+├── wire.py                 # MCP client auto-discovery + auto-wiring CLI
 ├── requirements.txt        # Python dependencies
 ├── test_server.py          # End-to-end test suite
 ├── .venv/                  # Virtual environment (never commit)
@@ -441,7 +485,8 @@ F:\open-brain\
 │   ├── claude-desktop.md   # Paste into Claude Desktop system prompt
 │   └── generic-system-prompt.md
 ├── scripts/
-│   └── setup_db.py         # One-time DB initialization
+│   ├── setup_db.py         # One-time DB initialization
+│   └── ensure-stack.sh     # Verify/start Ollama + open-brain-db from WSL
 ├── docker-compose.yml      # PostgreSQL + pgvector
 └── README.md
 ```

@@ -6,15 +6,26 @@ One PostgreSQL database. One MCP server. Every AI you use.
 
 Usage:
     python server.py
+    python server.py --transport http
+    python server.py --transport both
+    python server.py wire
+    python server.py wire --check
 
 MCP client config:
-    { "command": "python", "args": ["C:/Users/DAVE/CascadeProjects/open-brain/server.py"] }
+    {
+      "command": "F:\\open-brain\\.venv\\Scripts\\python.exe",
+      "args": ["F:\\open-brain\\server.py"]
+    }
 """
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import re
+import sys
+import threading
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime
@@ -516,18 +527,36 @@ def capture_context(context: str, source: str = "") -> str:
                 if start != -1 and end > start:
                     items = json.loads(raw[start:end])
                     if isinstance(items, list) and items:
-                        for item in items:
-                            if isinstance(item, str) and item.strip():
-                                try:
-                                    embedding = get_embedding(item)
-                                    meta      = extract_metadata(item)
-                                    if source:
-                                        meta["source"] = source
-                                    meta["auto_captured"] = True
-                                    memory, action = db_store_deduped(item, embedding, meta)
-                                    stored.append({"id": memory["id"], "preview": item[:100], "type": meta["type"], "action": action})
-                                except Exception as e:
-                                    errors.append(str(e))
+                        valid_items = [item for item in items if isinstance(item, str) and item.strip()]
+                        # Phase 1: batch all embeddings (keeps embed model loaded)
+                        item_embeddings: list[list[float] | None] = []
+                        for item in valid_items:
+                            try:
+                                item_embeddings.append(get_embedding(item))
+                            except Exception as e:
+                                errors.append(str(e))
+                                item_embeddings.append(None)
+                        # Phase 2: batch all metadata (keeps LLM loaded)
+                        item_metas: list[dict | None] = []
+                        for item in valid_items:
+                            try:
+                                meta = extract_metadata(item)
+                                if source:
+                                    meta["source"] = source
+                                meta["auto_captured"] = True
+                                item_metas.append(meta)
+                            except Exception as e:
+                                errors.append(str(e))
+                                item_metas.append(None)
+                        # Phase 3: store all
+                        for item, embedding, meta in zip(valid_items, item_embeddings, item_metas):
+                            if embedding is None or meta is None:
+                                continue
+                            try:
+                                memory, action = db_store_deduped(item, embedding, meta)
+                                stored.append({"id": memory["id"], "preview": item[:100], "type": meta["type"], "action": action})
+                            except Exception as e:
+                                errors.append(str(e))
             except Exception:
                 pass  # fall through to single-memory fallback
 
@@ -572,7 +601,121 @@ def forget(memory_id: int) -> str:
         return json.dumps({"success": False, "error": str(exc)})
 
 
+# ─── Transport Helpers ─────────────────────────────────────────────────────────
+
+HTTP_PORT = int(os.getenv("OPEN_BRAIN_PORT", "8080"))
+HTTP_HOST = os.getenv("OPEN_BRAIN_HOST", "0.0.0.0")
+CHECK_INTERVAL_HOURS = int(os.getenv("OPEN_BRAIN_CHECK_INTERVAL", "0"))
+
+
+def _run_http(host: str, port: int) -> None:
+    """Run the MCP server over streamable HTTP."""
+    import uvicorn
+
+    app = mcp.streamable_http_app()
+    print(
+        f"Open Brain HTTP server: http://{host}:{port}/mcp",
+        file=sys.stderr,
+    )
+    uvicorn.run(app, host=host, port=port, log_level="info")
+
+
+def _run_stdio() -> None:
+    """Run the MCP server over stdio (default)."""
+    mcp.run(transport="stdio")
+
+
+def _run_both(host: str, port: int) -> None:
+    """Run HTTP in a daemon thread, stdio in the foreground."""
+    t = threading.Thread(target=_run_http, args=(host, port), daemon=True)
+    t.start()
+    _run_stdio()
+
+
+def _periodic_check(interval_hours: int) -> None:
+    """Background thread: check for unwired agents on an interval."""
+    from wire import run_check_quiet, print_first_run_notice
+
+    interval = interval_hours * 3600
+    while True:
+        time.sleep(interval)
+        try:
+            results = run_check_quiet()
+            print_first_run_notice(results)
+        except Exception as e:
+            print(f"Periodic check error: {e}", file=sys.stderr)
+
+
 # ─── Entry point ──────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    mcp.run()
+    parser = argparse.ArgumentParser(
+        description="Open Brain MCP Server",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "examples:\n"
+            "  python server.py                    # stdio (default, for editors)\n"
+            "  python server.py --transport http    # HTTP for claude.ai connectors\n"
+            "  python server.py --transport both    # stdio + HTTP simultaneously\n"
+            "  python server.py wire                # auto-wire all detected agents\n"
+            "  python server.py wire --check        # read-only scan\n"
+        ),
+    )
+    parser.add_argument(
+        "command", nargs="?", default="serve",
+        choices=["serve", "wire"],
+        help="'serve' (default) to run the server, 'wire' to configure agents",
+    )
+    parser.add_argument(
+        "--transport", choices=["stdio", "http", "both"], default="stdio",
+        help="Transport mode (default: stdio)",
+    )
+    parser.add_argument(
+        "--port", type=int, default=HTTP_PORT,
+        help=f"HTTP port (default: {HTTP_PORT}, env: OPEN_BRAIN_PORT)",
+    )
+    parser.add_argument(
+        "--host", default=HTTP_HOST,
+        help=f"HTTP host (default: {HTTP_HOST}, env: OPEN_BRAIN_HOST)",
+    )
+    parser.add_argument(
+        "--first-run", action="store_true",
+        help="Check for unwired agents on startup",
+    )
+    parser.add_argument(
+        "--check", action="store_true",
+        help="Wire command: read-only scan, no changes",
+    )
+
+    args = parser.parse_args()
+
+    if args.command == "wire":
+        from wire import run_wire
+
+        run_wire(check_only=args.check)
+    else:
+        # First-run notice
+        if args.first_run:
+            try:
+                from wire import run_check_quiet, print_first_run_notice
+
+                print_first_run_notice(run_check_quiet())
+            except Exception as e:
+                print(f"First-run check failed: {e}", file=sys.stderr)
+
+        # Periodic background check
+        if CHECK_INTERVAL_HOURS > 0:
+            t = threading.Thread(
+                target=_periodic_check,
+                args=(CHECK_INTERVAL_HOURS,),
+                daemon=True,
+            )
+            t.start()
+
+        # Start transport
+        if args.transport == "http":
+            _run_http(args.host, args.port)
+        elif args.transport == "both":
+            _run_both(args.host, args.port)
+        else:
+            _run_stdio()
