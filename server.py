@@ -352,6 +352,20 @@ def db_delete(memory_id: int) -> bool:
         return (cur.rowcount or 0) > 0
 
 
+def db_delete_many(memory_ids: list[int]) -> dict:
+    if not memory_ids:
+        return {"deleted": 0, "not_found": []}
+    conn = _get_conn()
+    with conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM memories WHERE id = ANY(%s) RETURNING id",
+            (memory_ids,),
+        )
+        deleted_ids = {row[0] for row in cur.fetchall()}
+    not_found = [i for i in memory_ids if i not in deleted_ids]
+    return {"deleted": len(deleted_ids), "not_found": not_found}
+
+
 # ─── MCP Server ───────────────────────────────────────────────────────────────
 
 mcp = FastMCP("open-brain")
@@ -597,6 +611,23 @@ def forget(memory_id: int) -> str:
             "id":      memory_id,
             "message": f"Memory {memory_id} deleted." if deleted else f"Memory {memory_id} not found.",
         })
+    except Exception as exc:
+        return json.dumps({"success": False, "error": str(exc)})
+
+
+@mcp.tool()
+def forget_many(memory_ids: list[int]) -> str:
+    """Permanently delete multiple memories in a single call.
+
+    Use this instead of calling forget() in a loop.
+    Get IDs from search or list_recent output.
+
+    Args:
+        memory_ids: List of memory IDs to delete.
+    """
+    try:
+        result = db_delete_many(memory_ids)
+        return json.dumps({"success": True, **result})
     except Exception as exc:
         return json.dumps({"success": False, "error": str(exc)})
 
