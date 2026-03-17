@@ -14,20 +14,26 @@ Supports both MCP stdio (editors/CLI) and streamable HTTP transport, plus a `wir
 Your thought
     │
     ▼
-[remember tool]
+[remember / capture_context]
     │
     ├─► Ollama / OpenAI  →  vector embedding (768 or 1536 dims)
-    └─► heuristic / LLM  →  metadata (type, people, topics, action_items)
+    ├─► heuristic / LLM  →  metadata (type, people, topics, action_items)
+    └─► project scoping   →  optional project tag for filtering
               │
               ▼
     PostgreSQL + pgvector
+    (+ annotations, ratings, access tracking)
               │
               ▼
-    MCP Server (stdio)  ←  server.py
+    MCP Server (stdio / HTTP)  ←  server.py  (11 tools)
               │
     ┌─────────┼──────────┐
     ▼         ▼          ▼
  Claude    Cursor    Windsurf  (any MCP-compatible client)
+
+Agent workflow:
+  search (previews) → recall (full content) → use → rate (up/down)
+                                                  → annotate (add notes)
 ```
 
 ---
@@ -195,14 +201,10 @@ Windsurf only reads `mcp_config.json` at startup. Fully quit and reopen it.
 
 ### Step 4 — Verify the MCP server loaded
 
-In Windsurf, click the **MCP icon** (plug icon) in the top-right of the Cascade panel. You should see `open-brain` listed with a green dot and 6 tools:
+In Windsurf, click the **MCP icon** (plug icon) in the top-right of the Cascade panel. You should see `open-brain` listed with a green dot and 11 tools:
 
-- `capture_context`
-- `search`
-- `remember`
-- `list_recent`
-- `stats`
-- `forget`
+- `capture_context`, `search`, `recall`, `remember`, `annotate`
+- `rate`, `list_recent`, `stats`, `prune`, `forget`, `forget_many`
 
 If it shows red / failed, check that:
 1. `F:\open-brain\.venv\Scripts\python.exe` exists
@@ -260,7 +262,7 @@ Cursor reads `mcp.json` at startup. Fully quit and reopen it.
 
 ### Step 4 — Verify
 
-In Cursor, open the chat panel and look for the MCP tools icon (hammer 🔨). Click it — you should see `open-brain` with 6 tools listed. A red dot means the server failed to start — check Docker is running and the `.venv` path is correct.
+In Cursor, open the chat panel and look for the MCP tools icon (hammer). Click it — you should see `open-brain` with 11 tools listed. A red dot means the server failed to start — check Docker is running and the `.venv` path is correct.
 
 ---
 
@@ -340,7 +342,7 @@ You should see: `open-brain: ... ✓ Connected`
 
 ### Step 5 — Verify
 
-In any conversation, ask: *"What tools do you have available?"* — Claude should list the 6 open-brain tools. If not, confirm Docker is running (`docker ps` shows `open-brain-db`).
+In any conversation, ask: *"What tools do you have available?"* — Claude should list the 11 open-brain tools. If not, confirm Docker is running (`docker ps` shows `open-brain-db`).
 
 ---
 
@@ -403,12 +405,39 @@ On recall, agents call `search` automatically at the start of tasks to surface r
 
 | Tool | Who calls it | Description |
 |------|-------------|-------------|
-| `capture_context` | **Agent, automatically** | Ingests raw session/conversation text, extracts and stores multiple atomic memories at once |
-| `search` | **Agent, automatically** | Semantic search by meaning — used at task start to surface prior context |
-| `remember` | Agent or user | Store a single explicit fact or note |
+| `capture_context` | **Agent, automatically** | Ingests raw session/conversation text, extracts and stores multiple atomic memories at once. Accepts optional `project` to scope memories. |
+| `search` | **Agent, automatically** | Semantic search by meaning — returns previews (first 200 chars) to save tokens. Filter by `type`, `people`, or `project`. |
+| `recall` | Agent or user | Fetch full content of a memory by ID (after finding it via search). Tracks access count. |
+| `remember` | Agent or user | Store a single explicit fact or note. Accepts optional `project` to scope. |
+| `annotate` | Agent or user | Attach a persistent note to an existing memory (corrections, gotchas, extra context). |
+| `rate` | Agent or user | Rate a memory as useful (`up`) or not useful (`down`). Quality signals surface the best memories over time. |
 | `list_recent` | Agent or user | Browse recent captures with optional day filter |
 | `stats` | User | Total memories, breakdown by type, recent activity |
+| `prune` | User | Remove stale memories (older than N days with low access count). Supports dry-run preview. |
 | `forget` | User | Hard-delete a memory by ID |
+| `forget_many` | User | Batch-delete multiple memories by ID |
+
+### v2 Features (inspired by Context Hub)
+
+**Project scoping:** Tag memories with a project name on capture (`project="my-app"`), then filter searches to that project. Prevents cross-project noise without separate databases.
+
+**Incremental retrieval:** `search` now returns 200-char previews instead of full content. Use `recall` with a memory ID to get the complete text. Saves tokens when scanning.
+
+**Annotations:** Attach notes to existing memories without replacing them. Add corrections, gotchas, or warnings that surface in future searches. Clear with `annotate(id, clear=True)`.
+
+**Quality signals:** `rate` memories up or down after using them. Score (upvotes - downvotes) appears in search results, helping surface the best memories.
+
+**Access tracking:** Every `recall` bumps the memory's access count and last-accessed timestamp. `prune` uses this to identify stale, never-accessed memories.
+
+### Upgrading from v1
+
+Run the migration script to add the new columns to your existing database:
+
+```sh
+python scripts/migrate_v2.py
+```
+
+Safe to re-run. Existing memories are unaffected — new columns have sensible defaults.
 
 ### Wiring agents for auto-capture
 
@@ -471,7 +500,7 @@ Then feed each line to `remember` to seed your Open Brain.
 
 ```
 F:\open-brain\
-├── server.py               # Python MCP server — all 6 tools
+├── server.py               # Python MCP server — 11 tools
 ├── wire.py                 # MCP client auto-discovery + auto-wiring CLI
 ├── requirements.txt        # Python dependencies
 ├── test_server.py          # End-to-end test suite
@@ -485,7 +514,8 @@ F:\open-brain\
 │   ├── claude-desktop.md   # Paste into Claude Desktop system prompt
 │   └── generic-system-prompt.md
 ├── scripts/
-│   ├── setup_db.py         # One-time DB initialization
+│   ├── setup_db.py         # One-time DB initialization (includes v2 schema)
+│   ├── migrate_v2.py       # Migration for existing DBs: project, annotations, access tracking, ratings
 │   └── ensure-stack.sh     # Verify/start Ollama + open-brain-db from WSL
 ├── docker-compose.yml      # PostgreSQL + pgvector
 └── README.md

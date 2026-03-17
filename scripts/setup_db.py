@@ -42,11 +42,17 @@ def main() -> None:
             # 2. memories table
             cur.execute(f"""
                 CREATE TABLE IF NOT EXISTS memories (
-                    id         SERIAL      PRIMARY KEY,
-                    content    TEXT        NOT NULL,
-                    embedding  VECTOR({DIMENSIONS}),
-                    metadata   JSONB       NOT NULL DEFAULT '{{}}',
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    id            SERIAL      PRIMARY KEY,
+                    content       TEXT        NOT NULL,
+                    embedding     VECTOR({DIMENSIONS}),
+                    metadata      JSONB       NOT NULL DEFAULT '{{}}',
+                    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    project       TEXT        NOT NULL DEFAULT '',
+                    annotation    TEXT        NOT NULL DEFAULT '',
+                    access_count  INTEGER     NOT NULL DEFAULT 0,
+                    last_accessed TIMESTAMPTZ,
+                    upvotes       INTEGER     NOT NULL DEFAULT 0,
+                    downvotes     INTEGER     NOT NULL DEFAULT 0
                 )
             """)
             print(f"✓  memories table ready  ({DIMENSIONS}-dim vectors)")
@@ -69,6 +75,18 @@ def main() -> None:
             cur.execute("""
                 CREATE INDEX IF NOT EXISTS memories_metadata_gin_idx
                 ON memories USING gin (metadata)
+            """)
+
+            # 6. Project filter index
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS memories_project_idx
+                ON memories (project) WHERE project != ''
+            """)
+
+            # 7. Last-accessed index for pruning
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS memories_last_accessed_idx
+                ON memories (last_accessed ASC NULLS FIRST)
             """)
             print("✓  Supporting indexes created")
 

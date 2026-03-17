@@ -204,13 +204,13 @@ def _get_conn() -> psycopg2.extensions.connection:
     return _conn
 
 
-def db_store(content: str, embedding: list[float], metadata: dict) -> dict:
+def db_store(content: str, embedding: list[float], metadata: dict, project: str = "") -> dict:
     conn = _get_conn()
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
-            "INSERT INTO memories (content, embedding, metadata) VALUES (%s, %s::vector, %s) "
-            "RETURNING id, content, metadata, created_at",
-            (content, _to_vec(embedding), json.dumps(metadata)),
+            "INSERT INTO memories (content, embedding, metadata, project) VALUES (%s, %s::vector, %s, %s) "
+            "RETURNING id, content, metadata, created_at, project",
+            (content, _to_vec(embedding), json.dumps(metadata), project),
         )
         return _normalize_row(dict(cur.fetchone()))  # type: ignore[arg-type]
 
@@ -247,11 +247,11 @@ def db_update(memory_id: int, content: str, embedding: list[float], metadata: di
         return _normalize_row(dict(cur.fetchone()))
 
 
-def db_store_deduped(content: str, embedding: list[float], metadata: dict) -> tuple[dict, str]:
+def db_store_deduped(content: str, embedding: list[float], metadata: dict, project: str = "") -> tuple[dict, str]:
     """Store a memory with dedup. Returns (memory_dict, action) where action is 'stored', 'updated', or 'skipped'."""
     existing = db_find_duplicate(embedding)
     if existing is None:
-        return db_store(content, embedding, metadata), "stored"
+        return db_store(content, embedding, metadata, project), "stored"
 
     # Duplicate found. If new content is longer (more detailed), update it.
     if len(content) > len(existing["content"]):
@@ -267,6 +267,7 @@ def db_search(
     limit: int,
     type_filter: str | None,
     people_filter: list[str] | None,
+    project_filter: str | None = None,
 ) -> list[dict]:
     conn = _get_conn()
     conditions: list[str] = []
@@ -283,18 +284,24 @@ def db_search(
             person_conds.append("metadata->'people' ? %s")
         conditions.append(f"({' OR '.join(person_conds)})")
 
+    if project_filter:
+        extra_params.append(project_filter)
+        conditions.append("project = %s")
+
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     # Vec appears once (in CTE), filter params in the middle, limit at end
     params = [_to_vec(query_vec)] + extra_params + [limit]
 
     sql = f"""
         WITH q AS (
-            SELECT id, content, metadata, created_at,
+            SELECT id, content, metadata, created_at, project, annotation,
+                   upvotes, downvotes, access_count,
                    (embedding <=> %s::vector) AS dist
             FROM memories
             {where}
         )
-        SELECT id, content, metadata, created_at,
+        SELECT id, content, metadata, created_at, project, annotation,
+               upvotes, downvotes, access_count,
                round((1 - dist)::numeric, 4) AS similarity
         FROM q
         ORDER BY dist
@@ -366,13 +373,70 @@ def db_delete_many(memory_ids: list[int]) -> dict:
     return {"deleted": len(deleted_ids), "not_found": not_found}
 
 
+def db_get_by_id(memory_id: int) -> dict | None:
+    """Fetch a single memory by ID and bump its access counter."""
+    conn = _get_conn()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "UPDATE memories SET access_count = access_count + 1, last_accessed = NOW() "
+            "WHERE id = %s "
+            "RETURNING id, content, metadata, created_at, project, annotation, "
+            "access_count, last_accessed, upvotes, downvotes",
+            (memory_id,),
+        )
+        row = cur.fetchone()
+        return _normalize_row(dict(row)) if row else None
+
+
+def db_annotate(memory_id: int, note: str) -> dict | None:
+    """Set or clear the annotation on a memory."""
+    conn = _get_conn()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "UPDATE memories SET annotation = %s WHERE id = %s "
+            "RETURNING id, content, annotation, metadata, created_at",
+            (note, memory_id),
+        )
+        row = cur.fetchone()
+        return _normalize_row(dict(row)) if row else None
+
+
+def db_rate(memory_id: int, direction: str) -> dict | None:
+    """Increment upvotes or downvotes on a memory."""
+    col = "upvotes" if direction == "up" else "downvotes"
+    conn = _get_conn()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            f"UPDATE memories SET {col} = {col} + 1 WHERE id = %s "
+            "RETURNING id, upvotes, downvotes",
+            (memory_id,),
+        )
+        row = cur.fetchone()
+        return _normalize_row(dict(row)) if row else None
+
+
+def db_prune(days: int, min_access: int = 0) -> int:
+    """Delete memories older than N days that have been accessed fewer than min_access times.
+    Returns the number of deleted memories."""
+    conn = _get_conn()
+    with conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM memories "
+            "WHERE created_at < NOW() - INTERVAL '1 day' * %s "
+            "AND access_count <= %s "
+            "RETURNING id",
+            (days, min_access),
+        )
+        return cur.rowcount or 0
+
+
 # ─── MCP Server ───────────────────────────────────────────────────────────────
 
 mcp = FastMCP("open-brain")
 
 
 @mcp.tool()
-def remember(content: str, source: str = "", type_override: str = "") -> str:
+def remember(content: str, source: str = "", type_override: str = "", project: str = "") -> str:
     """Store a thought, note, decision, or information in your brain.
 
     Auto-detects type (decision/idea/meeting/task/etc), extracts people, topics,
@@ -384,6 +448,8 @@ def remember(content: str, source: str = "", type_override: str = "") -> str:
         source: Where captured from (e.g. 'cursor', 'slack', 'cli').
         type_override: Override auto-detected type:
             decision | idea | meeting | person | insight | task | journal | reference | note
+        project: Project this memory belongs to (e.g. 'open-brain', 'my-app').
+                 Empty string means global (not project-scoped).
     """
     try:
         embedding = get_embedding(content)
@@ -392,7 +458,7 @@ def remember(content: str, source: str = "", type_override: str = "") -> str:
             metadata["type"] = type_override
         if source:
             metadata["source"] = source
-        memory, action = db_store_deduped(content, embedding, metadata)
+        memory, action = db_store_deduped(content, embedding, metadata, project)
         return json.dumps({
             "success":      True,
             "action":       action,
@@ -413,11 +479,15 @@ def search(
     limit: int = 10,
     type_filter: str = "",
     people_filter: Optional[list[str]] = None,
+    project: str = "",
 ) -> str:
     """Semantically search your brain by meaning — not just keywords.
 
     Finds thoughts, decisions, and notes even without exact words.
     Works across everything ever captured, from any AI tool.
+
+    Returns previews (first 200 chars) by default to save tokens.
+    Use the `recall` tool with a memory ID to get the full content.
 
     Args:
         query: What to search for — describe by meaning, not exact keywords.
@@ -425,23 +495,37 @@ def search(
         type_filter: Filter by type:
             decision | idea | meeting | person | insight | task | journal | reference | note
         people_filter: Filter to memories mentioning specific people.
+        project: Filter to memories from a specific project (e.g. 'open-brain', 'my-app').
     """
     try:
         embedding = get_embedding(query)
-        memories  = db_search(embedding, min(limit, 50), type_filter or None, people_filter)
+        memories  = db_search(embedding, min(limit, 50), type_filter or None, people_filter, project or None)
         if not memories:
             return "No memories found matching that query."
         meta = lambda m: m["metadata"] if isinstance(m["metadata"], dict) else {}  # noqa: E731
-        return json.dumps([{
-            "id":           m["id"],
-            "content":      m["content"],
-            "similarity":   float(m.get("similarity") or 0),
-            "type":         meta(m).get("type"),
-            "people":       meta(m).get("people", []),
-            "topics":       meta(m).get("topics", []),
-            "action_items": meta(m).get("action_items", []),
-            "created_at":   str(m["created_at"]),
-        } for m in memories], indent=2)
+        results = []
+        for m in memories:
+            content = m["content"]
+            preview = (content[:200] + "...") if len(content) > 200 else content
+            entry: dict = {
+                "id":           m["id"],
+                "preview":      preview,
+                "similarity":   float(m.get("similarity") or 0),
+                "type":         meta(m).get("type"),
+                "people":       meta(m).get("people", []),
+                "topics":       meta(m).get("topics", []),
+                "action_items": meta(m).get("action_items", []),
+                "created_at":   str(m["created_at"]),
+            }
+            if m.get("project"):
+                entry["project"] = m["project"]
+            if m.get("annotation"):
+                entry["annotation"] = m["annotation"]
+            score = m.get("upvotes", 0) - m.get("downvotes", 0)
+            if score != 0:
+                entry["score"] = score
+            results.append(entry)
+        return json.dumps(results, indent=2)
     except Exception as exc:
         return json.dumps({"error": str(exc)})
 
@@ -488,7 +572,7 @@ def stats() -> str:
 
 
 @mcp.tool()
-def capture_context(context: str, source: str = "") -> str:
+def capture_context(context: str, source: str = "", project: str = "") -> str:
     """Automatically extract and store memories from raw conversation or session context.
 
     THIS is the primary tool for automatic brain capture. AI agents should call
@@ -511,6 +595,8 @@ def capture_context(context: str, source: str = "") -> str:
         context: Raw text to capture — conversation excerpt, session summary,
                  decisions made, things learned. Can be long, dump freely.
         source:  Which agent is capturing (e.g. 'windsurf', 'cursor', 'claude').
+        project: Project this memory belongs to (e.g. 'open-brain', 'my-app').
+                 Empty string means global (not project-scoped).
     """
     try:
         stored = []
@@ -567,7 +653,7 @@ def capture_context(context: str, source: str = "") -> str:
                             if embedding is None or meta is None:
                                 continue
                             try:
-                                memory, action = db_store_deduped(item, embedding, meta)
+                                memory, action = db_store_deduped(item, embedding, meta, project)
                                 stored.append({"id": memory["id"], "preview": item[:100], "type": meta["type"], "action": action})
                             except Exception as e:
                                 errors.append(str(e))
@@ -581,7 +667,7 @@ def capture_context(context: str, source: str = "") -> str:
             if source:
                 meta["source"] = source
             meta["auto_captured"] = True
-            memory, action = db_store_deduped(context, embedding, meta)
+            memory, action = db_store_deduped(context, embedding, meta, project)
             stored.append({"id": memory["id"], "preview": context[:100], "type": meta["type"], "action": action})
 
         return json.dumps({
@@ -591,6 +677,152 @@ def capture_context(context: str, source: str = "") -> str:
             "errors":        errors if errors else None,
         }, indent=2)
 
+    except Exception as exc:
+        return json.dumps({"success": False, "error": str(exc)})
+
+
+@mcp.tool()
+def recall(memory_id: int) -> str:
+    """Fetch the full content of a specific memory by ID.
+
+    Use this after `search` returns previews — when you need the complete text
+    of a memory before acting on it. Also tracks access (bumps access_count).
+
+    Args:
+        memory_id: The ID of the memory to recall (from search or list_recent output).
+    """
+    try:
+        memory = db_get_by_id(memory_id)
+        if not memory:
+            return json.dumps({"success": False, "error": f"Memory {memory_id} not found."})
+        meta = memory["metadata"] if isinstance(memory["metadata"], dict) else {}
+        result: dict = {
+            "id":           memory["id"],
+            "content":      memory["content"],
+            "type":         meta.get("type"),
+            "people":       meta.get("people", []),
+            "topics":       meta.get("topics", []),
+            "action_items": meta.get("action_items", []),
+            "created_at":   str(memory["created_at"]),
+            "access_count": memory.get("access_count", 0),
+        }
+        if memory.get("project"):
+            result["project"] = memory["project"]
+        if memory.get("annotation"):
+            result["annotation"] = memory["annotation"]
+        if memory.get("upvotes") or memory.get("downvotes"):
+            result["upvotes"] = memory.get("upvotes", 0)
+            result["downvotes"] = memory.get("downvotes", 0)
+        return json.dumps(result, indent=2)
+    except Exception as exc:
+        return json.dumps({"success": False, "error": str(exc)})
+
+
+@mcp.tool()
+def annotate(memory_id: int, note: str = "", clear: bool = False) -> str:
+    """Attach a persistent note to an existing memory, or clear it.
+
+    Annotations enrich memories without replacing them — add corrections,
+    extra context, gotchas, or warnings that surface on future searches.
+    Inspired by Context Hub's annotation system.
+
+    Args:
+        memory_id: The ID of the memory to annotate.
+        note: The annotation text to attach. Ignored if clear=True.
+        clear: Set to True to remove the annotation from this memory.
+    """
+    try:
+        if clear:
+            result = db_annotate(memory_id, "")
+            if not result:
+                return json.dumps({"success": False, "error": f"Memory {memory_id} not found."})
+            return json.dumps({"success": True, "id": memory_id, "message": "Annotation cleared."})
+        if not note:
+            # Read-only: fetch current annotation
+            memory = db_get_by_id(memory_id)
+            if not memory:
+                return json.dumps({"success": False, "error": f"Memory {memory_id} not found."})
+            return json.dumps({
+                "id":         memory_id,
+                "annotation": memory.get("annotation", ""),
+                "preview":    (memory["content"][:150] + "...") if len(memory["content"]) > 150 else memory["content"],
+            }, indent=2)
+        result = db_annotate(memory_id, note)
+        if not result:
+            return json.dumps({"success": False, "error": f"Memory {memory_id} not found."})
+        return json.dumps({
+            "success":    True,
+            "id":         memory_id,
+            "annotation": note,
+            "message":    "Annotation saved.",
+        })
+    except Exception as exc:
+        return json.dumps({"success": False, "error": str(exc)})
+
+
+@mcp.tool()
+def rate(memory_id: int, direction: str) -> str:
+    """Rate a memory as useful (up) or not useful (down).
+
+    Quality signals help surface the best memories in future searches.
+    Call this after using a memory — did it actually help?
+
+    Args:
+        memory_id: The ID of the memory to rate.
+        direction: 'up' if the memory was useful, 'down' if it wasn't.
+    """
+    try:
+        if direction not in ("up", "down"):
+            return json.dumps({"success": False, "error": "direction must be 'up' or 'down'."})
+        result = db_rate(memory_id, direction)
+        if not result:
+            return json.dumps({"success": False, "error": f"Memory {memory_id} not found."})
+        return json.dumps({
+            "success":   True,
+            "id":        memory_id,
+            "upvotes":   result["upvotes"],
+            "downvotes": result["downvotes"],
+            "score":     result["upvotes"] - result["downvotes"],
+        })
+    except Exception as exc:
+        return json.dumps({"success": False, "error": str(exc)})
+
+
+@mcp.tool()
+def prune(days: int = 90, min_access: int = 0, dry_run: bool = True) -> str:
+    """Remove stale memories that haven't been useful.
+
+    Deletes memories older than N days that have been accessed fewer than
+    min_access times. Use dry_run=True (default) to preview what would be deleted.
+
+    Args:
+        days: Delete memories older than this many days (default 90).
+        min_access: Only delete memories accessed this many times or fewer (default 0 = never accessed).
+        dry_run: If True (default), only count what would be deleted — don't actually delete.
+    """
+    try:
+        if dry_run:
+            conn = _get_conn()
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT COUNT(*) FROM memories "
+                    "WHERE created_at < NOW() - INTERVAL '1 day' * %s "
+                    "AND access_count <= %s",
+                    (days, min_access),
+                )
+                count = cur.fetchone()[0]  # type: ignore[index]
+            return json.dumps({
+                "dry_run":     True,
+                "would_delete": count,
+                "criteria":    f"older than {days} days, accessed <= {min_access} times",
+                "message":     f"Would delete {count} memories. Set dry_run=False to execute.",
+            })
+        deleted = db_prune(days, min_access)
+        return json.dumps({
+            "success": True,
+            "deleted": deleted,
+            "message": f"Pruned {deleted} stale memories.",
+        })
     except Exception as exc:
         return json.dumps({"success": False, "error": str(exc)})
 
