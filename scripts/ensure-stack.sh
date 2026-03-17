@@ -14,7 +14,8 @@ CHECK_ONLY=0
 [ "${1:-}" = "--check" ] && CHECK_ONLY=1
 
 OLLAMA_URL="http://localhost:11434"
-AI_MODE_CMD='C:\Users\DAVE\Desktop\AI Mode ON.cmd'
+# Update this path to match your system
+AI_MODE_CMD="$HOME/Desktop/AI Mode ON.cmd"
 OLLAMA_WAIT_SECS=60
 PG_WAIT_SECS=40
 

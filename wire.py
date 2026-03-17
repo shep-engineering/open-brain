@@ -20,7 +20,7 @@ from pathlib import Path
 
 PYTHON_CMD = os.getenv(
     "OPEN_BRAIN_PYTHON",
-    "/home/dave/.venvs/open-brain/bin/python",
+    os.path.expanduser("~/.venvs/open-brain/bin/python"),
 )
 SERVER_PATH = os.getenv(
     "OPEN_BRAIN_SERVER",

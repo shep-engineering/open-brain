@@ -10,6 +10,6 @@ description: consult open brain before acting (Cursor)
 4. After finishing, capture learnings and guardrails.
 
 Reminders:
-- MCP config: `C:\Users\DAVE\.cursor\mcp.json` with `open-brain` stdio server
+- MCP config: `C:\Users\<USERNAME>\.cursor\mcp.json` with `open-brain` stdio server
 - Rules: paste `prompts/cursor-rules.md` into Cursor Settings → General → Rules for AI
 - Tools: `capture_context`, `search`, `remember`, `list_recent`, `stats`, `forget`

@@ -77,7 +77,7 @@ cp .env.example .env        # macOS / Linux
 
 Edit `.env` — defaults work out of the box for local Ollama + Docker.
 
-If you run Ollama on Windows and the MCP server from WSL, enable mirrored networking in `C:\Users\DAVE\.wslconfig`:
+If you run Ollama on Windows and the MCP server from WSL, enable mirrored networking in `C:\Users\<USERNAME>\.wslconfig`:
 
 ```ini
 [wsl2]
@@ -165,10 +165,10 @@ You should see `open-brain-db` running.
 Windsurf's MCP config lives at this exact path (it may not exist yet — create it if so):
 
 ```
-C:\Users\DAVE\.windsurf\mcp_config.json
+C:\Users\<USERNAME>\.windsurf\mcp_config.json
 ```
 
-> **Note:** Do not confuse this with `C:\Users\DAVE\.codeium\windsurf\` — that folder is Windsurf's internal storage and is not where MCP is configured.
+> **Note:** Do not confuse this with `C:\Users\<USERNAME>\.codeium\windsurf\` — that folder is Windsurf's internal storage and is not where MCP is configured.
 
 Open or create that file and paste in the following. **If the file already has other MCP servers, add just the `"open-brain"` block inside the existing `"mcpServers"` object.**
 
@@ -179,7 +179,7 @@ Open or create that file and paste in the following. **If the file already has o
       "command": "F:\\open-brain\\.venv\\Scripts\\python.exe",
       "args": ["F:\\open-brain\\server.py"],
       "env": {
-        "DATABASE_URL": "postgresql://postgres:password@localhost:5432/openbrain",
+        "DATABASE_URL": "postgresql://postgres:your_password@localhost:5432/openbrain",
         "EMBEDDING_PROVIDER": "ollama",
         "OLLAMA_BASE_URL": "http://localhost:11434",
         "METADATA_LLM_MODEL": "qwen2.5:32b"
@@ -215,7 +215,7 @@ If it shows red / failed, check that:
 
 ### Step 5 — Verify auto-capture is enabled
 
-Open `C:\Users\DAVE\.codeium\windsurf\memories\global_rules.md` and confirm it contains the Open Brain auto-capture rules. If not, copy the contents of `F:\open-brain\prompts\windsurf-rules.md` into it.
+Open `C:\Users\<USERNAME>\.codeium\windsurf\memories\global_rules.md` and confirm it contains the Open Brain auto-capture rules. If not, copy the contents of `F:\open-brain\prompts\windsurf-rules.md` into it.
 
 This file is already configured on this machine. ✅
 
@@ -228,7 +228,7 @@ This file is already configured on this machine. ✅
 Cursor's global MCP config lives at:
 
 ```
-C:\Users\DAVE\.cursor\mcp.json
+C:\Users\<USERNAME>\.cursor\mcp.json
 ```
 
 Create that file if it doesn't exist, and paste in:
@@ -240,7 +240,7 @@ Create that file if it doesn't exist, and paste in:
       "command": "F:\\open-brain\\.venv\\Scripts\\python.exe",
       "args": ["F:\\open-brain\\server.py"],
       "env": {
-        "DATABASE_URL": "postgresql://postgres:password@localhost:5432/openbrain",
+        "DATABASE_URL": "postgresql://postgres:your_password@localhost:5432/openbrain",
         "EMBEDDING_PROVIDER": "ollama",
         "OLLAMA_BASE_URL": "http://localhost:11434",
         "METADATA_LLM_MODEL": "llama3.2:3b"
@@ -273,7 +273,7 @@ Newer versions of Claude Desktop store config in `~/.claude/settings.json`, not 
 ### Step 1 — Edit `settings.json`
 
 ```
-C:\Users\DAVE\.claude\settings.json
+C:\Users\<USERNAME>\.claude\settings.json
 ```
 
 Edit (or create) the file with:
@@ -285,7 +285,7 @@ Edit (or create) the file with:
       "command": "F:\\open-brain\\.venv\\Scripts\\python.exe",
       "args": ["F:\\open-brain\\server.py"],
       "env": {
-        "DATABASE_URL": "postgresql://postgres:password@localhost:5432/openbrain",
+        "DATABASE_URL": "postgresql://postgres:your_password@localhost:5432/openbrain",
         "EMBEDDING_PROVIDER": "ollama",
         "OLLAMA_BASE_URL": "http://localhost:11434",
         "METADATA_LLM_MODEL": "qwen2.5:32b"
@@ -309,7 +309,7 @@ If you're using the Claude Code CLI or the Claude VS Code extension, `settings.j
 
 ```powershell
 claude mcp add open-brain "F:\open-brain\.venv\Scripts\python.exe" "F:\open-brain\server.py" ^
-  --env DATABASE_URL=postgresql://postgres:password@localhost:5432/openbrain ^
+  --env DATABASE_URL=postgresql://postgres:your_password@localhost:5432/openbrain ^
   --env EMBEDDING_PROVIDER=ollama ^
   --env OLLAMA_BASE_URL=http://localhost:11434 ^
   --env METADATA_LLM_MODEL=qwen2.5:32b ^
@@ -320,14 +320,14 @@ claude mcp add open-brain "F:\open-brain\.venv\Scripts\python.exe" "F:\open-brai
 
 ```sh
 claude mcp add open-brain "F:\\open-brain\\.venv\\Scripts\\python.exe" "F:\\open-brain\\server.py" \
-  --env DATABASE_URL=postgresql://postgres:password@localhost:5432/openbrain \
+  --env DATABASE_URL=postgresql://postgres:your_password@localhost:5432/openbrain \
   --env EMBEDDING_PROVIDER=ollama \
   --env OLLAMA_BASE_URL=http://localhost:11434 \
   --env METADATA_LLM_MODEL=qwen2.5:32b \
   --scope user
 ```
 
-This writes to `C:\Users\DAVE\.claude.json` (user-scoped, active in every project). Verify:
+This writes to `C:\Users\<USERNAME>\.claude.json` (user-scoped, active in every project). Verify:
 
 ```sh
 claude mcp list
