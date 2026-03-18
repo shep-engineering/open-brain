@@ -34,7 +34,7 @@ graph TD
 2. `capture_context` optionally decomposes the text into atomic memories via a local LLM
 3. Each memory is embedded via Ollama or OpenAI
 4. Metadata is extracted (type, people, topics, action items) via heuristic or LLM
-5. Deduplication check — if a near-identical memory exists (cosine similarity >= 0.92), skip or update
+5. Deduplication check: if a near-identical memory exists (cosine similarity >= 0.92), skip or update
 6. Stored in PostgreSQL with the embedding vector, metadata JSONB, and project tag
 
 ### Reading (Recall)
@@ -65,7 +65,7 @@ graph TD
 
 ```
 open-brain/
-├── server.py               # MCP server — 11 tools
+├── server.py               # MCP server, 11 tools
 ├── wire.py                 # Agent auto-discovery + wiring CLI
 ├── requirements.txt        # Python dependencies
 ├── test_server.py          # End-to-end test suite

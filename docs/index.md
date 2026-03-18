@@ -1,8 +1,8 @@
 # Open Brain
 
-> **Agent-readable second brain** — one PostgreSQL database, one MCP server, every AI you use.
+> **Agent-readable second brain.** One PostgreSQL database, one MCP server, every AI you use.
 
-Open Brain stores your thoughts as vector embeddings so any AI tool — Claude Code, Cursor, Windsurf, ChatGPT Desktop, VS Code Copilot — can search your memory **by meaning**, not just keywords. Local-first. You own the data. ~$0/month to run.
+Open Brain stores your thoughts as vector embeddings so any AI tool (Claude Code, Cursor, Windsurf, ChatGPT Desktop, VS Code Copilot) can search your memory **by meaning**, not just keywords. Local-first. You own the data. ~$0/month to run.
 
 ---
 
@@ -10,7 +10,7 @@ Open Brain stores your thoughts as vector embeddings so any AI tool — Claude C
 
 Every AI coding tool has amnesia. Close the chat, lose the context. Switch from Cursor to Claude Code? Start from scratch. That decision you made last Tuesday? Gone.
 
-**Open Brain fixes this.** One shared memory layer that every agent reads and writes to — automatically, silently, without you lifting a finger.
+**Open Brain fixes this.** One shared memory layer that every agent reads and writes to, automatically, silently, without you lifting a finger.
 
 ---
 
@@ -42,15 +42,15 @@ Your thought
 
 ## Key Features
 
-- **Cross-agent memory** — Capture in Claude Code, recall in Cursor. One brain, every tool.
-- **Semantic search** — Find memories by meaning, not keywords. "That database decision" finds it even if you never typed those words.
-- **Auto-capture** — Agents store decisions, bugs, and context as you work. You never have to say "remember this."
-- **Auto-recall** — Agents search the brain before starting tasks. Prior context surfaces automatically.
-- **One-command wiring** — `python server.py wire` auto-discovers and configures every AI tool on your system.
-- **Smart batching** — Embeddings and metadata extraction are batched to avoid GPU model thrashing.
-- **Quality signals** — Rate memories up/down. Access tracking surfaces the most useful memories.
-- **Project scoping** — Tag memories by project. Search within a project without noise from others.
-- **100% local** — PostgreSQL + pgvector + Ollama. No cloud. No API keys required. Your data stays yours.
+- **Cross-agent memory:** Capture in Claude Code, recall in Cursor. One brain, every tool.
+- **Semantic search:** Find memories by meaning, not keywords. "That database decision" finds it even if you never typed those words.
+- **Auto-capture:** Agents store decisions, bugs, and context as you work. You never have to say "remember this."
+- **Auto-recall:** Agents search the brain before starting tasks. Prior context surfaces automatically.
+- **One-command wiring:** `python server.py wire` auto-discovers and configures every AI tool on your system.
+- **Smart batching:** Embeddings and metadata extraction are batched to avoid GPU model thrashing.
+- **Quality signals:** Rate memories up/down. Access tracking surfaces the most useful memories.
+- **Project scoping:** Tag memories by project. Search within a project without noise from others.
+- **100% local:** PostgreSQL + pgvector + Ollama. No cloud. No API keys required. Your data stays yours.
 
 ---
 
@@ -71,7 +71,7 @@ Your thought
 
 ## Quick Links
 
-- [Installation](getting-started/installation.md) — Get up and running in ~15 minutes
-- [Wiring Agents](getting-started/wiring-agents.md) — Connect your AI tools to the brain
-- [Tools Reference](tools.md) — All 11 MCP tools explained
-- [Architecture](architecture/overview.md) — How it all fits together
+- [Installation](getting-started/installation.md): Get up and running in ~15 minutes
+- [Wiring Agents](getting-started/wiring-agents.md): Connect your AI tools to the brain
+- [Tools Reference](tools.md): All 11 MCP tools explained
+- [Architecture](architecture/overview.md): How it all fits together

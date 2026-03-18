@@ -14,7 +14,7 @@ Get Open Brain running in ~15 minutes.
 
 ---
 
-## Step 1 — Clone and create a virtual environment
+## Step 1: Clone and create a virtual environment
 
 ```sh
 git clone https://github.com/shep-engineering/open-brain.git
@@ -44,7 +44,7 @@ pip install -r requirements.txt
 
 ---
 
-## Step 2 — Configure environment
+## Step 2: Configure environment
 
 ```sh
 cp .env.example .env
@@ -52,7 +52,7 @@ cp .env.example .env
 
 On Windows: `copy .env.example .env`
 
-Edit `.env` — the defaults work out of the box for local Ollama + Docker.
+Edit `.env`. The defaults work out of the box for local Ollama + Docker.
 
 !!! note "WSL + Windows Ollama"
     If you run Ollama on Windows and the MCP server from WSL, enable mirrored networking in `C:\Users\<USERNAME>\.wslconfig`:
@@ -67,17 +67,17 @@ Edit `.env` — the defaults work out of the box for local Ollama + Docker.
 
 ---
 
-## Step 3 — Start PostgreSQL
+## Step 3: Start PostgreSQL
 
 ```sh
 docker compose up -d
 ```
 
-Verify with `docker ps` — you should see `open-brain-db` running.
+Verify with `docker ps`. You should see `open-brain-db` running.
 
 ---
 
-## Step 4 — Initialize the database
+## Step 4: Initialize the database
 
 ```sh
 python scripts/setup_db.py
@@ -87,13 +87,13 @@ This creates the `memories` table, pgvector extension, HNSW index, and all suppo
 
 ---
 
-## Step 5 — Pull the embedding model
+## Step 5: Pull the embedding model
 
 ```sh
 ollama pull nomic-embed-text
 ```
 
-Optional but recommended — pull a metadata LLM for richer extraction:
+Optional but recommended. Pull a metadata LLM for richer extraction:
 
 ```sh
 ollama pull qwen2.5:32b
@@ -104,7 +104,7 @@ ollama pull qwen2.5:32b
 
 ---
 
-## Step 6 — Verify
+## Step 6: Verify
 
 ```sh
 python server.py

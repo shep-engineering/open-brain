@@ -64,7 +64,7 @@ Call `rate(id, "up")` or `rate(id, "down")` after using a memory. The score (upv
 
 ### Access Tracking
 
-Every `recall` call bumps `access_count` and updates `last_accessed`. This data powers `prune` — memories that are old and never accessed can be cleaned up.
+Every `recall` call bumps `access_count` and updates `last_accessed`. This data powers `prune`. Memories that are old and never accessed can be cleaned up.
 
 ### Annotations
 
@@ -80,7 +80,7 @@ On every `remember` and `capture_context` call, Open Brain checks for near-dupli
 2. Find the closest existing memory by cosine similarity
 3. If similarity >= threshold (default 0.92):
     - If the new content is longer (more detailed), update the existing memory
-    - Otherwise, skip — the memory already exists
+    - Otherwise, skip. The memory already exists
 
 This prevents the same decision or fact from being stored dozens of times across sessions.
 

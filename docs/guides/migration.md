@@ -29,8 +29,8 @@ This adds new columns with sensible defaults. Safe to re-run. Existing memories 
 If you're moving from a different AI memory tool (Claude's built-in memory, ChatGPT memory, etc.), run this prompt in your current AI:
 
 ```
-Export everything you know about me — my projects, preferences, key people,
-past decisions, ongoing work, and constraints — as a series of plain-text
+Export everything you know about me, including my projects, preferences, key people,
+past decisions, ongoing work, and constraints, as a series of plain-text
 notes, one per line. I'm migrating to a new memory system.
 ```
 

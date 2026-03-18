@@ -1,10 +1,10 @@
 # ChatGPT Desktop
 
-ChatGPT Desktop's MCP support requires a remote endpoint — it doesn't support local stdio servers directly. Here's how to connect it.
+ChatGPT Desktop's MCP support requires a remote endpoint. It doesn't support local stdio servers directly. Here's how to connect it.
 
 ---
 
-## Option A — Local SSE Proxy (Recommended)
+## Option A: Local SSE Proxy (Recommended)
 
 The `mcp` package can expose a stdio server over SSE (Server-Sent Events):
 
@@ -21,7 +21,7 @@ This process must be running whenever you use ChatGPT Desktop with the brain.
 
 ---
 
-## Option B — Tunnel via ngrok
+## Option B: Tunnel via ngrok
 
 For access from other devices (e.g. ChatGPT mobile):
 

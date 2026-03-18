@@ -6,7 +6,7 @@ The `capture_context` tool uses a multi-phase batching algorithm to efficiently 
 
 ## The Problem
 
-On systems with limited VRAM, Ollama can only load 1-2 models at a time. A naive approach — embed one memory, extract metadata for it, embed the next, extract metadata — causes constant model swapping. Each swap takes 10-40 seconds as models are loaded/unloaded from GPU memory.
+On systems with limited VRAM, Ollama can only load 1-2 models at a time. A naive approach (embed one memory, extract metadata for it, embed the next, extract metadata) causes constant model swapping. Each swap takes 10-40 seconds as models are loaded/unloaded from GPU memory.
 
 ---
 
@@ -26,21 +26,21 @@ graph TD
     H --> I["Insert via db_store_deduped()<br/>(dedup check per memory)"]
 ```
 
-### Phase 1 — LLM Decomposition
+### Phase 1: LLM Decomposition
 
 If `METADATA_LLM_MODEL` is set, the raw session text is sent to the LLM with instructions to extract atomic, self-contained memories. A paragraph about three topics becomes three separate memories.
 
 **Fallback:** If the LLM is unavailable, the entire text is stored as a single memory.
 
-### Phase 2 — Batch Embeddings
+### Phase 2: Batch Embeddings
 
 All extracted items are embedded in sequence while `nomic-embed-text` is loaded. No model swaps happen during this phase.
 
-### Phase 3 — Batch Metadata
+### Phase 3: Batch Metadata
 
 Once all embeddings are done, the metadata LLM is loaded and extracts type/people/topics/action_items for all items in sequence.
 
-### Phase 4 — Store
+### Phase 4: Store
 
 All memories are inserted into PostgreSQL with deduplication checks.
 

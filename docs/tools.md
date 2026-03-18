@@ -1,6 +1,6 @@
 # Tools Reference
 
-Open Brain exposes 11 MCP tools. Agents call most of these automatically — you rarely need to invoke them yourself.
+Open Brain exposes 11 MCP tools. Agents call most of these automatically, so you rarely need to invoke them yourself.
 
 ---
 
@@ -36,7 +36,7 @@ The primary auto-capture tool. Ingests raw conversation or session text, decompo
 
 ### `search`
 
-Semantic search by meaning — not keywords. Returns previews (first 200 chars) to save tokens.
+Semantic search by meaning, not keywords. Returns previews (first 200 chars) to save tokens.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -77,7 +77,7 @@ Rate a memory as useful or not useful. Quality signals help surface the best mem
 
 ### `annotate`
 
-Attach a persistent note to an existing memory — corrections, gotchas, or extra context.
+Attach a persistent note to an existing memory: corrections, gotchas, or extra context.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -112,7 +112,7 @@ Get database statistics: total memories, breakdown by type, captures in the last
 
 ### `prune`
 
-Remove stale memories — old and rarely accessed.
+Remove stale memories that are old and rarely accessed.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -148,19 +148,19 @@ Batch-delete multiple memories by ID.
 1. Agent starts task
    |
    v
-2. search() — find prior context (silent)
+2. search(): find prior context (silent)
    |
    v
 3. Work happens (coding, research, discussion)
    |
    v
-4. capture_context() — store what was learned (silent)
+4. capture_context(): store what was learned (silent)
    |
    v
 5. Later: another task on same topic
    |
    v
-6. search() — prior decision is already there
+6. search(): prior decision is already there
 ```
 
 The user never has to think about memory. Agents capture and recall automatically.
