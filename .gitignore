@@ -22,6 +22,9 @@ _dead_code/
 # TypeScript build output
 src/dist/
 
+# MkDocs build output
+site/
+
 # Editor
 .vscode/
 .idea/
