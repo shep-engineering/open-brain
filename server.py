@@ -37,6 +37,8 @@ import psycopg2.extras
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 
+from secrets_filter import check_content, SecretDetectedError
+
 # ─── Config ───────────────────────────────────────────────────────────────────
 
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
@@ -249,6 +251,8 @@ def db_update(memory_id: int, content: str, embedding: list[float], metadata: di
 
 def db_store_deduped(content: str, embedding: list[float], metadata: dict, project: str = "") -> tuple[dict, str]:
     """Store a memory with dedup. Returns (memory_dict, action) where action is 'stored', 'updated', or 'skipped'."""
+    # Safety net: block secrets even if caller forgot to check
+    content = check_content(content)
     existing = db_find_duplicate(embedding)
     if existing is None:
         return db_store(content, embedding, metadata, project), "stored"
@@ -452,6 +456,7 @@ def remember(content: str, source: str = "", type_override: str = "", project: s
                  Empty string means global (not project-scoped).
     """
     try:
+        content = check_content(content)
         embedding = get_embedding(content)
         metadata  = extract_metadata(content)
         if type_override:
@@ -469,6 +474,8 @@ def remember(content: str, source: str = "", type_override: str = "", project: s
             "action_items": metadata.get("action_items", []),
             "stored_at":    memory["created_at"],
         }, indent=2)
+    except SecretDetectedError as exc:
+        return json.dumps({"success": False, "error": str(exc), "blocked_by": "secrets_filter"})
     except Exception as exc:
         return json.dumps({"success": False, "error": str(exc)})
 
@@ -599,6 +606,9 @@ def capture_context(context: str, source: str = "", project: str = "") -> str:
                  Empty string means global (not project-scoped).
     """
     try:
+        # Filter secrets from raw context before any processing
+        context = check_content(context)
+
         stored = []
         errors = []
 
@@ -627,7 +637,14 @@ def capture_context(context: str, source: str = "", project: str = "") -> str:
                 if start != -1 and end > start:
                     items = json.loads(raw[start:end])
                     if isinstance(items, list) and items:
-                        valid_items = [item for item in items if isinstance(item, str) and item.strip()]
+                        valid_items = []
+                        for item in items:
+                            if isinstance(item, str) and item.strip():
+                                try:
+                                    valid_items.append(check_content(item))
+                                except SecretDetectedError as e:
+                                    errors.append(f"Blocked decomposed item: {e}")
+                                    continue
                         # Phase 1: batch all embeddings (keeps embed model loaded)
                         item_embeddings: list[list[float] | None] = []
                         for item in valid_items:
@@ -677,6 +694,8 @@ def capture_context(context: str, source: str = "", project: str = "") -> str:
             "errors":        errors if errors else None,
         }, indent=2)
 
+    except SecretDetectedError as exc:
+        return json.dumps({"success": False, "error": str(exc), "blocked_by": "secrets_filter"})
     except Exception as exc:
         return json.dumps({"success": False, "error": str(exc)})
 
