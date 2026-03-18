@@ -176,8 +176,8 @@ Open or create that file and paste in the following. **If the file already has o
 {
   "mcpServers": {
     "open-brain": {
-      "command": "/path/to/open-brain/.venv/Scripts/python.exe",
-      "args": ["/path/to/open-brain/server.py"],
+      "command": "C:\\path\\to\\open-brain\\.venv\\Scripts\\python.exe",
+      "args": ["C:\\path\\to\\open-brain\\server.py"],
       "env": {
         "DATABASE_URL": "postgresql://postgres:<your_password>@localhost:5432/openbrain",
         "EMBEDDING_PROVIDER": "ollama",
@@ -236,8 +236,8 @@ Create that file if it doesn't exist, and paste in:
 {
   "mcpServers": {
     "open-brain": {
-      "command": "/path/to/open-brain/.venv/Scripts/python.exe",
-      "args": ["/path/to/open-brain/server.py"],
+      "command": "C:\\path\\to\\open-brain\\.venv\\Scripts\\python.exe",
+      "args": ["C:\\path\\to\\open-brain\\server.py"],
       "env": {
         "DATABASE_URL": "postgresql://postgres:<your_password>@localhost:5432/openbrain",
         "EMBEDDING_PROVIDER": "ollama",
@@ -281,8 +281,8 @@ Edit (or create) the file with:
 {
   "mcpServers": {
     "open-brain": {
-      "command": "/path/to/open-brain/.venv/Scripts/python.exe",
-      "args": ["/path/to/open-brain/server.py"],
+      "command": "C:\\path\\to\\open-brain\\.venv\\Scripts\\python.exe",
+      "args": ["C:\\path\\to\\open-brain\\server.py"],
       "env": {
         "DATABASE_URL": "postgresql://postgres:<your_password>@localhost:5432/openbrain",
         "EMBEDDING_PROVIDER": "ollama",
@@ -307,7 +307,7 @@ If you're using the Claude Code CLI or the Claude VS Code extension, `settings.j
 **From PowerShell / Windows cmd:**
 
 ```powershell
-claude mcp add open-brain "/path/to/open-brain/.venv/Scripts/python.exe" "/path/to/open-brain/server.py" ^
+claude mcp add open-brain "C:\\path\\to\\open-brain\\.venv\\Scripts\\python.exe" "C:\\path\\to\\open-brain\\server.py" ^
   --env DATABASE_URL=postgresql://postgres:<your_password>@localhost:5432/openbrain ^
   --env EMBEDDING_PROVIDER=ollama ^
   --env OLLAMA_BASE_URL=http://localhost:11434 ^
@@ -318,7 +318,7 @@ claude mcp add open-brain "/path/to/open-brain/.venv/Scripts/python.exe" "/path/
 **From WSL:**
 
 ```sh
-claude mcp add open-brain "/path/to/open-brain/.venv/Scripts/python.exe" "/path/to/open-brain/server.py" \
+claude mcp add open-brain "C:\\path\\to\\open-brain\\.venv\\Scripts\\python.exe" "C:\\path\\to\\open-brain\\server.py" \
   --env DATABASE_URL=postgresql://postgres:<your_password>@localhost:5432/openbrain \
   --env EMBEDDING_PROVIDER=ollama \
   --env OLLAMA_BASE_URL=http://localhost:11434 \

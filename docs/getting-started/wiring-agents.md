@@ -38,8 +38,8 @@ If you prefer to configure manually, add the following to each client's MCP conf
 {
   "mcpServers": {
     "open-brain": {
-      "command": "/path/to/open-brain/.venv/Scripts/python.exe",
-      "args": ["/path/to/open-brain/server.py"],
+      "command": "C:\\path\\to\\open-brain\\.venv\\Scripts\\python.exe",
+      "args": ["C:\\path\\to\\open-brain\\server.py"],
       "env": {
         "DATABASE_URL": "postgresql://postgres:<your_password>@localhost:5432/openbrain",
         "EMBEDDING_PROVIDER": "ollama",
@@ -67,8 +67,8 @@ Same JSON structure as Windsurf.
 
 ```sh
 claude mcp add open-brain \
-  "/path/to/open-brain/.venv/Scripts/python.exe" \
-  "/path/to/open-brain/server.py" \
+  "C:\\path\\to\\open-brain\\.venv\\Scripts\\python.exe" \
+  "C:\\path\\to\\open-brain\\server.py" \
   --env DATABASE_URL=postgresql://postgres:<your_password>@localhost:5432/openbrain \
   --env EMBEDDING_PROVIDER=ollama \
   --env OLLAMA_BASE_URL=http://localhost:11434 \
@@ -88,8 +88,8 @@ claude mcp add open-brain \
   "servers": {
     "open-brain": {
       "type": "stdio",
-      "command": "/path/to/open-brain/.venv/Scripts/python.exe",
-      "args": ["/path/to/open-brain/server.py"]
+      "command": "C:\\path\\to\\open-brain\\.venv\\Scripts\\python.exe",
+      "args": ["C:\\path\\to\\open-brain\\server.py"]
     }
   }
 }

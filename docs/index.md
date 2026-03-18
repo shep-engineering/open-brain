@@ -1,12 +1,10 @@
 # Open Brain
 
-![Open Brain](assets/images/open-brain-wide.png)
-
-> **Agent-readable second brain.** One PostgreSQL database, one MCP server, every AI you use.
-
 <video autoplay loop muted playsinline style="width:100%; border-radius:12px; margin:20px 0;">
   <source src="assets/videos/brain-video.mp4" type="video/mp4">
 </video>
+
+> **Agent-readable second brain.** One PostgreSQL database, one MCP server, every AI you use.
 
 Open Brain stores your thoughts as vector embeddings so any AI tool (Claude Code, Cursor, Windsurf, ChatGPT Desktop, VS Code Copilot) can search your memory **by meaning**, not just keywords. Local-first. You own the data. ~$0/month to run.
 
