@@ -29,3 +29,4 @@ site/
 .vscode/
 .idea/
 *.swp
+.archetypes/task-state/

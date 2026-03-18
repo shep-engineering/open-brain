@@ -1,0 +1,43 @@
+# Archetype Orchestrator — Cursor Rules
+
+> These rules are enforced by git hooks. Skipping steps will block commits.
+
+## Session Start — Required
+1. Search open-brain memory for prior context on this task (if MCP available)
+2. Read `docs/planning/CONTEXT_CHECKPOINTS.md` if it exists
+3. Run pre-work gate: `bash archetype-orchestrator/scripts/pre-work-check.sh`
+
+## Branch Rules
+- **Never commit to `main`, `master`, or `develop`** — hook will block it
+- Always use a feature branch: `git checkout -b feat/description`
+
+## Discover Before Coding
+- Scan: `python archetype-orchestrator/engine/discover.py --scan`
+- Route: `python archetype-orchestrator/engine/discover.py --query "keywords"`
+- Read the matched constitution before writing any code
+
+## During Work
+- Checkpoint at milestones: `bash archetype-orchestrator/scripts/context-checkpoint.sh "milestone"`
+- If open-brain MCP is available, call `capture_context` with decisions and gotchas — pass `source="cursor"`
+
+## Destructive Operations
+- Never run `rm -rf`, `git reset --hard`, or force-push without explicit user confirmation
+- State exactly what will be affected and wait for approval
+
+## Post-Work Gate
+```bash
+bash archetype-orchestrator/scripts/post-work-check.sh
+```
+For release-impacting changes: update `CHANGELOG.md` and bump version.
+
+## Validation
+```bash
+bash archetype-orchestrator/scripts/validate.sh
+```
+Must pass before committing. Checks: secrets, code safety, semver, conventional commits.
+
+## Planning Documents (docs/planning/)
+- DUAL_AGENT_WORKFLOW.md
+- CONTEXT_LOOP.md
+- RALPH_LOOP.md
+- SOURCE_CONSULTATION_MAP.md

@@ -1,0 +1,24 @@
+# Archetype Orchestrator — Cline Rules
+
+## Task Lifecycle
+- Pre-work:  `bash archetype-orchestrator/scripts/pre-work-check.sh`
+- Post-work: `bash archetype-orchestrator/scripts/post-work-check.sh`
+- Always work on feature branches
+
+## Spec Discovery
+- Scan:  `python archetype-orchestrator/engine/discover.py --scan`
+- Route: `python archetype-orchestrator/engine/discover.py --query "keywords"`
+- Read the matched constitution before working
+
+## Validation
+- `bash archetype-orchestrator/scripts/validate.sh`
+
+## Context
+- Read `docs/planning/CONTEXT_CHECKPOINTS.md` at session start
+- Write: `bash archetype-orchestrator/scripts/context-checkpoint.sh "milestone"`
+
+## Planning Documents (docs/planning/)
+- DUAL_AGENT_WORKFLOW.md
+- CONTEXT_LOOP.md
+- RALPH_LOOP.md
+- SOURCE_CONSULTATION_MAP.md
