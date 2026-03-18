@@ -8,7 +8,7 @@ All configuration is via environment variables in `.env` (or passed through your
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DATABASE_URL` | `postgresql://postgres:password@localhost:5432/openbrain` | PostgreSQL connection string |
+| `DATABASE_URL` | `postgresql://postgres:<your_password>@localhost:5432/openbrain` | PostgreSQL connection string |
 | `EMBEDDING_PROVIDER` | `ollama` | `ollama` or `openai` |
 | `EMBEDDING_DIMENSIONS` | `768` | Must match your embedding model. Set before `setup_db.py`. |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama API endpoint |

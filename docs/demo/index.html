@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Open Brain: Demo</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.css">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/theme/black.css">
+<link rel="stylesheet" href="vendor/reveal.css">
+<link rel="stylesheet" href="vendor/black.css">
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;900&family=JetBrains+Mono:wght@400;700&display=swap');
 
@@ -27,8 +27,8 @@
     text-transform: none;
     color: #fff;
   }
-  .reveal h1 { font-size: 2.4em; font-weight: 900; }
-  .reveal h2 { font-size: 1.8em; }
+  .reveal h1 { font-size: 2.0em; font-weight: 900; }
+  .reveal h2 { font-size: 1.5em; }
   .reveal h3 { font-size: 1.3em; color: var(--brain-cyan); }
   .reveal code, .reveal pre {
     font-family: 'JetBrains Mono', monospace;
@@ -44,7 +44,8 @@
     margin: 0 auto;
   }
   .reveal .slides { text-align: left; }
-  .reveal .slides section { padding: 40px; }
+  .reveal .slides section { padding: 5px 30px; }
+  .reveal .slides section.center-slide { display: flex; flex-direction: column; justify-content: center; align-items: center; }
   .reveal .center-slide { text-align: center; }
   .reveal .center-slide h1,
   .reveal .center-slide h2,
@@ -63,15 +64,15 @@
   .tool-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 12px;
-    margin-top: 20px;
+    gap: 6px;
+    margin-top: 10px;
   }
   .tool-card {
     background: var(--brain-card);
     border: 1px solid rgba(179, 136, 255, 0.15);
-    border-radius: 10px;
-    padding: 14px 18px;
-    font-size: 0.6em;
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-size: 0.5em;
   }
   .tool-card .tool-name {
     font-family: 'JetBrains Mono', monospace;
@@ -81,7 +82,7 @@
   }
   .tool-card .tool-desc {
     color: #999;
-    margin-top: 4px;
+    margin-top: 2px;
   }
 
   .agent-row {
@@ -111,9 +112,9 @@
     background: var(--brain-card);
     border-left: 3px solid var(--brain-purple);
     border-radius: 0 10px 10px 0;
-    padding: 16px 20px;
-    margin: 12px 0;
-    font-size: 0.65em;
+    padding: 12px 18px;
+    margin: 8px 0;
+    font-size: 0.6em;
   }
   .flow-step .step-num {
     color: var(--brain-purple);
@@ -151,12 +152,12 @@
     background: var(--brain-card);
     border-left: 4px solid var(--brain-purple);
     border-radius: 0 10px 10px 0;
-    padding: 20px 24px;
+    padding: 12px 18px;
     font-style: italic;
     color: #ccc;
     width: 85%;
-    margin: 20px auto;
-    font-size: 0.8em;
+    margin: 10px auto;
+    font-size: 0.7em;
   }
 
   .wire-demo {
@@ -197,6 +198,26 @@
     font-size: 0.6em;
     color: #888;
     margin-top: -10px;
+  }
+
+  @media (max-width: 768px) {
+    .reveal .slides section { padding: 5px 10px; }
+    .reveal h1 { font-size: 1.2em; }
+    .reveal h2 { font-size: 1.0em; }
+    .reveal .slides section img { max-width: 90% !important; }
+    .tool-grid { grid-template-columns: 1fr 1fr; gap: 3px; }
+    .tool-card { padding: 4px 8px; font-size: 0.4em; }
+    .flow-step { padding: 6px 10px; font-size: 0.45em; margin: 3px 0; }
+    .agent-row { gap: 5px; margin: 10px 0; }
+    .agent-badge { padding: 4px 8px; font-size: 0.4em; }
+    .stat-row { gap: 10px; flex-wrap: wrap; }
+    .stat-num { font-size: 1.3em; }
+    .stat-label { font-size: 0.4em; }
+    .wire-demo { font-size: 0.35em; padding: 8px; }
+    .reveal pre { font-size: 0.35em; padding: 8px; }
+    .reveal blockquote { font-size: 0.5em; padding: 6px 10px; margin: 5px auto; }
+    .comparison-table { font-size: 0.4em; }
+    .subtitle { font-size: 0.45em; }
   }
 </style>
 </head>
@@ -497,7 +518,7 @@
 </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.js"></script>
+<script src="vendor/reveal.js"></script>
 <script>
 Reveal.initialize({
   hash: true,
@@ -505,9 +526,11 @@ Reveal.initialize({
   transitionSpeed: 'default',
   backgroundTransition: 'fade',
   center: false,
-  width: 1100,
+  width: 1200,
   height: 700,
-  margin: 0.04,
+  margin: 0.02,
+  minScale: 0.5,
+  maxScale: 2.0,
   controls: true,
   progress: true,
   slideNumber: true,
