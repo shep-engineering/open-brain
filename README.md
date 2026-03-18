@@ -1,8 +1,8 @@
 # 🧠 Open Brain
 
-> **Agent-readable second brain**:one PostgreSQL database, one MCP server, every AI you use.
+> **Agent-readable second brain**: one PostgreSQL database, one MCP server, every AI you use.
 
-Stores your thoughts as vector embeddings so any AI tool (Claude, ChatGPT, Cursor, Windsurf, VS Code, etc.) can search your memory **by meaning**:not just keywords. Local-first. You own the data. ~$0.10–$0.30/month to run.
+Stores your thoughts as vector embeddings so any AI tool (Claude, ChatGPT, Cursor, Windsurf, VS Code, etc.) can search your memory **by meaning**, not just keywords. Local-first. You own the data. ~$0.10-$0.30/month to run.
 
 Supports both MCP stdio (editors/CLI) and streamable HTTP transport, plus a `wire` command to auto-register common MCP clients.
 
@@ -75,7 +75,7 @@ cp .env.example .env        # macOS / Linux
 # Windows: copy .env.example .env
 ```
 
-Edit `.env`:defaults work out of the box for local Ollama + Docker.
+Edit `.env`. Defaults work out of the box for local Ollama + Docker.
 
 If you run Ollama on Windows and the MCP server from WSL, enable mirrored networking in `C:\Users\<USERNAME>\.wslconfig`:
 
@@ -142,7 +142,7 @@ python server.py wire --check
 
 ## Wiring into Windsurf
 
-### Step 1:Make sure Docker is running
+### Step 1: Make sure Docker is running
 
 Open-brain needs PostgreSQL running. From your open-brain directory:
 
@@ -160,17 +160,18 @@ You should see `open-brain-db` running.
 
 ---
 
-### Step 2:Edit the Windsurf MCP config file
+### Step 2: Edit the Windsurf MCP config file
 
-Windsurf's MCP config lives at this exact path (it may not exist yet:create it if so):
+Windsurf's MCP config lives at (create it if it does not exist yet):
 
-```
-C:\Users\<USERNAME>\.windsurf\mcp_config.json
-```
+- **Windows:** `C:\Users\<USERNAME>\.windsurf\mcp_config.json`
+- **Linux / macOS:** `~/.windsurf/mcp_config.json`
 
-> **Note:** Do not confuse this with `C:\Users\<USERNAME>\.codeium\windsurf\`:that folder is Windsurf's internal storage and is not where MCP is configured.
+> **Note (Windows):** Do not confuse this with `C:\Users\<USERNAME>\.codeium\windsurf\`. That folder is Windsurf's internal storage and is not where MCP is configured.
 
 Open or create that file and paste in the following. **If the file already has other MCP servers, add just the `"open-brain"` block inside the existing `"mcpServers"` object.**
+
+**Windows:**
 
 ```json
 {
@@ -189,17 +190,36 @@ Open or create that file and paste in the following. **If the file already has o
 }
 ```
 
-> **Note:** The `env` block overrides `.env` entirely when running as an MCP server. Never put `DATABASE_URL` in `.env`:it will leak into git.
+**Linux / macOS / WSL:**
+
+```json
+{
+  "mcpServers": {
+    "open-brain": {
+      "command": "/path/to/open-brain/.venv/bin/python",
+      "args": ["/path/to/open-brain/server.py"],
+      "env": {
+        "DATABASE_URL": "postgresql://postgres:<your_password>@localhost:5432/openbrain",
+        "EMBEDDING_PROVIDER": "ollama",
+        "OLLAMA_BASE_URL": "http://localhost:11434",
+        "METADATA_LLM_MODEL": "qwen2.5:32b"
+      }
+    }
+  }
+}
+```
+
+> **Note:** The `env` block overrides `.env` entirely when running as an MCP server. Never put `DATABASE_URL` in `.env`, as it will leak into git.
 
 ---
 
-### Step 3:Restart Windsurf
+### Step 3: Restart Windsurf
 
 Windsurf only reads `mcp_config.json` at startup. Fully quit and reopen it.
 
 ---
 
-### Step 4:Verify the MCP server loaded
+### Step 4: Verify the MCP server loaded
 
 In Windsurf, click the **MCP icon** (plug icon) in the top-right of the Cascade panel. You should see `open-brain` listed with a green dot and 11 tools:
 
@@ -207,13 +227,13 @@ In Windsurf, click the **MCP icon** (plug icon) in the top-right of the Cascade 
 - `rate`, `list_recent`, `stats`, `prune`, `forget`, `forget_many`
 
 If it shows red / failed, check that:
-1. Your `.venv\Scripts\python.exe` path exists
+1. Your `.venv` python path exists (`.venv\Scripts\python.exe` on Windows, `.venv/bin/python` on Linux/macOS)
 2. Docker is running (`docker ps` shows `open-brain-db`)
 3. Ollama is running (`http://localhost:11434` reachable)
 
 ---
 
-### Step 5:Verify auto-capture is enabled
+### Step 5: Verify auto-capture is enabled
 
 Open `C:\Users\<USERNAME>\.codeium\windsurf\memories\global_rules.md` and confirm it contains the Open Brain auto-capture rules. If not, copy the contents of `prompts/windsurf-rules.md` into it.
 
@@ -222,15 +242,16 @@ Open `C:\Users\<USERNAME>\.codeium\windsurf\memories\global_rules.md` and confir
 
 ## Wiring into Cursor
 
-### Step 1:Edit the Cursor MCP config file
+### Step 1: Edit the Cursor MCP config file
 
 Cursor's global MCP config lives at:
 
-```
-C:\Users\<USERNAME>\.cursor\mcp.json
-```
+- **Windows:** `C:\Users\<USERNAME>\.cursor\mcp.json`
+- **Linux / macOS:** `~/.cursor/mcp.json`
 
 Create that file if it doesn't exist, and paste in:
+
+**Windows:**
 
 ```json
 {
@@ -249,19 +270,38 @@ Create that file if it doesn't exist, and paste in:
 }
 ```
 
-### Step 2:Enable auto-capture rules
+**Linux / macOS / WSL:**
+
+```json
+{
+  "mcpServers": {
+    "open-brain": {
+      "command": "/path/to/open-brain/.venv/bin/python",
+      "args": ["/path/to/open-brain/server.py"],
+      "env": {
+        "DATABASE_URL": "postgresql://postgres:<your_password>@localhost:5432/openbrain",
+        "EMBEDDING_PROVIDER": "ollama",
+        "OLLAMA_BASE_URL": "http://localhost:11434",
+        "METADATA_LLM_MODEL": "llama3.2:3b"
+      }
+    }
+  }
+}
+```
+
+### Step 2: Enable auto-capture rules
 
 Open Cursor → **Settings** (Ctrl+Shift+J) → **General** → scroll to **Rules for AI**. Paste the entire contents of `prompts/cursor-rules.md` into that field.
 
 Alternatively, create a `.cursorrules` file at the root of any project you want the brain active in.
 
-### Step 3:Restart Cursor
+### Step 3: Restart Cursor
 
 Cursor reads `mcp.json` at startup. Fully quit and reopen it.
 
-### Step 4:Verify
+### Step 4: Verify
 
-In Cursor, open the chat panel and look for the MCP tools icon (hammer). Click it:you should see `open-brain` with 11 tools listed. A red dot means the server failed to start:check Docker is running and the `.venv` path is correct.
+In Cursor, open the chat panel and look for the MCP tools icon (hammer). Click it. You should see `open-brain` with 11 tools listed. A red dot means the server failed to start. Check that Docker is running and the `.venv` path is correct.
 
 ---
 
@@ -269,13 +309,14 @@ In Cursor, open the chat panel and look for the MCP tools icon (hammer). Click i
 
 Newer versions of Claude Desktop store config in `~/.claude/settings.json`, not `%APPDATA%\Claude\`.
 
-### Step 1:Edit `settings.json`
+### Step 1: Edit `settings.json`
 
-```
-C:\Users\<USERNAME>\.claude\settings.json
-```
+- **Windows:** `C:\Users\<USERNAME>\.claude\settings.json`
+- **Linux / macOS:** `~/.claude/settings.json`
 
 Edit (or create) the file with:
+
+**Windows:**
 
 ```json
 {
@@ -294,20 +335,39 @@ Edit (or create) the file with:
 }
 ```
 
-### Step 2:Add auto-capture instructions
+**Linux / macOS / WSL:**
+
+```json
+{
+  "mcpServers": {
+    "open-brain": {
+      "command": "/path/to/open-brain/.venv/bin/python",
+      "args": ["/path/to/open-brain/server.py"],
+      "env": {
+        "DATABASE_URL": "postgresql://postgres:<your_password>@localhost:5432/openbrain",
+        "EMBEDDING_PROVIDER": "ollama",
+        "OLLAMA_BASE_URL": "http://localhost:11434",
+        "METADATA_LLM_MODEL": "qwen2.5:32b"
+      }
+    }
+  }
+}
+```
+
+### Step 2: Add auto-capture instructions
 
 In Claude Desktop: click your **profile icon** (bottom-left) → **Settings** → **Custom Instructions**.
 
 Paste the entire contents of `prompts/claude-desktop.md` into that field. This tells Claude to silently capture memories without being asked.
 
-### Step 3:Register via CLI (Claude Code / VS Code extension)
+### Step 3: Register via CLI (Claude Code / VS Code extension)
 
-If you're using the Claude Code CLI or the Claude VS Code extension, `settings.json` alone isn't enough:you must register via the CLI.
+If you're using the Claude Code CLI or the Claude VS Code extension, `settings.json` alone isn't enough. You must also register via the CLI.
 
-**From PowerShell / Windows cmd:**
+**Windows (PowerShell / cmd):**
 
 ```powershell
-claude mcp add open-brain "C:\\path\\to\\open-brain\\.venv\\Scripts\\python.exe" "C:\\path\\to\\open-brain\\server.py" ^
+claude mcp add open-brain "C:\path\to\open-brain\.venv\Scripts\python.exe" "C:\path\to\open-brain\server.py" ^
   --env DATABASE_URL=postgresql://postgres:<your_password>@localhost:5432/openbrain ^
   --env EMBEDDING_PROVIDER=ollama ^
   --env OLLAMA_BASE_URL=http://localhost:11434 ^
@@ -315,10 +375,10 @@ claude mcp add open-brain "C:\\path\\to\\open-brain\\.venv\\Scripts\\python.exe"
   --scope user
 ```
 
-**From WSL:**
+**Linux / macOS / WSL:**
 
 ```sh
-claude mcp add open-brain "C:\\path\\to\\open-brain\\.venv\\Scripts\\python.exe" "C:\\path\\to\\open-brain\\server.py" \
+claude mcp add open-brain "/path/to/open-brain/.venv/bin/python" "/path/to/open-brain/server.py" \
   --env DATABASE_URL=postgresql://postgres:<your_password>@localhost:5432/openbrain \
   --env EMBEDDING_PROVIDER=ollama \
   --env OLLAMA_BASE_URL=http://localhost:11434 \
@@ -326,7 +386,7 @@ claude mcp add open-brain "C:\\path\\to\\open-brain\\.venv\\Scripts\\python.exe"
   --scope user
 ```
 
-This writes to `C:\Users\<USERNAME>\.claude.json` (user-scoped, active in every project). Verify:
+This writes to `~/.claude.json` (user-scoped, active in every project). Verify:
 
 ```sh
 claude mcp list
@@ -334,29 +394,37 @@ claude mcp list
 
 You should see: `open-brain: ... ✓ Connected`
 
-### Step 4:Restart / Reload
+### Step 4: Restart / Reload
 
 - **Claude Desktop:** fully quit and reopen.
 - **VS Code extension:** Ctrl+Shift+P → "Developer: Reload Window"
 
-### Step 5:Verify
+### Step 5: Verify
 
-In any conversation, ask: *"What tools do you have available?"*:Claude should list the 11 open-brain tools. If not, confirm Docker is running (`docker ps` shows `open-brain-db`).
+In any conversation, ask: *"What tools do you have available?"* Claude should list the 11 open-brain tools. If not, confirm Docker is running (`docker ps` shows `open-brain-db`).
 
 ---
 
 ## Wiring into ChatGPT Desktop
 
-> **⚠️ Limitation:** ChatGPT Desktop's MCP support requires a **remote HTTPS endpoint**:it does not support local stdio servers the way Windsurf, Cursor, and Claude do. You cannot point it directly at `server.py` the same way.
+> **Limitation:** ChatGPT Desktop's MCP support requires a **remote HTTPS endpoint**. It does not support local stdio servers the way Windsurf, Cursor, and Claude do. You cannot point it directly at `server.py` the same way.
 
 To use Open Brain with ChatGPT Desktop you have two options:
 
-### Option A:Use a local SSE proxy (recommended)
+### Option A: Use a local SSE proxy (recommended)
 
-The `mcp` package can expose a stdio server over SSE (Server-Sent Events) on localhost:
+The `mcp` package can expose a stdio server over SSE (Server-Sent Events) on localhost.
+
+**Windows:**
 
 ```sh
 .venv\Scripts\python.exe -m mcp.server.sse --port 8765 -- python server.py
+```
+
+**Linux / macOS / WSL:**
+
+```sh
+.venv/bin/python -m mcp.server.sse --port 8765 -- python server.py
 ```
 
 Then in ChatGPT Desktop, open **Settings** → **Connected Apps** → **Add MCP Server** and enter:
@@ -367,11 +435,11 @@ http://localhost:8765/sse
 
 This process must be running whenever you use ChatGPT Desktop with the brain.
 
-### Option B:Tunnel via ngrok
+### Option B: Tunnel via ngrok
 
 If you want ChatGPT Desktop to reach the server when it's not on localhost (e.g. ChatGPT mobile):
 
-1. Install ngrok: `winget install ngrok`
+1. Install ngrok (`winget install ngrok` on Windows, or see [ngrok.com](https://ngrok.com) for other platforms)
 2. Run the SSE proxy as above on port 8765
 3. Run: `ngrok http 8765`
 4. Use the `https://xxxx.ngrok.io/sse` URL in ChatGPT Desktop
@@ -384,11 +452,11 @@ Settings (gear icon) → **Personalization** → **Custom Instructions** → pas
 
 ---
 
-## How It Works:Auto-Capture
+## How It Works: Auto-Capture
 
 You should **never have to tell it to remember anything**. That defeats the purpose.
 
-The brain is wired into AI agents via system prompts and rules files (see `prompts/`). The agents call `capture_context` automatically:after completing tasks, when decisions are made, when bugs are fixed, when something about your preferences or project is learned. You just work. The brain captures.
+The brain is wired into AI agents via system prompts and rules files (see `prompts/`). The agents call `capture_context` automatically after completing tasks, when decisions are made, when bugs are fixed, when something about your preferences or project is learned. You just work. The brain captures.
 
 `capture_context` batches work in phases: first embeddings for all extracted items, then metadata extraction for all items, then database writes. This avoids repeated model thrashing when using separate Ollama models for embeddings and metadata.
 
@@ -405,7 +473,7 @@ On recall, agents call `search` automatically at the start of tasks to surface r
 | Tool | Who calls it | Description |
 |------|-------------|-------------|
 | `capture_context` | **Agent, automatically** | Ingests raw session/conversation text, extracts and stores multiple atomic memories at once. Accepts optional `project` to scope memories. |
-| `search` | **Agent, automatically** | Semantic search by meaning:returns previews (first 200 chars) to save tokens. Filter by `type`, `people`, or `project`. |
+| `search` | **Agent, automatically** | Semantic search by meaning. Returns previews (first 200 chars) to save tokens. Filter by `type`, `people`, or `project`. |
 | `recall` | Agent or user | Fetch full content of a memory by ID (after finding it via search). Tracks access count. |
 | `remember` | Agent or user | Store a single explicit fact or note. Accepts optional `project` to scope. |
 | `annotate` | Agent or user | Attach a persistent note to an existing memory (corrections, gotchas, extra context). |
@@ -436,7 +504,7 @@ Run the migration script to add the new columns to your existing database:
 python scripts/migrate_v2.py
 ```
 
-Safe to re-run. Existing memories are unaffected:new columns have sensible defaults.
+Safe to re-run. Existing memories are unaffected. New columns have sensible defaults.
 
 ### Wiring agents for auto-capture
 
@@ -459,7 +527,7 @@ Copy the relevant rules into your agent configuration:
 | `mxbai-embed-large` | Ollama (local) | 1024 | **Free** |
 | `text-embedding-3-small` | OpenAI | 1536 | ~$0.02/1M tokens |
 
-> ⚠️ **Set `EMBEDDING_DIMENSIONS` before running `setup_db.py`**:changing dimensions later requires dropping and recreating the `memories` table.
+> **Set `EMBEDDING_DIMENSIONS` before running `setup_db.py`.** Changing dimensions later requires dropping and recreating the `memories` table.
 
 ---
 
@@ -475,7 +543,7 @@ METADATA_LLM_MODEL=qwen2.5:32b
 ollama pull qwen2.5:32b
 ```
 
-Adds ~2–5 s per capture but significantly improves metadata quality for people names and nuanced topics. If the LLM call fails, it automatically falls back to fast heuristic extraction.
+Adds ~2-5s per capture but significantly improves metadata quality for people names and nuanced topics. If the LLM call fails, it automatically falls back to fast heuristic extraction.
 
 If you use a metadata model and `nomic-embed-text` together, set `OLLAMA_MAX_LOADED_MODELS=2` before starting Ollama.
 
@@ -486,8 +554,8 @@ If you use a metadata model and `nomic-embed-text` together, set `OLLAMA_MAX_LOA
 Run this prompt inside your current AI (Claude, ChatGPT, etc.):
 
 ```
-Export everything you know about me:my projects, preferences, key people,
-past decisions, ongoing work, and constraints:as a series of plain-text
+Export everything you know about me (my projects, preferences, key people,
+past decisions, ongoing work, and constraints) as a series of plain-text
 notes, one per line. I'm migrating to a new memory system.
 ```
 
@@ -499,7 +567,7 @@ Then feed each line to `remember` to seed your Open Brain.
 
 ```
 open-brain/
-├── server.py               # Python MCP server:11 tools
+├── server.py               # Python MCP server, 11 tools
 ├── wire.py                 # MCP client auto-discovery + auto-wiring CLI
 ├── requirements.txt        # Python dependencies
 ├── test_server.py          # End-to-end test suite

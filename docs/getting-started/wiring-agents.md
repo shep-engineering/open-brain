@@ -32,7 +32,12 @@ If you prefer to configure manually, add the following to each client's MCP conf
 
 ### Windsurf
 
-**Config file:** `C:\Users\<USERNAME>\.windsurf\mcp_config.json`
+**Config file:**
+
+- **Windows:** `C:\Users\<USERNAME>\.windsurf\mcp_config.json`
+- **Linux / macOS:** `~/.windsurf/mcp_config.json`
+
+**Windows:**
 
 ```json
 {
@@ -51,24 +56,60 @@ If you prefer to configure manually, add the following to each client's MCP conf
 }
 ```
 
+**Linux / macOS / WSL:**
+
+```json
+{
+  "mcpServers": {
+    "open-brain": {
+      "command": "/path/to/open-brain/.venv/bin/python",
+      "args": ["/path/to/open-brain/server.py"],
+      "env": {
+        "DATABASE_URL": "postgresql://postgres:<your_password>@localhost:5432/openbrain",
+        "EMBEDDING_PROVIDER": "ollama",
+        "OLLAMA_BASE_URL": "http://localhost:11434",
+        "METADATA_LLM_MODEL": "qwen2.5:32b"
+      }
+    }
+  }
+}
+```
+
 ### Cursor
 
-**Config file:** `C:\Users\<USERNAME>\.cursor\mcp.json`
+**Config file:**
 
-Same JSON structure as Windsurf.
+- **Windows:** `C:\Users\<USERNAME>\.cursor\mcp.json`
+- **Linux / macOS:** `~/.cursor/mcp.json`
+
+Same JSON structure as Windsurf (use the appropriate platform example above).
 
 ### Claude Desktop
 
-**Config file:** `C:\Users\<USERNAME>\.claude\settings.json`
+**Config file:**
 
-Same JSON structure as Windsurf.
+- **Windows:** `C:\Users\<USERNAME>\.claude\settings.json`
+- **Linux / macOS:** `~/.claude/settings.json`
+
+Same JSON structure as Windsurf (use the appropriate platform example above).
 
 ### Claude Code CLI
 
+**Windows (PowerShell / cmd):**
+
+```powershell
+claude mcp add open-brain "C:\path\to\open-brain\.venv\Scripts\python.exe" "C:\path\to\open-brain\server.py" ^
+  --env DATABASE_URL=postgresql://postgres:<your_password>@localhost:5432/openbrain ^
+  --env EMBEDDING_PROVIDER=ollama ^
+  --env OLLAMA_BASE_URL=http://localhost:11434 ^
+  --env METADATA_LLM_MODEL=qwen2.5:32b ^
+  --scope user
+```
+
+**Linux / macOS / WSL:**
+
 ```sh
-claude mcp add open-brain \
-  "C:\\path\\to\\open-brain\\.venv\\Scripts\\python.exe" \
-  "C:\\path\\to\\open-brain\\server.py" \
+claude mcp add open-brain "/path/to/open-brain/.venv/bin/python" "/path/to/open-brain/server.py" \
   --env DATABASE_URL=postgresql://postgres:<your_password>@localhost:5432/openbrain \
   --env EMBEDDING_PROVIDER=ollama \
   --env OLLAMA_BASE_URL=http://localhost:11434 \
@@ -78,10 +119,16 @@ claude mcp add open-brain \
 
 ### VS Code (Copilot)
 
-**Config file:** `C:\Users\<USERNAME>\AppData\Roaming\Code\User\mcp.json`
+**Config file:**
+
+- **Windows:** `C:\Users\<USERNAME>\AppData\Roaming\Code\User\mcp.json`
+- **Linux:** `~/.config/Code/User/mcp.json`
+- **macOS:** `~/Library/Application Support/Code/User/mcp.json`
 
 !!! note "VS Code uses `servers`, not `mcpServers`"
     VS Code's MCP config uses a `"servers"` key and requires `"type": "stdio"` in each entry.
+
+**Windows:**
 
 ```json
 {
@@ -90,6 +137,20 @@ claude mcp add open-brain \
       "type": "stdio",
       "command": "C:\\path\\to\\open-brain\\.venv\\Scripts\\python.exe",
       "args": ["C:\\path\\to\\open-brain\\server.py"]
+    }
+  }
+}
+```
+
+**Linux / macOS / WSL:**
+
+```json
+{
+  "servers": {
+    "open-brain": {
+      "type": "stdio",
+      "command": "/path/to/open-brain/.venv/bin/python",
+      "args": ["/path/to/open-brain/server.py"]
     }
   }
 }
