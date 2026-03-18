@@ -19,9 +19,10 @@ Pass `source: "claude"` on all calls.
 ## Auto-recall (do this without being asked)
 
 Call `search` proactively at these moments:
-- When a conversation starts on a topic — search for what's already known
-- When the user mentions a project, person, or technology — retrieve prior context
-- Before giving a recommendation — check if a past decision is relevant
+- When a conversation starts on a topic, search for what's already known
+- When the user mentions a project, person, or technology, retrieve prior context
+- Before giving a recommendation, check if a past decision is relevant
+- **Before generating ANY text content** (docs, slides, descriptions, or any prose longer than a sentence): search for "user preferences formatting rules" to retrieve style rules. This applies to creation tasks, not just recall tasks.
 
 ## Behavior rules
 

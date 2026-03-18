@@ -28,6 +28,7 @@ The user should NEVER have to say "remember this." Memory is your responsibility
 | User mentions a person | Who they are, relationship, past interactions |
 | User mentions a project or tech | Prior decisions, context, constraints |
 | About to recommend something | Check if this was already decided |
+| **Generating any text content** | **User preferences, formatting rules, style constraints. This applies to docs, slides, READMEs, commit messages, descriptions, or any prose. Style rules apply to creation tasks, not just technical recall.** |
 
 ## Rules
 

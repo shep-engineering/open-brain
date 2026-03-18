@@ -21,8 +21,9 @@ Call `open-brain_capture_context` automatically — never wait for the user to a
 Call `open-brain_search` automatically at the start of tasks:
 
 - When starting work on a feature or file, search for prior context about it
-- When the user mentions a person, project, or technology — search for what's known about it
-- Before making a recommendation — check if a relevant decision was already made
+- When the user mentions a person, project, or technology, search for what's known about it
+- Before making a recommendation, check if a relevant decision was already made
+- **Before generating ANY text content** (docs, slides, READMEs, commit messages, descriptions, comments, or any prose longer than a sentence): search for "user preferences formatting rules" to retrieve style rules. This applies to creation tasks, not just recall tasks.
 
 ### Behavior
 
