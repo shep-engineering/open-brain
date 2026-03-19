@@ -25,6 +25,10 @@ src/dist/
 # MkDocs build output
 site/
 
+# Test artifacts
+test_slides.py
+slide7_check.png
+
 # Editor
 .vscode/
 .idea/
