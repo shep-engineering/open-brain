@@ -123,7 +123,7 @@ def get_embedding(text: str) -> list[float]:
 
 VALID_TYPES = {
     "decision", "idea", "meeting", "person", "insight",
-    "task", "journal", "reference", "note",
+    "task", "journal", "reference", "note", "guardrail",
 }
 _STOP = {
     "The", "This", "That", "They", "There", "These", "Those",
@@ -266,6 +266,35 @@ def db_store_deduped(content: str, embedding: list[float], metadata: dict, proje
     return existing, "skipped"
 
 
+def db_get_pinned(project_filter: str) -> list[dict]:
+    """Fetch all pinned memories for a project. Returns [] if no project."""
+    if not project_filter:
+        return []
+    conn = _get_conn()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "SELECT id, content, metadata, created_at, project, annotation, "
+            "upvotes, downvotes, access_count "
+            "FROM memories WHERE pinned = TRUE AND project = %s "
+            "ORDER BY created_at ASC",
+            (project_filter,),
+        )
+        return [_normalize_row(dict(r)) for r in cur.fetchall()]
+
+
+def db_set_pinned(memory_id: int, pinned: bool) -> dict | None:
+    """Set or clear the pinned flag on a memory. Returns updated row or None."""
+    conn = _get_conn()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "UPDATE memories SET pinned = %s WHERE id = %s "
+            "RETURNING id, content, pinned, project, metadata",
+            (pinned, memory_id),
+        )
+        row = cur.fetchone()
+        return _normalize_row(dict(row)) if row else None
+
+
 def db_search(
     query_vec: list[float],
     limit: int,
@@ -328,7 +357,7 @@ def db_list_recent(limit: int, days: int | None) -> list[dict]:
 
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
-            f"SELECT id, content, metadata, created_at FROM memories "
+            f"SELECT id, content, metadata, created_at, pinned FROM memories "
             f"{date_filter} ORDER BY created_at DESC LIMIT %s",
             params,
         )
@@ -385,7 +414,7 @@ def db_get_by_id(memory_id: int) -> dict | None:
             "UPDATE memories SET access_count = access_count + 1, last_accessed = NOW() "
             "WHERE id = %s "
             "RETURNING id, content, metadata, created_at, project, annotation, "
-            "access_count, last_accessed, upvotes, downvotes",
+            "access_count, last_accessed, upvotes, downvotes, pinned",
             (memory_id,),
         )
         row = cur.fetchone()
@@ -421,13 +450,14 @@ def db_rate(memory_id: int, direction: str) -> dict | None:
 
 def db_prune(days: int, min_access: int = 0) -> int:
     """Delete memories older than N days that have been accessed fewer than min_access times.
-    Returns the number of deleted memories."""
+    Returns the number of deleted memories. Pinned memories are never pruned."""
     conn = _get_conn()
     with conn.cursor() as cur:
         cur.execute(
             "DELETE FROM memories "
             "WHERE created_at < NOW() - INTERVAL '1 day' * %s "
             "AND access_count <= %s "
+            "AND pinned = FALSE "
             "RETURNING id",
             (days, min_access),
         )
@@ -480,6 +510,33 @@ def remember(content: str, source: str = "", type_override: str = "", project: s
         return json.dumps({"success": False, "error": str(exc)})
 
 
+def _format_search_entry(m: dict, pinned: bool = False) -> dict:
+    """Format a memory row into a search result entry."""
+    meta = m["metadata"] if isinstance(m["metadata"], dict) else {}
+    content = m["content"]
+    preview = (content[:200] + "...") if len(content) > 200 else content
+    entry: dict = {
+        "id":           m["id"],
+        "preview":      preview,
+        "similarity":   1.0 if pinned else float(m.get("similarity") or 0),
+        "type":         meta.get("type"),
+        "people":       meta.get("people", []),
+        "topics":       meta.get("topics", []),
+        "action_items": meta.get("action_items", []),
+        "created_at":   str(m["created_at"]),
+    }
+    if pinned:
+        entry["pinned"] = True
+    if m.get("project"):
+        entry["project"] = m["project"]
+    if m.get("annotation"):
+        entry["annotation"] = m["annotation"]
+    score = m.get("upvotes", 0) - m.get("downvotes", 0)
+    if score != 0:
+        entry["score"] = score
+    return entry
+
+
 @mcp.tool()
 def search(
     query: str,
@@ -488,7 +545,7 @@ def search(
     people_filter: Optional[list[str]] = None,
     project: str = "",
 ) -> str:
-    """Semantically search your brain by meaning — not just keywords.
+    """Semantically search your brain by meaning -- not just keywords.
 
     Finds thoughts, decisions, and notes even without exact words.
     Works across everything ever captured, from any AI tool.
@@ -496,42 +553,35 @@ def search(
     Returns previews (first 200 chars) by default to save tokens.
     Use the `recall` tool with a memory ID to get the full content.
 
+    Pinned memories (guardrails, workflow rules) for the project are always
+    included at the top of results, regardless of query similarity.
+
     Args:
-        query: What to search for — describe by meaning, not exact keywords.
+        query: What to search for -- describe by meaning, not exact keywords.
         limit: Max results to return (default 10, max 50).
         type_filter: Filter by type:
-            decision | idea | meeting | person | insight | task | journal | reference | note
+            decision | idea | meeting | person | insight | task | journal | reference | note | guardrail
         people_filter: Filter to memories mentioning specific people.
         project: Filter to memories from a specific project (e.g. 'open-brain', 'my-app').
     """
     try:
         embedding = get_embedding(query)
         memories  = db_search(embedding, min(limit, 50), type_filter or None, people_filter, project or None)
-        if not memories:
+
+        # Fetch pinned memories for the project (always included, regardless of query)
+        pinned = db_get_pinned(project) if project else []
+        pinned_ids = {m["id"] for m in pinned}
+
+        # Remove pinned from semantic results to avoid duplicates
+        memories = [m for m in memories if m["id"] not in pinned_ids]
+
+        if not memories and not pinned:
             return "No memories found matching that query."
-        meta = lambda m: m["metadata"] if isinstance(m["metadata"], dict) else {}  # noqa: E731
-        results = []
-        for m in memories:
-            content = m["content"]
-            preview = (content[:200] + "...") if len(content) > 200 else content
-            entry: dict = {
-                "id":           m["id"],
-                "preview":      preview,
-                "similarity":   float(m.get("similarity") or 0),
-                "type":         meta(m).get("type"),
-                "people":       meta(m).get("people", []),
-                "topics":       meta(m).get("topics", []),
-                "action_items": meta(m).get("action_items", []),
-                "created_at":   str(m["created_at"]),
-            }
-            if m.get("project"):
-                entry["project"] = m["project"]
-            if m.get("annotation"):
-                entry["annotation"] = m["annotation"]
-            score = m.get("upvotes", 0) - m.get("downvotes", 0)
-            if score != 0:
-                entry["score"] = score
-            results.append(entry)
+
+        # Build results: pinned first, then semantic
+        results = [_format_search_entry(m, pinned=True) for m in pinned]
+        results.extend(_format_search_entry(m, pinned=False) for m in memories)
+
         return json.dumps(results, indent=2)
     except Exception as exc:
         return json.dumps({"error": str(exc)})
@@ -552,13 +602,19 @@ def list_recent(limit: int = 20, days: int = 0) -> str:
         if not memories:
             return "No memories yet. Use `remember` to start building your brain."
         meta = lambda m: m["metadata"] if isinstance(m["metadata"], dict) else {}  # noqa: E731
-        return json.dumps([{
-            "id":         m["id"],
-            "preview":    (m["content"][:150] + "…") if len(m["content"]) > 150 else m["content"],
-            "type":       meta(m).get("type"),
-            "people":     meta(m).get("people", [])[:3],
-            "created_at": str(m["created_at"]),
-        } for m in memories], indent=2)
+        entries = []
+        for m in memories:
+            entry = {
+                "id":         m["id"],
+                "preview":    (m["content"][:150] + "…") if len(m["content"]) > 150 else m["content"],
+                "type":       meta(m).get("type"),
+                "people":     meta(m).get("people", [])[:3],
+                "created_at": str(m["created_at"]),
+            }
+            if m.get("pinned"):
+                entry["pinned"] = True
+            entries.append(entry)
+        return json.dumps(entries, indent=2)
     except Exception as exc:
         return json.dumps({"error": str(exc)})
 
@@ -732,6 +788,8 @@ def recall(memory_id: int) -> str:
         if memory.get("upvotes") or memory.get("downvotes"):
             result["upvotes"] = memory.get("upvotes", 0)
             result["downvotes"] = memory.get("downvotes", 0)
+        if memory.get("pinned"):
+            result["pinned"] = True
         return json.dumps(result, indent=2)
     except Exception as exc:
         return json.dumps({"success": False, "error": str(exc)})
@@ -826,7 +884,8 @@ def prune(days: int = 90, min_access: int = 0, dry_run: bool = True) -> str:
                 cur.execute(
                     "SELECT COUNT(*) FROM memories "
                     "WHERE created_at < NOW() - INTERVAL '1 day' * %s "
-                    "AND access_count <= %s",
+                    "AND access_count <= %s "
+                    "AND pinned = FALSE",
                     (days, min_access),
                 )
                 count = cur.fetchone()[0]  # type: ignore[index]
@@ -879,6 +938,68 @@ def forget_many(memory_ids: list[int]) -> str:
     try:
         result = db_delete_many(memory_ids)
         return json.dumps({"success": True, **result})
+    except Exception as exc:
+        return json.dumps({"success": False, "error": str(exc)})
+
+
+@mcp.tool()
+def pin(memory_id: int) -> str:
+    """Pin a memory so it always appears in search results for its project.
+
+    Pinned memories surface at the top of every search scoped to their
+    project, regardless of query similarity. Use this for workflow rules,
+    conventions, and guardrails that agents must always see.
+
+    A memory must belong to a project to be pinned (global memories cannot
+    be pinned since pinning only affects project-scoped searches).
+
+    Args:
+        memory_id: The ID of the memory to pin.
+    """
+    try:
+        result = db_set_pinned(memory_id, True)
+        if result is None:
+            return json.dumps({"success": False, "error": f"Memory {memory_id} not found."})
+        if not result.get("project"):
+            # Revert -- global memories cannot be pinned
+            db_set_pinned(memory_id, False)
+            return json.dumps({
+                "success": False,
+                "error": "Cannot pin a global memory. Pinning only works for project-scoped memories. "
+                         "Re-store this memory with a project parameter first.",
+            })
+        return json.dumps({
+            "success": True,
+            "id":      result["id"],
+            "pinned":  True,
+            "project": result["project"],
+            "preview": result["content"][:100],
+            "message": f"Memory {memory_id} pinned. It will now appear at the top of all searches for project '{result['project']}'.",
+        }, indent=2)
+    except Exception as exc:
+        return json.dumps({"success": False, "error": str(exc)})
+
+
+@mcp.tool()
+def unpin(memory_id: int) -> str:
+    """Remove the pin from a memory, returning it to normal search behavior.
+
+    The memory is not deleted -- it just stops appearing at the top of every
+    search for its project.
+
+    Args:
+        memory_id: The ID of the memory to unpin.
+    """
+    try:
+        result = db_set_pinned(memory_id, False)
+        if result is None:
+            return json.dumps({"success": False, "error": f"Memory {memory_id} not found."})
+        return json.dumps({
+            "success": True,
+            "id":      result["id"],
+            "pinned":  False,
+            "message": f"Memory {memory_id} unpinned.",
+        }, indent=2)
     except Exception as exc:
         return json.dumps({"success": False, "error": str(exc)})
 

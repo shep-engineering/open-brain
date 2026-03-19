@@ -1,0 +1,51 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.2.0] - 2026-03-18
+
+### Added
+
+- **Pinned memories (guardrails)**: memories can be pinned to a project so they
+  always appear at the top of search results, regardless of query similarity.
+  Use this for workflow rules, conventions, and guardrails that agents must see.
+- New MCP tools: `pin(memory_id)` and `unpin(memory_id)`
+- New memory type: `guardrail` for organizing workflow rules
+- `_format_search_entry()` helper for consistent result formatting
+- `db_get_pinned()` and `db_set_pinned()` database helpers
+- Migration script `scripts/migrate_v3_pinned.py` (idempotent)
+- 23 tests for pinned memory behavior in `tests/test_pinned_memories.py`
+
+### Changed
+
+- `search()` now prepends pinned memories for the queried project (pinned do
+  not count against the `limit` parameter)
+- `prune()` now skips pinned memories (both dry-run count and actual delete)
+- `recall()` and `list_recent()` now include `pinned: true` in output
+- `db_list_recent` and `db_get_by_id` queries now include the `pinned` column
+
+### Security
+
+- **Secrets filter** (`secrets_filter.py`): blocks API keys, tokens, private
+  keys, and database passwords from being stored in the brain. Applied before
+  embedding (prevents leaking to models) and inside `db_store_deduped()` as
+  safety net. Two modes: reject (default) or redact.
+- 30 tests for secrets filter in `tests/test_secrets_filter.py`
+
+## [0.1.0] - 2026-03-17
+
+### Added
+
+- Initial release: MCP server with 11 tools
+- PostgreSQL + pgvector semantic memory storage
+- Ollama local embedding (nomic-embed-text, 768 dims)
+- LLM-based metadata extraction (qwen2.5:32b)
+- Auto-capture via `capture_context` with LLM decomposition and smart batching
+- Semantic search, recall, annotate, rate, prune, forget tools
+- Project scoping for multi-project memory isolation
+- Deduplication via cosine similarity threshold
+- Wire CLI for auto-configuring MCP clients
+- Cross-platform support (Windows, Linux, macOS, WSL)

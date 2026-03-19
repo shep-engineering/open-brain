@@ -52,7 +52,8 @@ def main() -> None:
                     access_count  INTEGER     NOT NULL DEFAULT 0,
                     last_accessed TIMESTAMPTZ,
                     upvotes       INTEGER     NOT NULL DEFAULT 0,
-                    downvotes     INTEGER     NOT NULL DEFAULT 0
+                    downvotes     INTEGER     NOT NULL DEFAULT 0,
+                    pinned        BOOLEAN     NOT NULL DEFAULT FALSE
                 )
             """)
             print(f"✓  memories table ready  ({DIMENSIONS}-dim vectors)")
@@ -87,6 +88,12 @@ def main() -> None:
             cur.execute("""
                 CREATE INDEX IF NOT EXISTS memories_last_accessed_idx
                 ON memories (last_accessed ASC NULLS FIRST)
+            """)
+
+            # 8. Pinned memories index (partial -- only pinned rows)
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS memories_pinned_project_idx
+                ON memories (project) WHERE pinned = TRUE
             """)
             print("✓  Supporting indexes created")
 
