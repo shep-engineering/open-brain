@@ -52,6 +52,44 @@ OPENAI_API_KEY     = os.getenv("OPENAI_API_KEY",         "")
 OPENAI_EMBED_MODEL = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
 METADATA_LLM_MODEL = os.getenv("METADATA_LLM_MODEL",    "")
 DEDUP_THRESHOLD    = float(os.getenv("DEDUP_THRESHOLD",  "0.92"))
+COMPLIANCE_WINDOW  = int(os.getenv("COMPLIANCE_WINDOW",  "300"))  # seconds
+
+# ─── Session Compliance Tracking ─────────────────────────────────────────────
+#
+# Tracks when each source last called search(). If remember() or
+# capture_context() is called without a recent search, a compliance_warning
+# is included in the response. Storage is never blocked.
+
+_session_tracker: dict[str, float] = {}
+
+
+def _record_search(source: str, project: str) -> None:
+    """Record that a source performed a search."""
+    key = f"{source}:{project}" if source and project else source or project or "_global"
+    _session_tracker[key] = time.time()
+
+
+def _check_compliance(source: str, project: str) -> str | None:
+    """Check if source searched recently. Returns warning message or None."""
+    if not source:
+        return None  # Can't track anonymous calls
+    key = f"{source}:{project}" if source and project else source or project or "_global"
+    last_search = _session_tracker.get(key)
+    if last_search is None:
+        return (
+            f"No search() called by '{source}' before storing. "
+            f"Workflow rules and prior context may have been missed. "
+            f"Best practice: call search() at the start of every task."
+        )
+    elapsed = time.time() - last_search
+    if elapsed > COMPLIANCE_WINDOW:
+        minutes = int(elapsed // 60)
+        return (
+            f"Last search() by '{source}' was {minutes}m ago. "
+            f"Consider searching again for fresh context before capturing."
+        )
+    return None
+
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -494,7 +532,7 @@ def remember(content: str, source: str = "", type_override: str = "", project: s
         if source:
             metadata["source"] = source
         memory, action = db_store_deduped(content, embedding, metadata, project)
-        return json.dumps({
+        response = {
             "success":      True,
             "action":       action,
             "id":           memory["id"],
@@ -503,7 +541,11 @@ def remember(content: str, source: str = "", type_override: str = "", project: s
             "topics":       metadata.get("topics", []),
             "action_items": metadata.get("action_items", []),
             "stored_at":    memory["created_at"],
-        }, indent=2)
+        }
+        warning = _check_compliance(source, project)
+        if warning:
+            response["compliance_warning"] = warning
+        return json.dumps(response, indent=2)
     except SecretDetectedError as exc:
         return json.dumps({"success": False, "error": str(exc), "blocked_by": "secrets_filter"})
     except Exception as exc:
@@ -544,6 +586,7 @@ def search(
     type_filter: str = "",
     people_filter: Optional[list[str]] = None,
     project: str = "",
+    source: str = "",
 ) -> str:
     """Semantically search your brain by meaning -- not just keywords.
 
@@ -563,10 +606,15 @@ def search(
             decision | idea | meeting | person | insight | task | journal | reference | note | guardrail
         people_filter: Filter to memories mentioning specific people.
         project: Filter to memories from a specific project (e.g. 'open-brain', 'my-app').
+        source: Which agent is searching (e.g. 'cursor', 'claude'). Used for
+                session compliance tracking.
     """
     try:
         embedding = get_embedding(query)
         memories  = db_search(embedding, min(limit, 50), type_filter or None, people_filter, project or None)
+
+        # Record search for compliance tracking
+        _record_search(source, project)
 
         # Fetch pinned memories for the project (always included, regardless of query)
         pinned = db_get_pinned(project) if project else []
@@ -743,12 +791,16 @@ def capture_context(context: str, source: str = "", project: str = "") -> str:
             memory, action = db_store_deduped(context, embedding, meta, project)
             stored.append({"id": memory["id"], "preview": context[:100], "type": meta["type"], "action": action})
 
-        return json.dumps({
+        response = {
             "success":       True,
             "memories_stored": len(stored),
             "stored":        stored,
             "errors":        errors if errors else None,
-        }, indent=2)
+        }
+        warning = _check_compliance(source, project)
+        if warning:
+            response["compliance_warning"] = warning
+        return json.dumps(response, indent=2)
 
     except SecretDetectedError as exc:
         return json.dumps({"success": False, "error": str(exc), "blocked_by": "secrets_filter"})

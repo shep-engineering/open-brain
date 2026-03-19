@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-03-18
+
+### Added
+
+- **Session compliance tracking**: server tracks when each source last called
+  `search()`. If `remember()` or `capture_context()` is called without a recent
+  search, a `compliance_warning` field is injected into the response. Storage is
+  never blocked -- the warning is a nudge, not a gate.
+- `search()` now accepts an optional `source` parameter for compliance tracking
+- `COMPLIANCE_WINDOW` env var (default 300s / 5 minutes) controls staleness
+- 19 tests for compliance tracking in `tests/test_session_compliance.py`
+
 ## [0.2.0] - 2026-03-18
 
 ### Added
