@@ -1,15 +1,14 @@
-# Archetype Orchestrator — Copilot Instructions
+# Archetype Orchestrator: Copilot Instructions
 
 > **These rules are enforced by git hooks. Skipping steps will block commits.**
 
-## Session Start — Required
+## Session Start: Required
 
 Before any work:
 
-1. **Search memory** — if open-brain MCP is available, search for prior context on
-   the task topic before writing any code.
-2. **Read checkpoints** — `docs/planning/CONTEXT_CHECKPOINTS.md` if it exists.
-3. **Pre-work gate** — non-negotiable:
+1. **Search memory (MANDATORY, no exceptions):** Search open-brain at the START of EVERY task. Do this BEFORE your first action. Run two searches: one for the task topic, one for "user preferences formatting rules". This applies to every task: coding, debugging, docs, research, refactoring, reviews, questions. Every task. Period.
+2. **Read checkpoints**: `docs/planning/CONTEXT_CHECKPOINTS.md` if it exists.
+3. **Pre-work gate**, non-negotiable:
    ```bash
    bash archetype-orchestrator/scripts/pre-work-check.sh
    ```
@@ -34,7 +33,7 @@ python archetype-orchestrator/engine/discover.py --query "what the task is about
 
 Read the matched constitution file before proceeding.
 
-## During Work — Checkpoints
+## During Work: Checkpoints
 
 At meaningful milestones:
 
@@ -74,7 +73,7 @@ commits, task markers, custom plugins.
 
 ## Planning Documents (docs/planning/)
 
-- `DUAL_AGENT_WORKFLOW.md` — planner/builder roles
-- `CONTEXT_LOOP.md` — iterative refinement
-- `RALPH_LOOP.md` — review-adjust-learn-plan-handoff
-- `SOURCE_CONSULTATION_MAP.md` — authoritative sources
+- `DUAL_AGENT_WORKFLOW.md`: planner/builder roles
+- `CONTEXT_LOOP.md`: iterative refinement
+- `RALPH_LOOP.md`: review-adjust-learn-plan-handoff
+- `SOURCE_CONSULTATION_MAP.md`: authoritative sources

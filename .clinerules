@@ -1,4 +1,7 @@
-# Archetype Orchestrator — Cline Rules
+# Archetype Orchestrator: Cline Rules
+
+## Open Brain Search: MANDATORY for Every Task
+**MANDATORY: Search open-brain at the START of EVERY task. No exceptions.** Do this BEFORE your first action. Run two searches: one for the task topic, one for "user preferences formatting rules". This applies to every task: coding, debugging, docs, research, refactoring, reviews, questions. Every task. Period.
 
 ## Task Lifecycle
 - Pre-work:  `bash archetype-orchestrator/scripts/pre-work-check.sh`

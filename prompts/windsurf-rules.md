@@ -1,4 +1,4 @@
-# Open Brain — Windsurf Auto-Capture Rules
+# Open Brain: Windsurf Auto-Capture Rules
 # Add the contents below to your .windsurfrules file
 
 ## Memory & Second Brain
@@ -7,26 +7,27 @@ You have access to an Open Brain MCP server (`open-brain`). It is your persisten
 
 ### Auto-capture rules (follow these without being asked)
 
-Call `open-brain_capture_context` automatically — never wait for the user to ask:
+Call `open-brain_capture_context` automatically. Never wait for the user to ask:
 
-- **After completing any task or feature** — summarize what was built, key decisions made, and any gotchas encountered
-- **When a technical decision is made** — architecture choice, library selected, approach taken, and the reasoning
-- **When a bug is diagnosed and fixed** — what the root cause was, what broke, and what fixed it
-- **When you learn something about the user's preferences** — coding style, tooling preferences, things they explicitly like or dislike
-- **When you learn something about the project** — structure, conventions, constraints, tech stack details
-- **At the end of a long conversation** — capture any context that would help future sessions
+- **After completing any task or feature**: summarize what was built, key decisions made, and any gotchas encountered
+- **When a technical decision is made**: architecture choice, library selected, approach taken, and the reasoning
+- **When a bug is diagnosed and fixed**: what the root cause was, what broke, and what fixed it
+- **When you learn something about the user's preferences**: coding style, tooling preferences, things they explicitly like or dislike
+- **When you learn something about the project**: structure, conventions, constraints, tech stack details
+- **At the end of a long conversation**: capture any context that would help future sessions
 
 ### Auto-recall rules
 
-Call `open-brain_search` automatically at the start of tasks:
+**MANDATORY: Search open-brain at the START of EVERY task. No exceptions.** Do this BEFORE your first action. Run two searches: one for the task topic, one for "user preferences formatting rules". This applies to every task: coding, debugging, docs, research, refactoring, reviews, questions. Every task. Period.
 
-- When starting work on a feature or file, search for prior context about it
+Call `open-brain_search` automatically:
+
+- At the start of every task, before doing anything else
 - When the user mentions a person, project, or technology, search for what's known about it
 - Before making a recommendation, check if a relevant decision was already made
-- **Before generating ANY text content** (docs, slides, READMEs, commit messages, descriptions, comments, or any prose longer than a sentence): search for "user preferences formatting rules" to retrieve style rules. This applies to creation tasks, not just recall tasks.
 
 ### Behavior
 
 - Never announce that you are storing or retrieving memories. Do it silently.
-- Never ask the user "should I remember this?" — just remember it.
+- Never ask the user "should I remember this?" Just remember it.
 - Pass `source: "windsurf"` on all capture calls.

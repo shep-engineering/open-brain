@@ -1,22 +1,24 @@
-# Archetype Orchestrator — Claude Code Behavioral Contract
+# Archetype Orchestrator: Claude Code Behavioral Contract
 
 > **These are mandatory rules, not suggestions.**
 > Every gate listed here is enforced by git hooks. Skipping steps will cause
 > commit or push failures. Do not attempt to bypass hooks.
 
-## 0. Session Start — Always Do This First
+## 0. Session Start: Always Do This First
 
 Before any work, in order:
 
-1. **Search memory** — if open-brain is available, search for prior context:
+1. **Search memory (MANDATORY, no exceptions):** Search open-brain at the START of EVERY task. Do this BEFORE your first action. Run two searches: one for the task topic, one for "user preferences formatting rules". This applies to every task: coding, debugging, docs, research, refactoring, reviews, questions. Every task. Period.
    ```bash
-   # Via MCP tool: mcp__open-brain__search query="<task topic>"
+   # Via MCP tool:
+   mcp__open-brain__search query="<task topic>"
+   mcp__open-brain__search query="user preferences formatting rules"
    ```
-2. **Read context checkpoints** — if the file exists:
+2. **Read context checkpoints**: if the file exists:
    ```bash
    cat docs/planning/CONTEXT_CHECKPOINTS.md
    ```
-3. **Run the pre-work gate** — non-negotiable:
+3. **Run the pre-work gate**, non-negotiable:
    ```bash
    bash archetype-orchestrator/scripts/pre-work-check.sh
    # Windows: powershell -ExecutionPolicy Bypass -File archetype-orchestrator/scripts/pre-work-check.ps1
@@ -24,7 +26,7 @@ Before any work, in order:
    This ensures you are on a feature branch, creates a rollback tag, and
    writes a task-start marker. If it fails, stop and fix the issue.
 
-## 1. Branch Rules — Non-Negotiable
+## 1. Branch Rules: Non-Negotiable
 
 - **Never commit directly to `main`, `master`, or `develop`.**
   The pre-commit hook will block you.
@@ -49,7 +51,7 @@ python archetype-orchestrator/engine/discover.py --query "describe your task"
 Read the returned constitution file **before writing a single line of code**.
 If no spec matches, universal governance rules still apply.
 
-## 3. During Work — Checkpoints at Milestones
+## 3. During Work: Checkpoints at Milestones
 
 At every meaningful milestone (feature complete, bug fixed, refactor done):
 
@@ -62,20 +64,20 @@ If open-brain is available, also capture context:
 # Via MCP tool: mcp__open-brain__capture_context context="<what was done, decisions made, gotchas>" source="claude"
 ```
 
-## 4. Code Standards — Always Enforced
+## 4. Code Standards: Always Enforced
 
 These are checked by `validate.sh` and will block commits if violated:
 
-- **No hardcoded secrets** — no passwords, API keys, or tokens in source code.
+- **No hardcoded secrets**: no passwords, API keys, or tokens in source code.
   Use environment variables. No exceptions.
-- **No dangerous patterns** — `eval()`, `exec()`, `dangerouslySetInnerHTML`,
+- **No dangerous patterns**: `eval()`, `exec()`, `dangerouslySetInnerHTML`,
   string-concatenated SQL queries are flagged.
-- **No hardcoded hosts/ports** in config files — use environment variables.
-- **Conventional commit messages** — format: `type(scope): description`
+- **No hardcoded hosts/ports** in config files. Use environment variables.
+- **Conventional commit messages**, format: `type(scope): description`
   Types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`, `perf`, `ci`, `build`, `revert`
-- **No `.env` files committed** — must be in `.gitignore`.
+- **No `.env` files committed**. Must be in `.gitignore`.
 
-## 5. Before Declaring Done — Post-Work Gate
+## 5. Before Declaring Done: Post-Work Gate
 
 Run this before every commit. It validates everything and creates the task-end marker:
 
@@ -94,7 +96,7 @@ If a legitimate exception exists:
 bash archetype-orchestrator/scripts/post-work-check.sh --allow-release-exception "reason"
 ```
 
-## 6. Destructive Operations — Require Confirmation
+## 6. Destructive Operations: Require Confirmation
 
 **Never run `rm -rf`, `git reset --hard`, `git push --force`, or any
 irreversible operation without explicit user confirmation first.**
@@ -109,7 +111,7 @@ The pre-work gate creates rollback tags automatically. Use them:
 git reset --hard pre-change/<timestamp>-<branch>
 ```
 
-## 7. Memory — Capture at Session End
+## 7. Memory: Capture at Session End
 
 If open-brain is available, always capture at the end of a session:
 ```bash
@@ -118,7 +120,7 @@ If open-brain is available, always capture at the end of a session:
 # source="claude"
 ```
 
-Never ask the user "should I remember this?" — decide and capture silently.
+Never ask the user "should I remember this?" Decide and capture silently.
 
 ## 8. Validation Reference
 
