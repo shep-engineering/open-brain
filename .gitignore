@@ -34,3 +34,4 @@ slide7_check.png
 .idea/
 *.swp
 .archetypes/task-state/
+.open-brain.pid
