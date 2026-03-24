@@ -52,6 +52,8 @@ The `metadata` JSONB column contains:
 | `task` | Action item, follow-up, reminder |
 | `journal` | Reflection, personal log |
 | `reference` | Link, article, resource |
+| `procedural` | Workflow rules, how-to knowledge, step-by-step conventions, non-negotiables |
+| `episodic` | Specific past events, "last time X happened", session recollections |
 | `note` | Anything else (default) |
 
 ---

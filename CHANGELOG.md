@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-03-24
+
+### Added
+
+- **Recency decay scoring**: search results now apply exponential time-decay based on
+  `last_accessed`, so stale memories naturally fade. Configurable via `OPEN_BRAIN_DECAY_LAMBDA`
+  (default `0.005`; set to `0` to disable).
+- **Hybrid vector + full-text search**: combines cosine similarity with PostgreSQL `ts_rank`
+  for better retrieval of exact names, dates, and project codes. Auto-migrates the `fts`
+  tsvector column and GIN index on first start when enabled. Configurable via
+  `OPEN_BRAIN_HYBRID_WEIGHT` (default `0.3`; set to `0` for pure vector).
+- **Time-scoped search**: `search()` now accepts `since_days` and `until_days` params for
+  temporal queries (e.g. "what did I decide last week?").
+- **Two new memory types** from the CoALA cognitive architecture taxonomy:
+  - `procedural` -- workflow rules, conventions, non-negotiables, how-to knowledge
+  - `episodic` -- specific past events, session recollections, "last time X happened"
+- `OPEN_BRAIN_DECAY_LAMBDA` and `OPEN_BRAIN_HYBRID_WEIGHT` documented in `.env.example`
+- Updated `docs/architecture/memory-model.md` with new types and retrieval features
+
 ## [0.3.0] - 2026-03-18
 
 ### Added

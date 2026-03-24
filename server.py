@@ -52,6 +52,8 @@ OPENAI_API_KEY     = os.getenv("OPENAI_API_KEY",         "")
 OPENAI_EMBED_MODEL = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
 METADATA_LLM_MODEL = os.getenv("METADATA_LLM_MODEL",    "")
 DEDUP_THRESHOLD    = float(os.getenv("DEDUP_THRESHOLD",  "0.92"))
+DECAY_LAMBDA       = float(os.getenv("OPEN_BRAIN_DECAY_LAMBDA",  "0.005"))
+HYBRID_WEIGHT      = float(os.getenv("OPEN_BRAIN_HYBRID_WEIGHT", "0.3"))
 COMPLIANCE_WINDOW  = int(os.getenv("COMPLIANCE_WINDOW",  "300"))  # seconds
 
 # ─── Session Compliance Tracking ─────────────────────────────────────────────
@@ -162,6 +164,7 @@ def get_embedding(text: str) -> list[float]:
 VALID_TYPES = {
     "decision", "idea", "meeting", "person", "insight",
     "task", "journal", "reference", "note", "guardrail",
+    "procedural", "episodic",
 }
 _STOP = {
     "The", "This", "That", "They", "There", "These", "Those",
@@ -184,6 +187,8 @@ def _meta_heuristic(text: str) -> dict:
     elif re.search(r"\b(learned|realized|insight|key takeaway|noticed that|turns out)\b", lower): type_ = "insight"
     elif re.search(r"\b(works at|currently at|her background|his background)\b", lower):        type_ = "person"
     elif re.search(r"\b(journal|reflecting|today i|feeling|grateful)\b", lower):                type_ = "journal"
+    elif re.search(r"\b(workflow|always run|rule|convention|how to|steps to|process for|never commit|non-negotiable|standard procedure|best practice)\b", lower): type_ = "procedural"
+    elif re.search(r"\b(last time|last session|previously|that time|remember when|back in|session on|happened when|ended up)\b", lower): type_ = "episodic"
 
     sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if s.strip()]
     action_items = [
@@ -201,7 +206,7 @@ def _meta_llm(text: str) -> dict:
     prompt = (
         "Extract metadata from this note. Reply ONLY with valid JSON, no markdown.\n\n"
         f'Note: "{text}"\n\n'
-        'JSON: {"type":"decision|idea|meeting|person|insight|task|journal|reference|note",'
+        'JSON: {"type":"decision|idea|meeting|person|insight|task|journal|reference|note|procedural|episodic",'
         '"people":[],"topics":[],"action_items":[],"tags":[]}'
     )
     result = _http_post(
@@ -333,51 +338,112 @@ def db_set_pinned(memory_id: int, pinned: bool) -> dict | None:
         return _normalize_row(dict(row)) if row else None
 
 
+def _has_fts_column(conn) -> bool:
+    """Check whether the fts tsvector column exists (added by hybrid migration)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_name='memories' AND column_name='fts' LIMIT 1"
+        )
+        return cur.fetchone() is not None
+
+
 def db_search(
     query_vec: list[float],
+    query_text: str,
     limit: int,
     type_filter: str | None,
     people_filter: list[str] | None,
     project_filter: str | None = None,
+    since_days: int = 0,
+    until_days: int = 0,
 ) -> list[dict]:
     conn = _get_conn()
     conditions: list[str] = []
-    extra_params: list = []
+    filter_params: list = []
 
     if type_filter:
-        extra_params.append(type_filter)
+        filter_params.append(type_filter)
         conditions.append("metadata->>'type' = %s")
 
     if people_filter:
         person_conds = []
         for person in people_filter:
-            extra_params.append(person)
+            filter_params.append(person)
             person_conds.append("metadata->'people' ? %s")
         conditions.append(f"({' OR '.join(person_conds)})")
 
     if project_filter:
-        extra_params.append(project_filter)
+        filter_params.append(project_filter)
         conditions.append("project = %s")
 
-    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-    # Vec appears once (in CTE), filter params in the middle, limit at end
-    params = [_to_vec(query_vec)] + extra_params + [limit]
+    if since_days > 0:
+        filter_params.append(since_days)
+        conditions.append("created_at >= NOW() - INTERVAL '1 day' * %s")
 
-    sql = f"""
-        WITH q AS (
+    if until_days > 0:
+        filter_params.append(until_days)
+        conditions.append("created_at <= NOW() - INTERVAL '1 day' * %s")
+
+    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+
+    use_hybrid = HYBRID_WEIGHT > 0 and _has_fts_column(conn)
+    use_decay  = DECAY_LAMBDA > 0
+
+    decay_expr = (
+        f"* EXP(-{DECAY_LAMBDA} * EXTRACT(EPOCH FROM "
+        f"(NOW() - COALESCE(last_accessed, created_at))) / 86400.0)"
+        if use_decay else ""
+    )
+
+    if use_hybrid:
+        vec_weight = round(1.0 - HYBRID_WEIGHT, 4)
+        fts_weight = round(HYBRID_WEIGHT, 4)
+        # params order: vec, filter_params (for vec_q), fts_text, filter_params (for fts_q), limit
+        params = [_to_vec(query_vec)] + filter_params + [query_text] + filter_params + [limit]
+        sql = f"""
+            WITH vec_q AS (
+                SELECT id, content, metadata, created_at, project, annotation,
+                       upvotes, downvotes, access_count, last_accessed,
+                       (1.0 - (embedding <=> %s::vector)) AS vec_score
+                FROM memories
+                {where}
+            ),
+            fts_q AS (
+                SELECT id,
+                       ts_rank(fts, plainto_tsquery('english', %s)) AS fts_score
+                FROM memories
+                {where}
+            )
+            SELECT v.id, v.content, v.metadata, v.created_at, v.project,
+                   v.annotation, v.upvotes, v.downvotes, v.access_count,
+                   round(
+                       ({vec_weight} * v.vec_score + {fts_weight} * COALESCE(f.fts_score, 0))
+                       {decay_expr}
+                   , 4) AS similarity
+            FROM vec_q v
+            LEFT JOIN fts_q f ON v.id = f.id
+            ORDER BY similarity DESC
+            LIMIT %s
+        """
+    else:
+        # Pure vector with optional decay
+        params = [_to_vec(query_vec)] + filter_params + [limit]
+        sql = f"""
+            WITH q AS (
+                SELECT id, content, metadata, created_at, project, annotation,
+                       upvotes, downvotes, access_count, last_accessed,
+                       (embedding <=> %s::vector) AS dist
+                FROM memories
+                {where}
+            )
             SELECT id, content, metadata, created_at, project, annotation,
                    upvotes, downvotes, access_count,
-                   (embedding <=> %s::vector) AS dist
-            FROM memories
-            {where}
-        )
-        SELECT id, content, metadata, created_at, project, annotation,
-               upvotes, downvotes, access_count,
-               round((1 - dist)::numeric, 4) AS similarity
-        FROM q
-        ORDER BY dist
-        LIMIT %s
-    """
+                   round((1 - dist)::numeric {decay_expr}, 4) AS similarity
+            FROM q
+            ORDER BY similarity DESC
+            LIMIT %s
+        """
 
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(sql, params)
@@ -421,6 +487,29 @@ def db_stats() -> dict:
         r30 = cur.fetchone()["cnt"]  # type: ignore[index]
 
     return {"total": total, "by_type": by_type, "recent_7_days": r7, "recent_30_days": r30}
+
+
+def db_migrate_hybrid() -> None:
+    """Idempotent migration: add fts tsvector column and GIN index for hybrid search.
+    Safe to call on every startup -- skips silently if already present."""
+    if HYBRID_WEIGHT <= 0:
+        return
+    conn = _get_conn()
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_name='memories' AND column_name='fts' LIMIT 1"
+        )
+        if cur.fetchone() is not None:
+            return  # already migrated
+        cur.execute(
+            "ALTER TABLE memories ADD COLUMN fts tsvector "
+            "GENERATED ALWAYS AS (to_tsvector('english', content)) STORED"
+        )
+        cur.execute(
+            "CREATE INDEX idx_memories_fts ON memories USING GIN(fts)"
+        )
+    print("[open-brain] hybrid search migration applied (fts column + GIN index)", file=sys.stderr)
 
 
 def db_delete(memory_id: int) -> bool:
@@ -587,6 +676,8 @@ def search(
     people_filter: Optional[list[str]] = None,
     project: str = "",
     source: str = "",
+    since_days: int = 0,
+    until_days: int = 0,
 ) -> str:
     """Semantically search your brain by meaning -- not just keywords.
 
@@ -604,14 +695,20 @@ def search(
         limit: Max results to return (default 10, max 50).
         type_filter: Filter by type:
             decision | idea | meeting | person | insight | task | journal | reference | note | guardrail
+            | procedural | episodic
         people_filter: Filter to memories mentioning specific people.
         project: Filter to memories from a specific project (e.g. 'open-brain', 'my-app').
         source: Which agent is searching (e.g. 'cursor', 'claude'). Used for
                 session compliance tracking.
+        since_days: Only return memories created in the last N days (0 = no lower bound).
+        until_days: Only return memories older than N days (0 = no upper bound).
     """
     try:
         embedding = get_embedding(query)
-        memories  = db_search(embedding, min(limit, 50), type_filter or None, people_filter, project or None)
+        memories  = db_search(
+            embedding, query, min(limit, 50), type_filter or None,
+            people_filter, project or None, since_days, until_days,
+        )
 
         # Record search for compliance tracking
         _record_search(source, project)
@@ -1060,6 +1157,8 @@ def unpin(memory_id: int) -> str:
 
 HTTP_PORT = int(os.getenv("OPEN_BRAIN_PORT", "8080"))
 HTTP_HOST = os.getenv("OPEN_BRAIN_HOST", "0.0.0.0")
+REST_PORT = int(os.getenv("OPEN_BRAIN_REST_PORT", "8765"))
+REST_HOST = os.getenv("OPEN_BRAIN_REST_HOST", "0.0.0.0")
 CHECK_INTERVAL_HOURS = int(os.getenv("OPEN_BRAIN_CHECK_INTERVAL", "0"))
 
 
@@ -1087,6 +1186,24 @@ def _run_both(host: str, port: int) -> None:
     _run_stdio()
 
 
+def _run_rest(host: str, port: int) -> None:
+    """Run the REST API (for remote clients like Co-work, Cursor, web UIs)."""
+    from rest_api import app, _api_key, run
+    run(host=host, port=port)
+
+
+def _run_all(mcp_host: str, mcp_port: int, rest_host: str, rest_port: int) -> None:
+    """Run all transports: stdio (foreground) + MCP HTTP + REST API (background)."""
+    # MCP HTTP in background
+    t1 = threading.Thread(target=_run_http, args=(mcp_host, mcp_port), daemon=True)
+    t1.start()
+    # REST API in background
+    t2 = threading.Thread(target=_run_rest, args=(rest_host, rest_port), daemon=True)
+    t2.start()
+    # stdio in foreground
+    _run_stdio()
+
+
 def _periodic_check(interval_hours: int) -> None:
     """Background thread: check for unwired agents on an interval."""
     from wire import run_check_quiet, print_first_run_notice
@@ -1110,8 +1227,10 @@ if __name__ == "__main__":
         epilog=(
             "examples:\n"
             "  python server.py                    # stdio (default, for editors)\n"
-            "  python server.py --transport http    # HTTP for claude.ai connectors\n"
-            "  python server.py --transport both    # stdio + HTTP simultaneously\n"
+            "  python server.py --transport http    # MCP HTTP for claude.ai connectors\n"
+            "  python server.py --transport rest    # REST API for remote clients (Co-work, web)\n"
+            "  python server.py --transport both    # stdio + MCP HTTP\n"
+            "  python server.py --transport all     # stdio + MCP HTTP + REST API\n"
             "  python server.py wire                # auto-wire all detected agents\n"
             "  python server.py wire --check        # read-only scan\n"
         ),
@@ -1122,8 +1241,8 @@ if __name__ == "__main__":
         help="'serve' (default) to run the server, 'wire' to configure agents",
     )
     parser.add_argument(
-        "--transport", choices=["stdio", "http", "both"], default="stdio",
-        help="Transport mode (default: stdio)",
+        "--transport", choices=["stdio", "http", "rest", "both", "all"], default="stdio",
+        help="Transport: stdio (editors), http (MCP), rest (remote API), both (stdio+http), all (stdio+http+rest)",
     )
     parser.add_argument(
         "--port", type=int, default=HTTP_PORT,
@@ -1132,6 +1251,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--host", default=HTTP_HOST,
         help=f"HTTP host (default: {HTTP_HOST}, env: OPEN_BRAIN_HOST)",
+    )
+    parser.add_argument(
+        "--rest-port", type=int, default=REST_PORT,
+        help=f"REST API port (default: {REST_PORT}, env: OPEN_BRAIN_REST_PORT)",
     )
     parser.add_argument(
         "--first-run", action="store_true",
@@ -1158,6 +1281,12 @@ if __name__ == "__main__":
             except Exception as e:
                 print(f"First-run check failed: {e}", file=sys.stderr)
 
+        # Auto-migrate hybrid search schema if enabled
+        try:
+            db_migrate_hybrid()
+        except Exception as e:
+            print(f"[open-brain] hybrid migration failed (non-fatal): {e}", file=sys.stderr)
+
         # Periodic background check
         if CHECK_INTERVAL_HOURS > 0:
             t = threading.Thread(
@@ -1170,7 +1299,11 @@ if __name__ == "__main__":
         # Start transport
         if args.transport == "http":
             _run_http(args.host, args.port)
+        elif args.transport == "rest":
+            _run_rest(args.host, args.rest_port)
         elif args.transport == "both":
             _run_both(args.host, args.port)
+        elif args.transport == "all":
+            _run_all(args.host, args.port, args.host, args.rest_port)
         else:
             _run_stdio()
