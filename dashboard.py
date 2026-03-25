@@ -177,11 +177,11 @@ def is_db_up() -> bool:
 
 
 def launch_open_brain():
-    """Fire the Open Brain ON script and return the subprocess."""
+    """Fire the Open Brain ON script silently — output goes to logs/startup.log."""
     if IS_WINDOWS and ON_SCRIPT.exists():
         return subprocess.Popen(
             ["cmd", "/c", str(ON_SCRIPT)],
-            creationflags=subprocess.CREATE_NEW_CONSOLE,  # intentionally visible — startup progress
+            creationflags=subprocess.CREATE_NO_WINDOW,
         )
     elif ON_SCRIPT_SH.exists():
         return subprocess.Popen(["bash", str(ON_SCRIPT_SH)])
