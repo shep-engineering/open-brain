@@ -177,14 +177,20 @@ def is_db_up() -> bool:
 
 
 def launch_open_brain():
-    """Fire the Open Brain ON script with a visible window showing startup progress."""
+    """Fire the Open Brain ON script, capturing stdout for the splash screen."""
     if IS_WINDOWS and ON_SCRIPT.exists():
         return subprocess.Popen(
             ["cmd", "/c", str(ON_SCRIPT)],
-            creationflags=subprocess.CREATE_NEW_CONSOLE,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, bufsize=1,
+            creationflags=subprocess.CREATE_NO_WINDOW,
         )
     elif ON_SCRIPT_SH.exists():
-        return subprocess.Popen(["bash", str(ON_SCRIPT_SH)])
+        return subprocess.Popen(
+            ["bash", str(ON_SCRIPT_SH)],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, bufsize=1,
+        )
     return None
 
 
@@ -713,44 +719,71 @@ class Dashboard(ctk.CTk):
 
 
 class StartupSplash(ctk.CTkToplevel):
-    """Shown while Open Brain is starting up. Closes itself once DB is ready."""
+    """Startup splash that streams open-brain-on output live, then opens dashboard."""
 
-    def __init__(self, master, on_ready):
+    def __init__(self, master, proc, on_ready):
         super().__init__(master)
-        self.title("Open Brain")
-        self.geometry("480x220")
+        self.title("Open Brain — Starting")
+        self.geometry("620x420")
         self.configure(fg_color=BG)
         self.resizable(False, False)
-        self.grab_set()
+        self.protocol("WM_DELETE_WINDOW", lambda: None)  # block accidental close during startup
 
-        # Center on screen
+        # Center
         self.update_idletasks()
-        x = (self.winfo_screenwidth() - 480) // 2
-        y = (self.winfo_screenheight() - 220) // 2
-        self.geometry(f"480x220+{x}+{y}")
+        x = (self.winfo_screenwidth() - 620) // 2
+        y = (self.winfo_screenheight() - 420) // 2
+        self.geometry(f"620x420+{x}+{y}")
 
-        ctk.CTkLabel(self, text="⬡  Open Brain", font=("Segoe UI", 22, "bold"),
-                     text_color=PURPLE).pack(pady=(30, 6))
+        ctk.CTkLabel(self, text="⬡  Open Brain", font=("Segoe UI", 20, "bold"),
+                     text_color=PURPLE).pack(pady=(20, 4))
         self.msg = ctk.CTkLabel(self, text="Starting services...",
-                                font=("Segoe UI", 12), text_color=DIM)
-        self.msg.pack(pady=4)
+                                font=("Segoe UI", 11), text_color=DIM)
+        self.msg.pack(pady=(0, 6))
+
         self.bar = ctk.CTkProgressBar(self, mode="indeterminate",
                                       progress_color=PURPLE, fg_color=PANEL)
-        self.bar.pack(fill="x", padx=40, pady=16)
+        self.bar.pack(fill="x", padx=40, pady=(0, 8))
         self.bar.start()
-        self._on_ready = on_ready
-        threading.Thread(target=self._wait_for_db, daemon=True).start()
 
-    def _wait_for_db(self):
-        for attempt in range(60):   # wait up to 60 s
+        # Live log box
+        self.log_box = ctk.CTkTextbox(
+            self, fg_color=PANEL, text_color=GREEN,
+            font=("Consolas", 11), border_width=0, wrap="word", height=220,
+        )
+        self.log_box.pack(fill="both", expand=True, padx=16, pady=(0, 16))
+        self.log_box.configure(state="disabled")
+
+        self._proc = proc
+        self._on_ready = on_ready
+        threading.Thread(target=self._stream_output, daemon=True).start()
+
+    def _append(self, line: str):
+        self.log_box.configure(state="normal")
+        self.log_box.insert("end", line + "\n")
+        self.log_box.see("end")
+        self.log_box.configure(state="disabled")
+        self.msg.configure(text=line.strip()[:80] if line.strip() else "Starting...")
+
+    def _stream_output(self):
+        """Read stdout from the ON script line by line, then wait for DB."""
+        if self._proc and self._proc.stdout:
+            for line in self._proc.stdout:
+                line = line.rstrip()
+                self.after(0, lambda l=line: self._append(l))
+            self._proc.wait()
+
+        # Script done — now wait for DB to be reachable
+        self.after(0, lambda: self.msg.configure(text="Waiting for database..."))
+        for attempt in range(60):
             if is_db_up():
                 self.after(0, self._ready)
                 return
-            msg = f"Waiting for database... ({attempt + 1}s)"
-            self.after(0, lambda m=msg: self.msg.configure(text=m))
+            self.after(0, lambda a=attempt: self.msg.configure(
+                text=f"Waiting for database... ({a + 1}s)"))
             time.sleep(1)
         self.after(0, lambda: self.msg.configure(
-            text="Could not connect to database after 60s.\nCheck Docker is running."))
+            text="Could not connect after 60s. Check Docker."))
         self.after(0, lambda: self.bar.stop())
 
     def _ready(self):
@@ -776,9 +809,9 @@ if __name__ == "__main__":
             # Open Brain already running — go straight to dashboard
             launch_dashboard()
         else:
-            # Not running — launch it, show splash while waiting
-            launch_open_brain()
-            splash = StartupSplash(root, launch_dashboard)
+            # Not running — launch it, stream output into splash
+            proc = launch_open_brain()
+            splash = StartupSplash(root, proc, launch_dashboard)
             root.mainloop()  # keeps splash alive until ready
 
     except Exception:
