@@ -637,11 +637,36 @@ class Dashboard(ctk.CTk):
         threading.Thread(target=_do, daemon=True).start()
 
     def _restart_mcp(self):
-        """Kill and restart the Open Brain MCP server process."""
+        """Kill and restart Open Brain MCP server with animated step progress."""
+        # Disable button to prevent double-click
+        for w in self.winfo_children():
+            if hasattr(w, 'winfo_children'):
+                for b in w.winfo_children():
+                    if isinstance(b, ctk.CTkButton) and "Restart" in str(b.cget("text")):
+                        b.configure(state="disabled", text="⟳  Restarting...")
+
+        def _set_status(msg, color=YELLOW):
+            if self._alive:
+                try:
+                    self.status_label.configure(text=msg, text_color=color)
+                except Exception:
+                    pass
+
         def _do_restart():
+            steps = [
+                (0,  "⟳ MCP: stopping server...",      YELLOW),
+                (2,  "⟳ MCP: killing tmux session...", YELLOW),
+                (4,  "⟳ MCP: launching server.py...",  YELLOW),
+                (6,  "⟳ MCP: waiting for startup...",  YELLOW),
+                (9,  "⟳ MCP: checking connection...",  YELLOW),
+            ]
+
+            # Schedule each status message
+            for delay, msg, color in steps:
+                self.after(delay * 1000, lambda m=msg, c=color: _set_status(m, c))
+
             try:
                 if IS_WINDOWS:
-                    # Kill any running server.py processes
                     subprocess.run(
                         ["wsl", "-e", "bash", "-lc",
                          "pkill -f 'server.py' 2>/dev/null; "
@@ -649,18 +674,37 @@ class Dashboard(ctk.CTk):
                          "sleep 1; "
                          "tmux new -d -s openbrain "
                          "'F:/open-brain/.venv/Scripts/python.exe /mnt/f/open-brain/server.py'"],
-                        capture_output=True, timeout=10, creationflags=_NO_WINDOW,
+                        capture_output=True, timeout=15, creationflags=_NO_WINDOW,
                     )
                 else:
                     subprocess.run(
                         ["bash", str(ON_SCRIPT_SH)],
-                        capture_output=True, timeout=10,
+                        capture_output=True, timeout=15,
                     )
-            except Exception:
-                pass
-        self.status_label.configure(text="Restarting MCP...", text_color=YELLOW)
+                # Success
+                self.after(10000, lambda: _set_status("● MCP restarted — reconnect in Windsurf", GREEN))
+            except Exception as exc:
+                self.after(0, lambda: _set_status(f"✗ MCP restart failed: {exc}", RED))
+
+            # Re-enable button and refresh after 12s
+            def _done():
+                if not self._alive:
+                    return
+                try:
+                    for w in self.winfo_children():
+                        if hasattr(w, 'winfo_children'):
+                            for b in w.winfo_children():
+                                if isinstance(b, ctk.CTkButton) and "Restart" in str(b.cget("text")):
+                                    b.configure(state="normal", text="⟳  Restart MCP")
+                except Exception:
+                    pass
+                self._manual_refresh()
+                # Clear status after 5 more seconds
+                self.after(5000, lambda: _set_status(""))
+
+            self.after(12000, _done)
+
         threading.Thread(target=_do_restart, daemon=True).start()
-        self.after(4000, self._manual_refresh)
 
     def _tick_clock(self):
         if not self._alive:
