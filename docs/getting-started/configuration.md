@@ -14,8 +14,10 @@ All configuration is via environment variables in `.env` (or passed through your
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama API endpoint |
 | `OLLAMA_EMBEDDING_MODEL` | `nomic-embed-text` | Embedding model name |
 | `OPENAI_API_KEY` | *(empty)* | Required only for OpenAI embeddings |
-| `METADATA_LLM_MODEL` | *(empty)* | e.g. `qwen2.5:32b`. Empty = heuristic only. |
-| `DEDUP_THRESHOLD` | `0.92` | Cosine similarity threshold for deduplication |
+| `METADATA_LLM_MODEL` | *(empty)* | e.g. `qwen2.5:14b`. Enables LLM metadata extraction and smart merge. Empty = heuristic only. |
+| `DEDUP_THRESHOLD` | `0.92` | Cosine similarity threshold for hard deduplication (no LLM needed) |
+| `OPEN_BRAIN_MERGE_LOWER_THRESHOLD` | `0.70` | Lower bound of smart-merge gray zone `[lower, DEDUP_THRESHOLD)`. Memories in this range are sent to the LLM for ADD/MERGE/REPLACE/SKIP decision. Requires `METADATA_LLM_MODEL`. |
+| `OPEN_BRAIN_CONSOLIDATION_INTERVAL` | `0` | Seconds between background consolidation passes (0 = disabled). Requires `METADATA_LLM_MODEL`. |
 | `COMPLIANCE_WINDOW` | `300` | Seconds before a search is considered stale for compliance warnings |
 | `OPEN_BRAIN_DECAY_LAMBDA` | `0.005` | Recency decay rate. Score multiplied by `exp(-lambda * uptime_days_since_access)`. Set to `0` to disable. |
 | `OPEN_BRAIN_HYBRID_WEIGHT` | `0.3` | Weight for full-text component in hybrid search. `0.3` = 70% vector + 30% keyword. Set to `0` for pure vector. |
@@ -41,13 +43,26 @@ All configuration is via environment variables in `.env` (or passed through your
 
 ## Metadata LLM
 
-For richer people/topic/tag extraction, point at a local Ollama model:
+For richer metadata extraction **and smart memory merging**, point at a local Ollama model:
 
 ```env
-METADATA_LLM_MODEL=qwen2.5:32b
+METADATA_LLM_MODEL=qwen2.5:14b
 ```
 
-This adds ~2-5s per capture but significantly improves metadata quality. If the LLM call fails, it automatically falls back to fast heuristic extraction.
+When set, the LLM is used for:
+
+1. **Metadata extraction** — richer people/topic/tag/type classification (~2-5s per capture)
+2. **Smart merge decisions** — when a new memory is semantically related to an existing one (similarity in the gray zone `[0.70, 0.92)`), the LLM decides:
+   - `ADD` — distinct enough, store separately
+   - `MERGE` — related, LLM writes a combined memory
+   - `REPLACE` — new contradicts/supersedes old
+   - `SKIP` — essentially a repeat
+3. **Background consolidation** — if `OPEN_BRAIN_CONSOLIDATION_INTERVAL > 0`, a background thread periodically merges related memories
+
+If the LLM call fails for any reason, it automatically falls back to fast heuristic extraction and `ADD` (store separately).
+
+!!! tip "Two models at once"
+    If you use both `nomic-embed-text` and a metadata model, start Ollama with `OLLAMA_MAX_LOADED_MODELS=2` to avoid repeated model evictions.
 
 ---
 

@@ -56,6 +56,8 @@ Your thought
 - **One-command wiring:** `python server.py wire` auto-discovers and configures every AI tool on your system.
 - **Smart batching:** Embeddings and metadata extraction are batched to avoid GPU model thrashing.
 - **Quality signals:** Rate memories up/down. Access tracking surfaces the most useful memories.
+- **Smart merge:** When storing, the LLM decides whether to ADD, MERGE, REPLACE, or SKIP related memories in the similarity gray zone. Contradictions are detected and resolved automatically.
+- **Background consolidation:** Optional background thread periodically merges and deduplicates related memories using the LLM (`OPEN_BRAIN_CONSOLIDATION_INTERVAL`).
 - **Working memory:** Ephemeral scratchpad for in-session context. Three tools (`scratch_set`, `scratch_get`, `scratch_list`). Cleared on restart, never pollutes long-term memory.
 - **Bi-temporal modelling:** Two time axes per memory -- `valid_time` (when it happened) and `transaction_time` (when we learned it). Query with `as_of` to see what was known at any point in time.
 - **Pinned guardrails:** Pin workflow rules to a project so agents always see them.

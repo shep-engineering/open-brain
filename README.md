@@ -487,6 +487,12 @@ On recall, agents call `search` automatically at the start of tasks to surface r
 | `scratch_get` | Agent or user | Retrieve a value from working memory by key |
 | `scratch_list` | Agent or user | List all current working memory entries |
 
+### v4.3 Features
+
+**Smart UPDATE/MERGE on store:** When a new memory is semantically related to an existing one (similarity in the gray zone `[0.70, 0.92)`), `qwen2.5:14b` decides whether to `ADD`, `MERGE`, `REPLACE`, or `SKIP`. On `MERGE`, the LLM writes a single combined memory preserving all unique facts. On `REPLACE`, contradicted memories are overwritten. The `action` field in responses now includes `"merged"` and `"replaced"`. Configurable via `OPEN_BRAIN_MERGE_LOWER_THRESHOLD`.
+
+**Background consolidation:** Set `OPEN_BRAIN_CONSOLIDATION_INTERVAL=3600` to run hourly LLM-driven passes over all memories, merging and replacing related ones automatically. Disabled by default. Requires `METADATA_LLM_MODEL`.
+
 ### v4.2 Features
 
 **Working memory scratchpad:** Three new tools (`scratch_set`, `scratch_get`, `scratch_list`) give agents an ephemeral key-value store for in-session context. Track current task, active file, reasoning state -- cleared automatically on restart. Never pollutes long-term memory.
