@@ -795,15 +795,17 @@ class Dashboard(ctk.CTk):
 
         # Content box — created immediately, content inserted after window draws
         display = content.strip() if content and content.strip() else "(no content available)"
-        box = ctk.CTkTextbox(popup, fg_color=PANEL, text_color=WHITE,
+        box = ctk.CTkTextbox(popup, fg_color=PANEL, text_color=DIM,
                              font=("Segoe UI", 13), border_width=0, wrap="word")
         box.pack(fill="both", expand=True, padx=16, pady=16)
+        box.insert("1.0", "Loading...")
+        box.configure(state="disabled")
 
         def _insert_content():
             try:
                 if not popup.winfo_exists():
                     return
-                box.configure(state="normal")
+                box.configure(state="normal", text_color=WHITE)
                 box.delete("1.0", "end")
                 box.insert("1.0", display)
                 box.configure(state="disabled")
