@@ -21,7 +21,7 @@ ON_SCRIPT = BASE_DIR / "scripts" / "windows" / "open-brain-on.cmd"
 ON_SCRIPT_SH = BASE_DIR / "scripts" / "open-brain-on.sh"
 IS_WINDOWS = sys.platform == "win32"
 
-DB_URL = os.getenv("OPEN_BRAIN_DB_URL", "postgresql://postgres:password@localhost:5432/openbrain")
+DB_URL = os.getenv("DATABASE_URL", "postgresql://postgres:password@localhost:5432/openbrain")
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
