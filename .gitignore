@@ -28,6 +28,13 @@ site/
 # Test artifacts
 test_slides.py
 slide7_check.png
+check_schema.py
+test_mcp_start.sh
+
+# Runtime logs
+*.log
+server-crash.log
+dashboard-crash.log
 
 # Editor
 .vscode/

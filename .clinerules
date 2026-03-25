@@ -4,8 +4,8 @@
 **MANDATORY: Search open-brain at the START of EVERY task. No exceptions.** Do this BEFORE your first action. Run two searches: one for the task topic, one for "user preferences formatting rules". This applies to every task: coding, debugging, docs, research, refactoring, reviews, questions. Every task. Period.
 
 ## Task Lifecycle
-- Pre-work:  `bash archetype-orchestrator/scripts/pre-work-check.sh`
-- Post-work: `bash archetype-orchestrator/scripts/post-work-check.sh`
+- Pre-work:  `bash scripts/pre-work-check.sh "task description"`
+- Post-work: `bash scripts/post-work-check.sh "what I tested and what passed"`
 - Always work on feature branches
 
 ## Spec Discovery
@@ -14,11 +14,11 @@
 - Read the matched constitution before working
 
 ## Validation
-- `bash archetype-orchestrator/scripts/validate.sh`
+- `bash scripts/post-work-check.sh "what I tested and what passed"`
 
 ## Context
 - Read `docs/planning/CONTEXT_CHECKPOINTS.md` at session start
-- Write: `bash archetype-orchestrator/scripts/context-checkpoint.sh "milestone"`
+- Write: `bash scripts/context-checkpoint.sh "milestone"`
 
 ## Planning Documents (docs/planning/)
 - DUAL_AGENT_WORKFLOW.md

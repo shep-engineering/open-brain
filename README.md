@@ -138,6 +138,31 @@ python server.py wire
 python server.py wire --check
 ```
 
+### 7. Launch the Dashboard (Windows)
+
+A dark monitoring dashboard ships with Open Brain. It shows memory counts, service health, recent captures, and most-accessed memories — with clickable rows to read full content.
+
+**One-step launch** — the dashboard detects whether Open Brain is running and starts it automatically if not:
+
+```cmd
+# Double-click the Desktop shortcut (created below), or run directly:
+.venv\Scripts\pythonw.exe dashboard.py
+```
+
+To create the Desktop shortcuts:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\windows\create-desktop-shortcuts.ps1
+```
+
+This creates four shortcuts on your Desktop:
+- **Open Brain ON** — starts Docker, Postgres, Ollama, MCP server
+- **Open Brain OFF** — stops all services and frees VRAM
+- **Open Brain SSE Proxy** — starts the SSE bridge (for remote clients)
+- **Open Brain Dashboard** — monitoring GUI, auto-starts services if needed
+
+> **Note:** The dashboard requires `customtkinter` and `pillow`, both included in `requirements.txt`.
+
 ---
 
 ## Wiring into Windsurf

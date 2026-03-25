@@ -20,8 +20,7 @@ Before any work, in order:
    ```
 3. **Run the pre-work gate**, non-negotiable:
    ```bash
-   bash archetype-orchestrator/scripts/pre-work-check.sh
-   # Windows: powershell -ExecutionPolicy Bypass -File archetype-orchestrator/scripts/pre-work-check.ps1
+   bash scripts/pre-work-check.sh "task description"
    ```
    This ensures you are on a feature branch, creates a rollback tag, and
    writes a task-start marker. If it fails, stop and fix the issue.
@@ -56,7 +55,7 @@ If no spec matches, universal governance rules still apply.
 At every meaningful milestone (feature complete, bug fixed, refactor done):
 
 ```bash
-bash archetype-orchestrator/scripts/context-checkpoint.sh "what was accomplished"
+bash scripts/context-checkpoint.sh "what was accomplished"
 ```
 
 If open-brain is available, also capture context:
@@ -82,8 +81,7 @@ These are checked by `validate.sh` and will block commits if violated:
 Run this before every commit. It validates everything and creates the task-end marker:
 
 ```bash
-bash archetype-orchestrator/scripts/post-work-check.sh
-# Windows: powershell -ExecutionPolicy Bypass -File archetype-orchestrator/scripts/post-work-check.ps1
+bash scripts/post-work-check.sh "what I tested and what passed"
 ```
 
 For release-impacting changes, this gate **requires**:
@@ -93,7 +91,7 @@ For release-impacting changes, this gate **requires**:
 
 If a legitimate exception exists:
 ```bash
-bash archetype-orchestrator/scripts/post-work-check.sh --allow-release-exception "reason"
+bash scripts/post-work-check.sh "reason for exception"
 ```
 
 ## 6. Destructive Operations: Require Confirmation
@@ -127,8 +125,7 @@ Never ask the user "should I remember this?" Decide and capture silently.
 Run at any time to check governance state:
 
 ```bash
-bash archetype-orchestrator/scripts/validate.sh          # staged changes only
-bash archetype-orchestrator/scripts/validate.sh --all    # entire project
+bash scripts/post-work-check.sh "what I tested and what passed"
 ```
 
 | Check | What it catches |

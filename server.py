@@ -38,6 +38,7 @@ from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 
 from secrets_filter import check_content, SecretDetectedError
+from observability import obs, instrument
 
 # ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -817,6 +818,7 @@ mcp = FastMCP("open-brain")
 
 
 @mcp.tool()
+@instrument("remember")
 def remember(content: str, source: str = "", type_override: str = "", project: str = "", valid_time: str = "") -> str:
     """Store a thought, note, decision, or information in your brain.
 
@@ -892,6 +894,7 @@ def _format_search_entry(m: dict, pinned: bool = False) -> dict:
 
 
 @mcp.tool()
+@instrument("search")
 def search(
     query: str,
     limit: int = 10,
@@ -960,6 +963,7 @@ def search(
 
 
 @mcp.tool()
+@instrument("list_recent")
 def list_recent(limit: int = 20, days: int = 0) -> str:
     """Browse your most recent captures.
 
@@ -992,6 +996,7 @@ def list_recent(limit: int = 20, days: int = 0) -> str:
 
 
 @mcp.tool()
+@instrument("stats")
 def stats() -> str:
     """Get statistics about your brain: total memories, by type, recent activity."""
     try:
@@ -1007,6 +1012,7 @@ def stats() -> str:
 
 
 @mcp.tool()
+@instrument("capture_context")
 def capture_context(context: str, source: str = "", project: str = "") -> str:
     """Automatically extract and store memories from raw conversation or session context.
 
@@ -1133,6 +1139,7 @@ def capture_context(context: str, source: str = "", project: str = "") -> str:
 
 
 @mcp.tool()
+@instrument("recall")
 def recall(memory_id: int) -> str:
     """Fetch the full content of a specific memory by ID.
 
@@ -1172,6 +1179,7 @@ def recall(memory_id: int) -> str:
 
 
 @mcp.tool()
+@instrument("annotate")
 def annotate(memory_id: int, note: str = "", clear: bool = False) -> str:
     """Attach a persistent note to an existing memory, or clear it.
 
@@ -1214,6 +1222,7 @@ def annotate(memory_id: int, note: str = "", clear: bool = False) -> str:
 
 
 @mcp.tool()
+@instrument("rate")
 def rate(memory_id: int, direction: str) -> str:
     """Rate a memory as useful (up) or not useful (down).
 
@@ -1242,6 +1251,7 @@ def rate(memory_id: int, direction: str) -> str:
 
 
 @mcp.tool()
+@instrument("prune")
 def prune(days: int = 90, min_access: int = 0, dry_run: bool = True) -> str:
     """Remove stale memories that haven't been useful.
 
@@ -1282,6 +1292,7 @@ def prune(days: int = 90, min_access: int = 0, dry_run: bool = True) -> str:
 
 
 @mcp.tool()
+@instrument("forget")
 def forget(memory_id: int) -> str:
     """Permanently delete a specific memory by its ID.
 
@@ -1302,6 +1313,7 @@ def forget(memory_id: int) -> str:
 
 
 @mcp.tool()
+@instrument("forget_many")
 def forget_many(memory_ids: list[int]) -> str:
     """Permanently delete multiple memories in a single call.
 
@@ -1319,6 +1331,7 @@ def forget_many(memory_ids: list[int]) -> str:
 
 
 @mcp.tool()
+@instrument("pin")
 def pin(memory_id: int) -> str:
     """Pin a memory so it always appears in search results for its project.
 
@@ -1357,6 +1370,7 @@ def pin(memory_id: int) -> str:
 
 
 @mcp.tool()
+@instrument("unpin")
 def unpin(memory_id: int) -> str:
     """Remove the pin from a memory, returning it to normal search behavior.
 
@@ -1381,6 +1395,7 @@ def unpin(memory_id: int) -> str:
 
 
 @mcp.tool()
+@instrument("scratch_set")
 def scratch_set(key: str, value: str) -> str:
     """Store a value in working memory (session scratchpad).
 
@@ -1397,6 +1412,7 @@ def scratch_set(key: str, value: str) -> str:
 
 
 @mcp.tool()
+@instrument("scratch_get")
 def scratch_get(key: str) -> str:
     """Retrieve a value from working memory (session scratchpad).
 
@@ -1411,6 +1427,7 @@ def scratch_get(key: str) -> str:
 
 
 @mcp.tool()
+@instrument("scratch_list")
 def scratch_list() -> str:
     """List all keys and values currently in working memory (session scratchpad).
 
@@ -1609,6 +1626,9 @@ if __name__ == "__main__":
                 print_first_run_notice(run_check_quiet())
             except Exception as e:
                 print(f"First-run check failed: {e}", file=sys.stderr)
+
+        # Observability startup
+        obs.startup(version="0.4.1")
 
         # Auto-migrate hybrid search schema if enabled
         try:

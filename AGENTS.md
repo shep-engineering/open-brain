@@ -2,6 +2,33 @@
 
 > **These rules are enforced by git hooks. Skipping steps will block commits.**
 
+## Open Brain: Check Availability First
+
+**Before anything else**, verify Open Brain is reachable by attempting `mcp0_search`.
+
+- If it **responds**: proceed normally with memory searches.
+- If it **fails** (connection refused, timeout, any error): **stop immediately** and tell the user:
+
+  > "Open Brain is not running. Please start it using the **'Open Brain ON'** shortcut on your Desktop, then let me know and I'll continue."
+
+Do NOT proceed with any task until Open Brain is confirmed running. Do NOT create new startup scripts — the correct ones already exist. Never replace or duplicate them.
+
+### How to start Open Brain by OS
+
+| OS | How to start | Script location |
+|----|-------------|-----------------|
+| **Windows** | Double-click **"Open Brain ON"** shortcut on Desktop | `F:\open-brain\scripts\windows\open-brain-on.cmd` |
+| **WSL / Linux / Mac** | `bash /path/to/open-brain/scripts/open-brain-on.sh` | `F:\open-brain\scripts\open-brain-on.sh` (WSL: `/mnt/f/open-brain/scripts/open-brain-on.sh`) |
+
+### How to stop Open Brain by OS
+
+| OS | How to stop | Script location |
+|----|------------|-----------------|
+| **Windows** | Double-click **"Open Brain OFF"** shortcut on Desktop | `F:\open-brain\scripts\windows\open-brain-off.cmd` |
+| **WSL / Linux / Mac** | `bash /path/to/open-brain/scripts/open-brain-off.sh` | `F:\open-brain\scripts\open-brain-off.sh` |
+
+---
+
 ## Session Start: Required
 
 Before any work, in order:
@@ -10,7 +37,7 @@ Before any work, in order:
 2. **Read checkpoints**: read `docs/planning/CONTEXT_CHECKPOINTS.md` if it exists.
 3. **Pre-work gate**, non-negotiable:
    ```bash
-   bash archetype-orchestrator/scripts/pre-work-check.sh
+   bash scripts/pre-work-check.sh "task description"
    ```
    This ensures you are on a feature branch, creates a rollback tag, and writes
    a task-start marker. If it fails, stop and resolve the issue before continuing.
@@ -44,7 +71,7 @@ universal governance rules still apply.
 At every meaningful milestone:
 
 ```bash
-bash archetype-orchestrator/scripts/context-checkpoint.sh "what was accomplished"
+bash scripts/context-checkpoint.sh "what was accomplished"
 ```
 
 If open-brain MCP is available, also call `capture_context` with decisions made,
@@ -65,7 +92,7 @@ Before any destructive action:
 Before declaring a task done:
 
 ```bash
-bash archetype-orchestrator/scripts/post-work-check.sh
+bash scripts/post-work-check.sh "what I tested and what passed"
 ```
 
 For release-impacting changes this requires:
@@ -76,8 +103,7 @@ For release-impacting changes this requires:
 ## Validation
 
 ```bash
-bash archetype-orchestrator/scripts/validate.sh          # staged changes
-bash archetype-orchestrator/scripts/validate.sh --all    # entire project
+bash scripts/post-work-check.sh "what I tested and what passed"
 ```
 
 Checks: secrets, code safety (eval/exec/SQL injection), config safety,
