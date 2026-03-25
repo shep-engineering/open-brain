@@ -314,7 +314,7 @@ class Dashboard(ctk.CTk):
         _ico = BASE_DIR / "assets" / "brain.ico"
         if _ico.exists():
             self.iconbitmap(str(_ico))
-        self.protocol("WM_DELETE_WINDOW", self.destroy)
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
         self._build_ui()
         self._schedule_refresh()
         self._tick_clock()
@@ -493,6 +493,65 @@ class Dashboard(ctk.CTk):
 
     def _manual_refresh(self):
         threading.Thread(target=self._fetch_and_update, daemon=True).start()
+
+    def _on_close(self):
+        """Show shutdown dialog when user clicks X."""
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Close Dashboard")
+        dialog.geometry("420x200")
+        dialog.configure(fg_color=BG)
+        dialog.resizable(False, False)
+        dialog.protocol("WM_DELETE_WINDOW", dialog.destroy)
+        dialog.bind("<Escape>", lambda e: dialog.destroy())
+
+        # Center over dashboard
+        self.update_idletasks()
+        x = self.winfo_x() + (self.winfo_width() - 420) // 2
+        y = self.winfo_y() + (self.winfo_height() - 200) // 2
+        dialog.geometry(f"420x200+{x}+{y}")
+        dialog.focus_force()
+
+        ctk.CTkLabel(dialog, text="Close Open Brain Dashboard?",
+                     font=("Segoe UI", 14, "bold"), text_color=WHITE).pack(pady=(24, 4))
+        ctk.CTkLabel(dialog, text="Optionally stop all Open Brain services.",
+                     font=("Segoe UI", 11), text_color=DIM).pack(pady=(0, 16))
+
+        btn_row = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_row.pack()
+
+        def just_close():
+            dialog.destroy()
+            self.destroy()
+
+        def close_and_stop():
+            dialog.destroy()
+            self._run_off_script()
+            self.destroy()
+
+        ctk.CTkButton(btn_row, text="Just Close", width=120, height=34,
+                      fg_color=PANEL, hover_color=BORDER, text_color=WHITE,
+                      corner_radius=8, command=just_close).pack(side="left", padx=6)
+        ctk.CTkButton(btn_row, text="Close + Stop Open Brain", width=180, height=34,
+                      fg_color="#2a1010", hover_color=RED, text_color=RED,
+                      corner_radius=8, command=close_and_stop).pack(side="left", padx=6)
+        ctk.CTkButton(btn_row, text="Cancel", width=80, height=34,
+                      fg_color=PANEL, hover_color=BORDER, text_color=DIM,
+                      corner_radius=8, command=dialog.destroy).pack(side="left", padx=6)
+
+    def _run_off_script(self):
+        """Run open-brain-off silently in background."""
+        off_script = BASE_DIR / "scripts" / "windows" / "open-brain-off.cmd"
+        off_sh     = BASE_DIR / "scripts" / "open-brain-off.sh"
+        try:
+            if IS_WINDOWS and off_script.exists():
+                subprocess.Popen(
+                    ["cmd", "/c", str(off_script)],
+                    creationflags=subprocess.CREATE_NEW_CONSOLE,
+                )
+            elif off_sh.exists():
+                subprocess.Popen(["bash", str(off_sh)])
+        except Exception:
+            pass
 
     def _start_service(self, svc: str):
         """Start a specific service that is down."""
