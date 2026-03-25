@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] - 2026-03-24
+
+### Added
+
+- **Working memory scratchpad**: Three new MCP tools (`scratch_set`, `scratch_get`, `scratch_list`)
+  provide an ephemeral key-value store that lives only for the current server session. Agents use
+  this to track in-session context (current task, active file, reasoning state) without polluting
+  long-term memory. Cleared automatically on server restart.
+- **Bi-temporal modelling**: `memories` table now has two time axes:
+  - `valid_time` — when the event actually happened (user-supplied via `remember(valid_time=...)`,
+    defaults to `NOW()`). Backfilled to `created_at` for existing rows.
+  - `transaction_time` — when Open Brain learned about it (always `NOW()` on insert, never changes).
+  - `search()` gains an `as_of` parameter: pass an ISO 8601 timestamp to retrieve only memories
+    whose `valid_time` is on or before that date. Ask "what did I know as of March 1st?"
+- `remember()` gains a `valid_time` parameter for backdating memories to when an event occurred.
+- Indexed both `valid_time` and `transaction_time` for efficient range queries.
+- Both migrations are idempotent and run automatically on startup.
+
 ## [0.4.1] - 2026-03-24
 
 ### Changed

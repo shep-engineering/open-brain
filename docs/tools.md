@@ -1,6 +1,6 @@
 # Tools Reference
 
-Open Brain exposes 12 MCP tools. Agents call most of these automatically, so you rarely need to invoke them yourself.
+Open Brain exposes 15 MCP tools. Agents call most of these automatically, so you rarely need to invoke them yourself.
 
 ---
 
@@ -47,6 +47,7 @@ Semantic search by meaning, not keywords. Returns previews (first 200 chars) to 
 | `project` | string | No | Filter to a specific project |
 | `since_days` | int | No | Only return memories created in the last N days (0 = no limit) |
 | `until_days` | int | No | Only return memories older than N days (0 = no limit) |
+| `as_of` | string | No | ISO 8601 timestamp. Only return memories whose `valid_time` ≤ this date (bi-temporal query). E.g. `'2025-03-01'` |
 | `source` | string | No | Agent identifier for compliance tracking |
 
 Results are ranked by a hybrid score: vector similarity (70%) + full-text rank (30%), multiplied by an uptime-based recency decay factor. Pinned memories for the project always appear first.
@@ -64,6 +65,20 @@ Fetch the full content of a memory by ID. Use after `search` to get complete tex
 | `memory_id` | int | Yes | The memory ID from search results |
 
 **Side effects:** Bumps `access_count`, updates `last_accessed`, and records `last_accessed_uptime` (used for decay scoring).
+
+---
+
+### `remember` (updated)
+
+Now accepts an optional `valid_time` parameter for bi-temporal backdating.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `content` | string | Yes | The thought or information to store |
+| `source` | string | No | Where captured from |
+| `type_override` | string | No | Override auto-detected type |
+| `project` | string | No | Project scope |
+| `valid_time` | string | No | ISO 8601 timestamp of when the event actually happened (e.g. `'2025-03-01'`). Defaults to now. Used for `as_of` queries. |
 
 ---
 
@@ -144,6 +159,39 @@ Batch-delete multiple memories by ID.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `memory_ids` | int[] | Yes | List of memory IDs to delete |
+
+---
+
+## Working Memory Tools
+
+Ephemeral key-value store for in-session context. **Cleared on every server restart.** Use for current task, active file, reasoning state. Use `remember` for persistent storage.
+
+### `scratch_set`
+
+Store a value in working memory.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `key` | string | Yes | Label for this context (e.g. `current_task`, `active_file`) |
+| `value` | string | Yes | The value to store |
+
+---
+
+### `scratch_get`
+
+Retrieve a value from working memory by key.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `key` | string | Yes | The label to look up |
+
+Returns `{"key": ..., "value": ..., "found": true/false}`.
+
+---
+
+### `scratch_list`
+
+List all keys and values currently in working memory. No parameters.
 
 ---
 

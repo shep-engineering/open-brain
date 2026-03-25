@@ -56,6 +56,8 @@ Your thought
 - **One-command wiring:** `python server.py wire` auto-discovers and configures every AI tool on your system.
 - **Smart batching:** Embeddings and metadata extraction are batched to avoid GPU model thrashing.
 - **Quality signals:** Rate memories up/down. Access tracking surfaces the most useful memories.
+- **Working memory:** Ephemeral scratchpad for in-session context. Three tools (`scratch_set`, `scratch_get`, `scratch_list`). Cleared on restart, never pollutes long-term memory.
+- **Bi-temporal modelling:** Two time axes per memory -- `valid_time` (when it happened) and `transaction_time` (when we learned it). Query with `as_of` to see what was known at any point in time.
 - **Pinned guardrails:** Pin workflow rules to a project so agents always see them.
 - **Project scoping:** Tag memories by project. Search within a project without noise from others.
 - **100% local:** PostgreSQL + pgvector + Ollama. No cloud. No API keys required. Your data stays yours.
@@ -81,5 +83,5 @@ Your thought
 
 - [Installation](getting-started/installation.md): Get up and running in ~15 minutes
 - [Wiring Agents](getting-started/wiring-agents.md): Connect your AI tools to the brain
-- [Tools Reference](tools.md): All 12 MCP tools explained
+- [Tools Reference](tools.md): All 15 MCP tools explained
 - [Architecture](architecture/overview.md): How it all fits together

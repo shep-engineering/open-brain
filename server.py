@@ -65,6 +65,14 @@ COMPLIANCE_WINDOW  = int(os.getenv("COMPLIANCE_WINDOW",  "300"))  # seconds
 
 _session_tracker: dict[str, float] = {}
 
+# ─── Working Memory (Session Scratchpad) ──────────────────────────────────────
+#
+# Ephemeral key-value store cleared on every server restart.
+# Agents use this for in-session context: current task, active file, goal, etc.
+# Nothing is persisted to the database.
+
+_scratch: dict[str, str] = {}
+
 # ─── Uptime Tracking ──────────────────────────────────────────────────────────
 #
 # Decay is based on cumulative server uptime, not wall-clock time.
@@ -274,14 +282,23 @@ def _get_conn() -> psycopg2.extensions.connection:
     return _conn
 
 
-def db_store(content: str, embedding: list[float], metadata: dict, project: str = "") -> dict:
+def db_store(content: str, embedding: list[float], metadata: dict, project: str = "", valid_time: str = "") -> dict:
     conn = _get_conn()
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute(
-            "INSERT INTO memories (content, embedding, metadata, project) VALUES (%s, %s::vector, %s, %s) "
-            "RETURNING id, content, metadata, created_at, project",
-            (content, _to_vec(embedding), json.dumps(metadata), project),
-        )
+        if valid_time:
+            cur.execute(
+                "INSERT INTO memories (content, embedding, metadata, project, valid_time, transaction_time) "
+                "VALUES (%s, %s::vector, %s, %s, %s::timestamptz, NOW()) "
+                "RETURNING id, content, metadata, created_at, project, valid_time, transaction_time",
+                (content, _to_vec(embedding), json.dumps(metadata), project, valid_time),
+            )
+        else:
+            cur.execute(
+                "INSERT INTO memories (content, embedding, metadata, project, valid_time, transaction_time) "
+                "VALUES (%s, %s::vector, %s, %s, NOW(), NOW()) "
+                "RETURNING id, content, metadata, created_at, project, valid_time, transaction_time",
+                (content, _to_vec(embedding), json.dumps(metadata), project),
+            )
         return _normalize_row(dict(cur.fetchone()))  # type: ignore[arg-type]
 
 
@@ -317,13 +334,13 @@ def db_update(memory_id: int, content: str, embedding: list[float], metadata: di
         return _normalize_row(dict(cur.fetchone()))
 
 
-def db_store_deduped(content: str, embedding: list[float], metadata: dict, project: str = "") -> tuple[dict, str]:
+def db_store_deduped(content: str, embedding: list[float], metadata: dict, project: str = "", valid_time: str = "") -> tuple[dict, str]:
     """Store a memory with dedup. Returns (memory_dict, action) where action is 'stored', 'updated', or 'skipped'."""
     # Safety net: block secrets even if caller forgot to check
     content = check_content(content)
     existing = db_find_duplicate(embedding)
     if existing is None:
-        return db_store(content, embedding, metadata, project), "stored"
+        return db_store(content, embedding, metadata, project, valid_time), "stored"
 
     # Duplicate found. If new content is longer (more detailed), update it.
     if len(content) > len(existing["content"]):
@@ -382,6 +399,7 @@ def db_search(
     project_filter: str | None = None,
     since_days: int = 0,
     until_days: int = 0,
+    as_of: str = "",
 ) -> list[dict]:
     conn = _get_conn()
     conditions: list[str] = []
@@ -409,6 +427,10 @@ def db_search(
     if until_days > 0:
         filter_params.append(until_days)
         conditions.append("created_at <= NOW() - INTERVAL '1 day' * %s")
+
+    if as_of:
+        filter_params.append(as_of)
+        conditions.append("valid_time <= %s::timestamptz")
 
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
@@ -542,6 +564,38 @@ def db_migrate_hybrid() -> None:
     print("[open-brain] hybrid search migration applied (fts column + GIN index)", file=sys.stderr)
 
 
+def db_migrate_bitemporal() -> None:
+    """Idempotent migration: add valid_time and transaction_time columns.
+    valid_time  = when the event actually happened (user-supplied, defaults to created_at)
+    transaction_time = when we learned about it (always set to NOW() on insert, never changes)
+    Safe to call on every startup."""
+    conn = _get_conn()
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_name='memories' AND column_name='valid_time' LIMIT 1"
+        )
+        if cur.fetchone() is not None:
+            return  # already migrated
+        cur.execute(
+            "ALTER TABLE memories "
+            "ADD COLUMN valid_time TIMESTAMPTZ, "
+            "ADD COLUMN transaction_time TIMESTAMPTZ NOT NULL DEFAULT NOW()"
+        )
+        # Back-fill: set both to created_at for existing rows
+        cur.execute(
+            "UPDATE memories SET valid_time = created_at, transaction_time = created_at "
+            "WHERE valid_time IS NULL"
+        )
+        cur.execute(
+            "CREATE INDEX idx_memories_valid_time ON memories (valid_time)"
+        )
+        cur.execute(
+            "CREATE INDEX idx_memories_transaction_time ON memories (transaction_time)"
+        )
+    print("[open-brain] bi-temporal migration applied (valid_time + transaction_time)", file=sys.stderr)
+
+
 def db_migrate_uptime() -> None:
     """Idempotent migration: create server_uptime table and add last_accessed_uptime column."""
     conn = _get_conn()
@@ -668,7 +722,7 @@ mcp = FastMCP("open-brain")
 
 
 @mcp.tool()
-def remember(content: str, source: str = "", type_override: str = "", project: str = "") -> str:
+def remember(content: str, source: str = "", type_override: str = "", project: str = "", valid_time: str = "") -> str:
     """Store a thought, note, decision, or information in your brain.
 
     Auto-detects type (decision/idea/meeting/task/etc), extracts people, topics,
@@ -682,6 +736,9 @@ def remember(content: str, source: str = "", type_override: str = "", project: s
             decision | idea | meeting | person | insight | task | journal | reference | note
         project: Project this memory belongs to (e.g. 'open-brain', 'my-app').
                  Empty string means global (not project-scoped).
+        valid_time: ISO 8601 timestamp of when this event actually happened
+                    (e.g. '2025-03-01' or '2025-03-01T14:30:00'). Defaults to now.
+                    Used for bi-temporal queries (as_of in search).
     """
     try:
         content = check_content(content)
@@ -691,7 +748,7 @@ def remember(content: str, source: str = "", type_override: str = "", project: s
             metadata["type"] = type_override
         if source:
             metadata["source"] = source
-        memory, action = db_store_deduped(content, embedding, metadata, project)
+        memory, action = db_store_deduped(content, embedding, metadata, project, valid_time)
         response = {
             "success":      True,
             "action":       action,
@@ -749,6 +806,7 @@ def search(
     source: str = "",
     since_days: int = 0,
     until_days: int = 0,
+    as_of: str = "",
 ) -> str:
     """Semantically search your brain by meaning -- not just keywords.
 
@@ -773,12 +831,15 @@ def search(
                 session compliance tracking.
         since_days: Only return memories created in the last N days (0 = no lower bound).
         until_days: Only return memories older than N days (0 = no upper bound).
+        as_of: ISO 8601 timestamp. Only return memories whose valid_time is on or before
+               this date (bi-temporal query). E.g. '2025-03-01' to see what was known
+               as of March 1st. Empty string = no filter.
     """
     try:
         embedding = get_embedding(query)
         memories  = db_search(
             embedding, query, min(limit, 50), type_filter or None,
-            people_filter, project or None, since_days, until_days,
+            people_filter, project or None, since_days, until_days, as_of,
         )
 
         # Record search for compliance tracking
@@ -1224,6 +1285,49 @@ def unpin(memory_id: int) -> str:
         return json.dumps({"success": False, "error": str(exc)})
 
 
+@mcp.tool()
+def scratch_set(key: str, value: str) -> str:
+    """Store a value in working memory (session scratchpad).
+
+    Working memory is ephemeral -- it is cleared every time the server restarts.
+    Use it for in-session context: current task, active file, goal, reasoning state.
+    For persistent storage use remember() instead.
+
+    Args:
+        key: A short label for this piece of context (e.g. 'current_task', 'active_file').
+        value: The value to store.
+    """
+    _scratch[key] = value
+    return json.dumps({"success": True, "key": key, "stored": True})
+
+
+@mcp.tool()
+def scratch_get(key: str) -> str:
+    """Retrieve a value from working memory (session scratchpad).
+
+    Returns the value stored under the given key, or null if not set.
+    Working memory is ephemeral and cleared on server restart.
+
+    Args:
+        key: The label to look up.
+    """
+    value = _scratch.get(key)
+    return json.dumps({"key": key, "value": value, "found": value is not None})
+
+
+@mcp.tool()
+def scratch_list() -> str:
+    """List all keys and values currently in working memory (session scratchpad).
+
+    Working memory is ephemeral and cleared on server restart.
+    Use this to inspect what context is currently active.
+    """
+    return json.dumps({
+        "count": len(_scratch),
+        "entries": dict(_scratch),
+    }, indent=2)
+
+
 # ─── Transport Helpers ─────────────────────────────────────────────────────────
 
 HTTP_PORT = int(os.getenv("OPEN_BRAIN_PORT", "8080"))
@@ -1357,6 +1461,12 @@ if __name__ == "__main__":
             db_migrate_hybrid()
         except Exception as e:
             print(f"[open-brain] hybrid migration failed (non-fatal): {e}", file=sys.stderr)
+
+        # Bi-temporal migration: valid_time + transaction_time columns
+        try:
+            db_migrate_bitemporal()
+        except Exception as e:
+            print(f"[open-brain] bi-temporal migration failed (non-fatal): {e}", file=sys.stderr)
 
         # Uptime tracking: migrate, load prior total, start flush thread
         try:

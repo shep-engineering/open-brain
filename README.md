@@ -483,6 +483,15 @@ On recall, agents call `search` automatically at the start of tasks to surface r
 | `prune` | User | Remove stale memories (older than N days with low access count). Supports dry-run preview. |
 | `forget` | User | Hard-delete a memory by ID |
 | `forget_many` | User | Batch-delete multiple memories by ID |
+| `scratch_set` | Agent or user | Store a key-value pair in working memory (ephemeral, cleared on restart) |
+| `scratch_get` | Agent or user | Retrieve a value from working memory by key |
+| `scratch_list` | Agent or user | List all current working memory entries |
+
+### v4.2 Features
+
+**Working memory scratchpad:** Three new tools (`scratch_set`, `scratch_get`, `scratch_list`) give agents an ephemeral key-value store for in-session context. Track current task, active file, reasoning state -- cleared automatically on restart. Never pollutes long-term memory.
+
+**Bi-temporal modelling:** Every memory now has two timestamps: `valid_time` (when the event happened, user-supplied) and `transaction_time` (when Open Brain learned about it). Pass `as_of='2025-03-01'` to `search()` to retrieve only what was known as of that date. Use `remember(valid_time='...')` to backdate memories.
 
 ### v4 Features
 
