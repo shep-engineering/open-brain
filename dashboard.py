@@ -308,6 +308,7 @@ class Dashboard(ctk.CTk):
         _ico = BASE_DIR / "assets" / "brain.ico"
         if _ico.exists():
             self.iconbitmap(str(_ico))
+        self.protocol("WM_DELETE_WINDOW", self.destroy)
         self._build_ui()
         self._schedule_refresh()
         self._tick_clock()
@@ -379,6 +380,7 @@ class Dashboard(ctk.CTk):
         row.pack(fill="x", padx=12, pady=8)
 
         self.svc_dots = {}
+        self.svc_btns = {}
         for svc in ("PostgreSQL", "Ollama", "MCP Server"):
             pill = ctk.CTkFrame(row, fg_color=PANEL, corner_radius=8,
                                 border_width=1, border_color=BORDER)
@@ -386,8 +388,16 @@ class Dashboard(ctk.CTk):
             dot = ctk.CTkLabel(pill, text="●", font=("Segoe UI", 14), text_color=DIM)
             dot.pack(side="left", padx=(12, 4), pady=6)
             ctk.CTkLabel(pill, text=svc, font=("Segoe UI", 12),
-                         text_color=DIM).pack(side="left", padx=(0, 14), pady=6)
+                         text_color=DIM).pack(side="left", padx=(0, 6), pady=6)
+            btn = ctk.CTkButton(pill, text="Start", width=52, height=22,
+                                fg_color="#1a2a1a", hover_color=GREEN,
+                                text_color=GREEN, corner_radius=5,
+                                font=("Segoe UI", 10),
+                                command=lambda s=svc: self._start_service(s))
+            btn.pack(side="left", padx=(0, 10), pady=4)
+            btn.pack_forget()  # hidden until service is down
             self.svc_dots[svc] = dot
+            self.svc_btns[svc] = btn
 
     def _build_obs_strip(self):
         """Thin observability metrics bar: calls, errors, error rate, top tool, last startup."""
@@ -478,6 +488,33 @@ class Dashboard(ctk.CTk):
     def _manual_refresh(self):
         threading.Thread(target=self._fetch_and_update, daemon=True).start()
 
+    def _start_service(self, svc: str):
+        """Start a specific service that is down."""
+        def _do():
+            if svc == "Ollama":
+                if IS_WINDOWS:
+                    subprocess.Popen(
+                        ["cmd", "/c",
+                         "set OLLAMA_NUM_GPU=2 && set CUDA_VISIBLE_DEVICES=0,1 && "
+                         "set OLLAMA_KEEP_ALIVE=30m && set OLLAMA_MAX_LOADED_MODELS=2 && "
+                         f"ollama serve >{BASE_DIR / 'logs' / 'ollama.log'} 2>&1"],
+                        creationflags=subprocess.CREATE_NO_WINDOW,
+                    )
+                else:
+                    subprocess.Popen(["ollama", "serve"])
+            elif svc == "PostgreSQL":
+                subprocess.run(
+                    ["docker", "start", "open-brain-db"],
+                    capture_output=True, timeout=10,
+                    **(dict(creationflags=_NO_WINDOW) if IS_WINDOWS else {}),
+                )
+            elif svc == "MCP Server":
+                self._restart_mcp()
+                return
+            self.after(3000, self._manual_refresh)
+        self.svc_btns[svc].configure(text="...", state="disabled")
+        threading.Thread(target=_do, daemon=True).start()
+
     def _restart_mcp(self):
         """Kill and restart the Open Brain MCP server process."""
         def _do_restart():
@@ -535,6 +572,12 @@ class Dashboard(ctk.CTk):
 
         for svc, state in (("PostgreSQL", db_state), ("Ollama", ollama), ("MCP Server", mcp)):
             self.svc_dots[svc].configure(text_color=color_map.get(state, DIM))
+            # Show Start button only when service is down
+            btn = self.svc_btns[svc]
+            if state in ("offline", "unknown"):
+                btn.pack(side="left", padx=(0, 10), pady=4)
+            else:
+                btn.pack_forget()
 
         sym = lambda s: "●" if s == "online" else "○"
         self.status_label.configure(
