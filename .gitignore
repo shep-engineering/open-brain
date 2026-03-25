@@ -32,9 +32,11 @@ check_schema.py
 test_mcp_start.sh
 
 # Runtime logs
+logs/
 *.log
 server-crash.log
 dashboard-crash.log
+dashboard-error.log
 
 # Editor
 .vscode/

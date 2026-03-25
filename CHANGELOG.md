@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.4] - 2026-03-25
+
+### Fixed
+
+- **Dashboard hang on launch**: DNS resolution of `localhost` blocked indefinitely
+  after customtkinter + OpenTelemetry initialization on Windows. Replaced all
+  `localhost` references with `127.0.0.1` in `dashboard.py`.
+- **Dashboard OTLP exporter freeze**: Full `telemetry.initialize()` started an OTLP
+  gRPC exporter that retried against a missing `localhost:4317` collector, blocking
+  threads. Dashboard now uses a JSONL-only span exporter (no network).
+- **Observability strip showing zeros**: `fetch_obs_metrics()` was reading from
+  `open-brain.jsonl` (legacy) instead of `otel-traces.jsonl` (active OTel traces).
+  Now reads MCP tool call spans from OTel traces.
+- **MCP status "Not responding"**: `check_mcp()` relied on WSL `pgrep` which fails
+  when the server runs as a native Windows process. Now uses OTel trace recency as
+  primary check (active span within 5 minutes = online).
+- **OTLP exporter timeout in server**: Added `timeout=2` and `export_timeout_millis=3000`
+  to the OTLP `BatchSpanProcessor` in `telemetry.py` so a missing collector never
+  blocks the MCP server.
+
+### Changed
+
+- **Event-driven dashboard refresh**: Replaced 10-second polling with PostgreSQL
+  `LISTEN/NOTIFY`. A `memories_notify` trigger fires `pg_notify('memories_changed')`
+  on INSERT/UPDATE/DELETE. Dashboard refreshes data widgets instantly on change.
+  Service health checks (Ollama, MCP) moved to a separate 60-second interval.
+- **Windows taskbar icon**: Set `SetCurrentProcessExplicitAppUserModelID` and
+  `SetProcessDpiAwareness` so the dashboard renders its own icon in the taskbar
+  instead of the generic Python icon.
+- **Logs excluded from git**: Added `logs/` to `.gitignore` and removed tracked
+  log files. Runtime logs should never be committed.
+
 ## [0.4.3] - 2026-03-24
 
 ### Added

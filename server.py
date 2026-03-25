@@ -566,8 +566,8 @@ def db_search(
             SELECT v.id, v.content, v.metadata, v.created_at, v.project,
                    v.annotation, v.upvotes, v.downvotes, v.access_count,
                    round(
-                       ({vec_weight} * v.vec_score + {fts_weight} * COALESCE(f.fts_score, 0))
-                       {decay_expr}
+                       (({vec_weight} * v.vec_score + {fts_weight} * COALESCE(f.fts_score, 0))
+                       {decay_expr})::numeric
                    , 4) AS similarity
             FROM vec_q v
             LEFT JOIN fts_q f ON v.id = f.id

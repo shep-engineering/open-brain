@@ -107,11 +107,16 @@ def initialize():
     )
 
     # Try OTLP (optional — fails silently if no collector running)
+    # Use short timeout + schedule delay so a missing collector never blocks the process
     if not DEV:
         try:
             from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
             _tracer_provider.add_span_processor(
-                BatchSpanProcessor(OTLPSpanExporter(endpoint=OTLP_EP, insecure=True))
+                BatchSpanProcessor(
+                    OTLPSpanExporter(endpoint=OTLP_EP, insecure=True, timeout=2),
+                    export_timeout_millis=3000,
+                    schedule_delay_millis=10000,
+                )
             )
         except Exception:
             pass

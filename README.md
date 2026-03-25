@@ -140,9 +140,11 @@ python server.py wire --check
 
 ### 7. Launch the Dashboard (Windows)
 
-A dark monitoring dashboard ships with Open Brain. It shows memory counts, service health, recent captures, and most-accessed memories — with clickable rows to read full content.
+A dark monitoring dashboard ships with Open Brain. It shows memory counts, service health (PostgreSQL, Ollama, MCP), recent captures, most-accessed memories, and an observability strip with tool call metrics from OpenTelemetry traces.
 
-**One-step launch** — the dashboard detects whether Open Brain is running and starts it automatically if not:
+**Live updates via PostgreSQL LISTEN/NOTIFY** -- the dashboard does not poll on a timer. A database trigger fires whenever memories are created, updated, or deleted, and the dashboard refreshes instantly. Service health checks (Ollama, MCP) run on a separate 60-second interval.
+
+**One-step launch** -- the dashboard detects whether Open Brain is running and starts it automatically if not:
 
 ```cmd
 # Double-click the Desktop shortcut (created below), or run directly:
@@ -156,10 +158,10 @@ powershell -ExecutionPolicy Bypass -File scripts\windows\create-desktop-shortcut
 ```
 
 This creates four shortcuts on your Desktop:
-- **Open Brain ON** — starts Docker, Postgres, Ollama, MCP server
-- **Open Brain OFF** — stops all services and frees VRAM
-- **Open Brain SSE Proxy** — starts the SSE bridge (for remote clients)
-- **Open Brain Dashboard** — monitoring GUI, auto-starts services if needed
+- **Open Brain ON** -- starts Docker, Postgres, Ollama, MCP server
+- **Open Brain OFF** -- stops all services and frees VRAM
+- **Open Brain SSE Proxy** -- starts the SSE bridge (for remote clients)
+- **Open Brain Dashboard** -- monitoring GUI, auto-starts services if needed
 
 > **Note:** The dashboard requires `customtkinter` and `pillow`, both included in `requirements.txt`.
 

@@ -21,7 +21,7 @@ ON_SCRIPT = BASE_DIR / "scripts" / "windows" / "open-brain-on.cmd"
 ON_SCRIPT_SH = BASE_DIR / "scripts" / "open-brain-on.sh"
 IS_WINDOWS = sys.platform == "win32"
 
-DB_URL = os.getenv("DATABASE_URL", "postgresql://postgres:password@localhost:5432/openbrain")
+DB_URL = os.getenv("DATABASE_URL", "postgresql://postgres:password@127.0.0.1:5432/openbrain")
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
@@ -43,12 +43,25 @@ OTEL_LOG   = BASE_DIR / "logs" / "otel-traces.jsonl"
 STARTUP_LOG = BASE_DIR / "logs" / "startup.log"
 
 # Initialize dashboard telemetry (own spans for refresh cycles)
+# Dashboard only needs the JSONL file exporter: skip OTLP (no collector) and
+# ConsoleSpanExporter (pythonw.exe has no console, would block or error).
+_dash_tracer = None
 try:
     import os as _os
     _os.environ.setdefault("OTEL_SERVICE_NAME", "open-brain-dashboard")
-    import telemetry as _tel
-    _tel.initialize()
-    _dash_tracer = _tel._tracer()
+    from opentelemetry import trace as _otrace
+    from opentelemetry.sdk.trace import TracerProvider as _TP
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor as _BSP
+    from opentelemetry.sdk.resources import Resource as _Res
+    from telemetry import _JSONLSpanExporter
+
+    _dash_res = _Res.create({"service.name": "open-brain-dashboard"})
+    _dash_tp = _TP(resource=_dash_res)
+    _dash_tp.add_span_processor(
+        _BSP(_JSONLSpanExporter(BASE_DIR / "logs" / "otel-traces.jsonl"))
+    )
+    _otrace.set_tracer_provider(_dash_tp)
+    _dash_tracer = _otrace.get_tracer("open-brain-dashboard")
 except Exception:
     _dash_tracer = None
 
@@ -157,49 +170,66 @@ def _tail_server_log(lines: int = 12):
 
 
 def fetch_obs_metrics() -> dict:
-    """Parse observability JSONL and return aggregated metrics for the dashboard."""
-    if not OBS_LOG.exists():
-        return {}
-    try:
-        counts: dict = {}
-        errors: dict = {}
-        times:  dict = {}
-        last_startup = None
-        with open(OBS_LOG, encoding="utf-8", errors="replace") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    e = json.loads(line)
-                except Exception:
-                    continue
-                evt = e.get("event", "")
-                if evt == "tool.call":
-                    tool = e.get("tool", "?")
+    """Parse OTel traces and return aggregated metrics for the dashboard."""
+    counts: dict = {}
+    errors: dict = {}
+    times:  dict = {}
+    last_startup = None
+
+    # Tool call metrics from OTel traces
+    if OTEL_LOG.exists():
+        try:
+            with open(OTEL_LOG, encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        e = json.loads(line)
+                    except Exception:
+                        continue
+                    attrs = e.get("attrs") or {}
+                    tool = attrs.get("mcp.tool")
+                    if not tool:
+                        continue
                     counts[tool] = counts.get(tool, 0) + 1
-                    if not e.get("success", True):
+                    if e.get("status") == "ERROR":
                         errors[tool] = errors.get(tool, 0) + 1
                     ms = e.get("duration_ms")
                     if ms is not None:
                         times.setdefault(tool, []).append(ms)
-                elif evt == "server.startup":
-                    last_startup = e.get("ts", "")
+        except Exception:
+            pass
 
-        total   = sum(counts.values())
-        errtotal= sum(errors.values())
-        avg_ms  = {t: round(sum(v)/len(v)) for t,v in times.items() if v}
-        top5    = sorted(counts.items(), key=lambda x: -x[1])[:5]
-        return {
-            "total_calls":  total,
-            "total_errors": errtotal,
-            "error_rate":   round(errtotal/total*100, 1) if total else 0.0,
-            "top_tools":    top5,
-            "avg_ms":       avg_ms,
-            "last_startup": last_startup,
-        }
-    except Exception:
-        return {}
+    # Last startup from observability log
+    if OBS_LOG.exists():
+        try:
+            with open(OBS_LOG, encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        e = json.loads(line)
+                    except Exception:
+                        continue
+                    if e.get("event") == "server.startup":
+                        last_startup = e.get("ts", "")
+        except Exception:
+            pass
+
+    total = sum(counts.values())
+    errtotal = sum(errors.values())
+    avg_ms = {t: round(sum(v)/len(v)) for t, v in times.items() if v}
+    top5 = sorted(counts.items(), key=lambda x: -x[1])[:5]
+    return {
+        "total_calls":  total,
+        "total_errors": errtotal,
+        "error_rate":   round(errtotal/total*100, 1) if total else 0.0,
+        "top_tools":    top5,
+        "avg_ms":       avg_ms,
+        "last_startup": last_startup,
+    }
 
 
 def is_db_up() -> bool:
@@ -294,50 +324,73 @@ def fetch_stats():
 def check_ollama():
     try:
         import urllib.request
-        urllib.request.urlopen("http://localhost:11434/api/tags", timeout=2)
+        urllib.request.urlopen("http://127.0.0.1:11434/api/tags", timeout=2)
         return "online"
     except Exception:
         return "offline"
 
 
 def check_mcp():
-    """Check if Open Brain MCP server process is running."""
+    """Check if Open Brain MCP server process is running (cross-platform)."""
+    from datetime import timezone
+
+    # Check 1: Recent OTel traces from the MCP server (most reliable —
+    # works regardless of how the server was started: Windows native, WSL, MCP client stdio)
+    if OTEL_LOG.exists():
+        try:
+            with open(OTEL_LOG, "rb") as f:
+                f.seek(0, 2)
+                size = f.tell()
+                f.seek(max(0, size - 8192))
+                tail = f.read().decode("utf-8", errors="replace")
+            for line in reversed(tail.strip().splitlines()):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    e = json.loads(line)
+                except Exception:
+                    continue
+                if e.get("service") != "open-brain":
+                    continue
+                ts = e.get("ts", "")
+                if ts:
+                    try:
+                        dt = datetime.fromisoformat(ts)
+                        age = (datetime.now(timezone.utc) - dt).total_seconds()
+                        if age < 300:  # active within 5 minutes
+                            return "online"
+                    except Exception:
+                        pass
+                break  # only check the most recent open-brain span
+        except Exception:
+            pass
+
+    # Check 2: Socket check (works if REST API is running on port 8765)
     try:
-        result = subprocess.run(
-            ["wsl", "-e", "bash", "-lc",
-             "pgrep -f 'server.py' > /dev/null 2>&1 && echo running || echo stopped"],
-            capture_output=True, text=True, timeout=3,
-            creationflags=_NO_WINDOW,
-        )
-        if "running" in result.stdout:
-            return "online"
-        # Fallback: check for the venv python process on Windows side
-        result2 = subprocess.run(
-            ["tasklist", "/FI", "IMAGENAME eq python.exe", "/FO", "CSV", "/NH"],
-            capture_output=True, text=True, timeout=3,
-            creationflags=_NO_WINDOW,
-        )
-        # MCP runs as python.exe — if any python process is alive, likely MCP is running
-        # (more precise: check port 8765 or the stdio server)
         import socket
         s = socket.socket()
         s.settimeout(1)
-        try:
-            s.connect(("localhost", 8765))
-            s.close()
-            return "online"
-        except Exception:
-            pass
-        # Last resort: tmux check
-        result3 = subprocess.run(
+        s.connect(("127.0.0.1", 8765))
+        s.close()
+        return "online"
+    except Exception:
+        pass
+
+    # Check 3: WSL tmux session
+    try:
+        result = subprocess.run(
             ["wsl", "-e", "bash", "-lc",
              "tmux list-sessions 2>/dev/null | grep -q openbrain && echo running || echo stopped"],
             capture_output=True, text=True, timeout=3,
             creationflags=_NO_WINDOW,
         )
-        return "online" if "running" in result3.stdout else "offline"
+        if "running" in result.stdout:
+            return "online"
     except Exception:
-        return "unknown"
+        pass
+
+    return "offline"
 
 
 class Dashboard(ctk.CTk):
@@ -351,10 +404,23 @@ class Dashboard(ctk.CTk):
         _ico = BASE_DIR / "assets" / "brain.ico"
         if _ico.exists():
             self.iconbitmap(str(_ico))
+            # iconbitmap gives a blurry taskbar icon; iconphoto passes full-res data
+            try:
+                from PIL import Image, ImageTk
+                _img = Image.open(str(_ico))
+                _img = _img.resize((256, 256), Image.LANCZOS)
+                self._icon_photo = ImageTk.PhotoImage(_img)
+                self.iconphoto(True, self._icon_photo)
+            except Exception:
+                pass
         self._alive = True
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self._build_ui()
-        self._schedule_refresh()
+        self._setup_notify_trigger()
+        self._start_listen_thread()
+        self._schedule_service_check()
+        # Initial data load
+        threading.Thread(target=self._fetch_and_update, daemon=True).start()
         self._tick_clock()
 
     # ── UI Construction ───────────────────────────────────────────────────────
@@ -538,13 +604,102 @@ class Dashboard(ctk.CTk):
         self.log_box.pack(fill="x", padx=10, pady=(2, 8))
         self._set_text(self.log_box, "  waiting for logs...")
 
-    # ── Data refresh ──────────────────────────────────────────────────────────
+    # ── Data refresh (event-driven via PostgreSQL LISTEN/NOTIFY) ─────────────
 
-    def _schedule_refresh(self):
+    def _setup_notify_trigger(self):
+        """Ensure the NOTIFY trigger exists on the memories table."""
+        try:
+            conn = db_connect()
+            conn.autocommit = True
+            cur = conn.cursor()
+            cur.execute("""
+                CREATE OR REPLACE FUNCTION notify_dashboard()
+                RETURNS trigger AS $$
+                BEGIN
+                    PERFORM pg_notify('memories_changed', TG_OP);
+                    RETURN NEW;
+                END;
+                $$ LANGUAGE plpgsql;
+            """)
+            cur.execute("""
+                DO $$ BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_trigger WHERE tgname = 'memories_notify'
+                    ) THEN
+                        CREATE TRIGGER memories_notify
+                        AFTER INSERT OR UPDATE OR DELETE ON memories
+                        FOR EACH STATEMENT EXECUTE FUNCTION notify_dashboard();
+                    END IF;
+                END $$;
+            """)
+            conn.close()
+        except Exception:
+            pass
+
+    def _start_listen_thread(self):
+        """Background thread that polls PostgreSQL LISTEN and pokes the GUI on changes."""
+        def _listen_loop():
+            while self._alive:
+                try:
+                    conn = db_connect()
+                    conn.set_isolation_level(0)  # autocommit required for LISTEN
+                    cur = conn.cursor()
+                    cur.execute("LISTEN memories_changed")
+                    while self._alive:
+                        conn.poll()
+                        if conn.notifies:
+                            conn.notifies.clear()
+                            if self._alive:
+                                self.after(0, self._on_db_changed)
+                        time.sleep(1)  # check every second
+                except Exception:
+                    if not self._alive:
+                        break
+                    time.sleep(3)  # reconnect backoff
+        threading.Thread(target=_listen_loop, daemon=True).start()
+
+    def _on_db_changed(self):
+        """Called on the GUI thread when the DB signals a change."""
+        threading.Thread(target=self._fetch_data_only, daemon=True).start()
+
+    def _schedule_service_check(self):
+        """Slow poll for service health (Ollama, MCP) — no DB strobe."""
         if not self._alive:
             return
-        threading.Thread(target=self._fetch_and_update, daemon=True).start()
-        self.after(10000, self._schedule_refresh)
+        threading.Thread(target=self._check_services, daemon=True).start()
+        self.after(60000, self._schedule_service_check)
+
+    def _check_services(self):
+        """Check Ollama + MCP status and update the UI."""
+        ollama = check_ollama()
+        mcp = check_mcp()
+        obs = fetch_obs_metrics()
+        if self._alive:
+            self.after(0, lambda: self._apply_services(ollama, mcp, obs))
+
+    def _fetch_data_only(self):
+        """Fetch DB stats and apply to UI (no service checks — triggered by NOTIFY)."""
+        stats = fetch_stats()
+        if self._alive:
+            self.after(0, lambda: self._apply_data(stats))
+
+    def _apply_data(self, stats):
+        """Update only the data-driven widgets (cards, charts, tables)."""
+        if not self._alive:
+            return
+        try:
+            self._apply_inner_data(stats)
+        except Exception:
+            pass
+
+    def _apply_services(self, ollama, mcp, obs_metrics):
+        """Update only the service status widgets."""
+        if not self._alive:
+            return
+        try:
+            self._apply_inner_services(ollama, mcp, obs_metrics)
+        except Exception:
+            pass
 
     def _manual_refresh(self):
         threading.Thread(target=self._fetch_and_update, daemon=True).start()
@@ -822,25 +977,27 @@ class Dashboard(ctk.CTk):
                 pass
 
     def _apply_inner(self, stats, ollama, mcp, obs_metrics=None):
-        db_state = "offline" if stats.get("error") else "online"
+        """Full refresh: services + data (used for initial load and manual refresh)."""
+        self._apply_inner_services(ollama, mcp, obs_metrics, stats)
+        self._apply_inner_data(stats)
+
+    def _apply_inner_services(self, ollama, mcp, obs_metrics=None, stats=None):
+        """Update service pills, titlebar dots, and observability strip only."""
+        db_state = "offline" if (stats and stats.get("error")) else "online"
         color_map = {"online": GREEN, "offline": RED, "unknown": YELLOW}
 
         for svc, state in (("PostgreSQL", db_state), ("Ollama", ollama), ("MCP Server", mcp)):
-            # Update both the dot character AND its color
             dot_color = color_map.get(state, DIM)
             dot_char  = "●" if state == "online" else ("◔" if state == "unknown" else "○")
             self.svc_dots[svc].configure(text=dot_char, text_color=dot_color)
-            # Show Start button only when service is down
             btn = self.svc_btns[svc]
             if state in ("offline", "unknown"):
                 btn.pack(side="left", padx=(0, 10), pady=4)
             else:
                 btn.pack_forget()
 
-        # Titlebar: separate colored label widgets per service
         self._update_titlebar_dots(db_state, ollama, mcp, color_map)
 
-        # Observability strip
         if obs_metrics:
             calls   = obs_metrics.get("total_calls", 0)
             errs    = obs_metrics.get("total_errors", 0)
@@ -855,6 +1012,8 @@ class Dashboard(ctk.CTk):
                 text_color=rate_color if errs > 0 else DIM,
             )
 
+    def _apply_inner_data(self, stats):
+        """Update stat cards, charts, and tables only (called on DB NOTIFY)."""
         if stats.get("error"):
             for card in self.stat_cards.values():
                 card.configure(text="ERR")
@@ -1055,6 +1214,15 @@ if __name__ == "__main__":
     import traceback
     log_path = BASE_DIR / "dashboard-crash.log"
     try:
+        if IS_WINDOWS:
+            import ctypes
+            # DPI-aware: render at native resolution so icon + text are crisp
+            ctypes.windll.shcore.SetProcessDpiAwareness(1)
+            # Tell Windows this is its own app, not "python.exe" — uses our icon in taskbar
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                "openbrain.dashboard"
+            )
+
         # Hidden root window — owns all subsequent windows
         root = ctk.CTk()
         root.withdraw()
