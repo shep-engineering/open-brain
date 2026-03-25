@@ -38,7 +38,8 @@ from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 
 from secrets_filter import check_content, SecretDetectedError
-from observability import obs, instrument
+import telemetry
+from telemetry import instrument
 
 # ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -1627,8 +1628,8 @@ if __name__ == "__main__":
             except Exception as e:
                 print(f"First-run check failed: {e}", file=sys.stderr)
 
-        # Observability startup
-        obs.startup(version="0.4.1")
+        # OpenTelemetry initialization (traces + metrics + auto-instrumentation)
+        telemetry.initialize()
 
         # Auto-migrate hybrid search schema if enabled
         try:

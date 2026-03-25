@@ -39,18 +39,55 @@ WHITE  = "#f0f0ff"
 
 OBS_LOG    = BASE_DIR / "logs" / "open-brain.jsonl"
 OLLAMA_LOG = BASE_DIR / "logs" / "ollama.log"
+OTEL_LOG   = BASE_DIR / "logs" / "otel-traces.jsonl"
+STARTUP_LOG = BASE_DIR / "logs" / "startup.log"
+
+# Initialize dashboard telemetry (own spans for refresh cycles)
+try:
+    import os as _os
+    _os.environ.setdefault("OTEL_SERVICE_NAME", "open-brain-dashboard")
+    import telemetry as _tel
+    _tel.initialize()
+    _dash_tracer = _tel._tracer()
+except Exception:
+    _dash_tracer = None
 
 # Suppress cmd window popups on Windows for all subprocess calls
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if IS_WINDOWS else 0
 
 
 def _tail_server_log(lines: int = 12):
-    """Return (lines_list, source_label) combining MCP + Ollama logs."""
+    """Return (lines_list, source_label) combining OTel traces + Ollama logs."""
     results = []
     sources = []
 
-    # 1. MCP observability JSONL
-    if OBS_LOG.exists():
+    # 1. OTel traces JSONL (primary — every span from server + dashboard)
+    if OTEL_LOG.exists():
+        try:
+            raw = OTEL_LOG.read_text(errors="replace").splitlines()
+            for line in raw[-80:]:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    e = json.loads(line)
+                    ts       = e.get("ts", "")
+                    svc      = e.get("service", "")[:12].ljust(12)
+                    span     = e.get("span", "")[:28].ljust(28)
+                    status   = e.get("status", "")
+                    dur      = e.get("duration_ms", "")
+                    tid      = e.get("trace_id", "")[-8:]  # last 8 chars
+                    ts_short = ts[11:23] if len(ts) > 11 else ts
+                    status_tag = " ERR" if status == "ERROR" else ""
+                    results.append((ts, f"[{svc}] {ts_short} {span} {dur}ms t:{tid}{status_tag}"))
+                except Exception:
+                    results.append(("", f"[otel]  {line[:100]}"))
+            sources.append("otel")
+        except Exception:
+            pass
+
+    # 2. Legacy MCP observability JSONL (fallback if otel not yet populated)
+    if not sources and OBS_LOG.exists():
         try:
             raw = OBS_LOG.read_text(errors="replace").splitlines()
             for line in raw[-50:]:
@@ -66,12 +103,11 @@ def _tail_server_log(lines: int = 12):
                     if e.get("tool"):         extra += f" {e['tool']}"
                     if e.get("duration_ms"):  extra += f" {e['duration_ms']:.0f}ms"
                     if e.get("error"):        extra += f" ERR:{e['error'][:35]}"
-                    if e.get("exc"):          extra += f" {e['exc'][:35]}"
                     ts_short = ts[11:23] if len(ts) > 11 else ts
                     results.append((ts, f"[MCP]    {ts_short} {lvl} {evt}{extra}"))
                 except Exception:
                     results.append(("", f"[MCP]    {line[:100]}"))
-            sources.append("mcp")
+            sources.append("mcp-legacy")
         except Exception:
             pass
 
@@ -652,6 +688,13 @@ class Dashboard(ctk.CTk):
             pass
 
     def _fetch_and_update(self):
+        if _dash_tracer:
+            with _dash_tracer.start_as_current_span("dashboard.refresh"):
+                self._do_fetch()
+        else:
+            self._do_fetch()
+
+    def _do_fetch(self):
         stats   = fetch_stats()
         ollama  = check_ollama()
         mcp     = check_mcp()
