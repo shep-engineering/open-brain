@@ -377,7 +377,16 @@ class Dashboard(ctk.CTk):
             bar, text="⬡  Open Brain", font=("Segoe UI", 18, "bold"), text_color=PURPLE
         ).pack(side="left", padx=16, pady=10)
 
-        self.status_label = ctk.CTkLabel(bar, text="", font=("Segoe UI", 12), text_color=DIM)
+        # Individual colored dot + label per service
+        self._title_dots = {}
+        for svc, abbr in (("PostgreSQL", "DB"), ("Ollama", "Ollama"), ("MCP Server", "MCP")):
+            dot = ctk.CTkLabel(bar, text="●", font=("Segoe UI", 12), text_color=BORDER)
+            dot.pack(side="left", padx=(8, 1), pady=10)
+            ctk.CTkLabel(bar, text=abbr, font=("Segoe UI", 12), text_color=DIM).pack(side="left", padx=(0, 4), pady=10)
+            self._title_dots[svc] = dot
+
+        # Status message area (used by Restart MCP progress)
+        self.status_label = ctk.CTkLabel(bar, text="", font=("Segoe UI", 11), text_color=DIM)
         self.status_label.pack(side="left", padx=12)
 
         self.clock_label = ctk.CTkLabel(bar, text="", font=("Consolas", 13), text_color=DIM)
@@ -804,12 +813,23 @@ class Dashboard(ctk.CTk):
         except Exception:
             pass
 
+    def _update_titlebar_dots(self, db_state, ollama, mcp, color_map):
+        """Update individual colored dot labels in the titlebar."""
+        for svc, state in (("PostgreSQL", db_state), ("Ollama", ollama), ("MCP Server", mcp)):
+            try:
+                self._title_dots[svc].configure(text_color=color_map.get(state, BORDER))
+            except Exception:
+                pass
+
     def _apply_inner(self, stats, ollama, mcp, obs_metrics=None):
         db_state = "offline" if stats.get("error") else "online"
         color_map = {"online": GREEN, "offline": RED, "unknown": YELLOW}
 
         for svc, state in (("PostgreSQL", db_state), ("Ollama", ollama), ("MCP Server", mcp)):
-            self.svc_dots[svc].configure(text_color=color_map.get(state, DIM))
+            # Update both the dot character AND its color
+            dot_color = color_map.get(state, DIM)
+            dot_char  = "●" if state == "online" else ("◔" if state == "unknown" else "○")
+            self.svc_dots[svc].configure(text=dot_char, text_color=dot_color)
             # Show Start button only when service is down
             btn = self.svc_btns[svc]
             if state in ("offline", "unknown"):
@@ -817,10 +837,8 @@ class Dashboard(ctk.CTk):
             else:
                 btn.pack_forget()
 
-        sym = lambda s: "●" if s == "online" else "○"
-        self.status_label.configure(
-            text=f"{sym(db_state)} DB   {sym(ollama)} Ollama   {sym(mcp)} MCP"
-        )
+        # Titlebar: separate colored label widgets per service
+        self._update_titlebar_dots(db_state, ollama, mcp, color_map)
 
         # Observability strip
         if obs_metrics:
