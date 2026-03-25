@@ -55,7 +55,9 @@ DEDUP_THRESHOLD    = float(os.getenv("DEDUP_THRESHOLD",  "0.92"))
 DECAY_LAMBDA            = float(os.getenv("OPEN_BRAIN_DECAY_LAMBDA",          "0.005"))
 HYBRID_WEIGHT           = float(os.getenv("OPEN_BRAIN_HYBRID_WEIGHT",         "0.3"))
 UPTIME_FLUSH_INTERVAL   = int(os.getenv("OPEN_BRAIN_UPTIME_FLUSH_INTERVAL",   "60"))
-COMPLIANCE_WINDOW  = int(os.getenv("COMPLIANCE_WINDOW",  "300"))  # seconds
+COMPLIANCE_WINDOW       = int(os.getenv("COMPLIANCE_WINDOW",                  "300"))  # seconds
+MERGE_LOWER_THRESHOLD   = float(os.getenv("OPEN_BRAIN_MERGE_LOWER_THRESHOLD", "0.70"))  # below this = unrelated
+CONSOLIDATION_INTERVAL  = int(os.getenv("OPEN_BRAIN_CONSOLIDATION_INTERVAL",  "0"))    # 0 = disabled
 
 # ─── Session Compliance Tracking ─────────────────────────────────────────────
 #
@@ -322,6 +324,28 @@ def db_find_duplicate(embedding: list[float], threshold: float = DEDUP_THRESHOLD
     return None
 
 
+def db_find_related(embedding: list[float], lower: float = MERGE_LOWER_THRESHOLD, upper: float = DEDUP_THRESHOLD) -> dict | None:
+    """Return the closest memory in the gray zone (lower <= sim < upper). Used for smart merge."""
+    conn = _get_conn()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            """
+            SELECT id, content, metadata, created_at,
+                   round((1 - (embedding <=> %s::vector))::numeric, 4) AS similarity
+            FROM memories
+            ORDER BY embedding <=> %s::vector
+            LIMIT 1
+            """,
+            (_to_vec(embedding), _to_vec(embedding)),
+        )
+        row = cur.fetchone()
+        if row:
+            sim = float(row["similarity"])
+            if lower <= sim < upper:
+                return _normalize_row(dict(row))
+    return None
+
+
 def db_update(memory_id: int, content: str, embedding: list[float], metadata: dict) -> dict:
     """Update an existing memory's content, embedding, and metadata."""
     conn = _get_conn()
@@ -334,21 +358,92 @@ def db_update(memory_id: int, content: str, embedding: list[float], metadata: di
         return _normalize_row(dict(cur.fetchone()))
 
 
+def _llm_merge_decision(new_content: str, existing_content: str) -> str:
+    """Ask the LLM whether to ADD, MERGE, REPLACE, or SKIP.
+    Returns one of those four strings. Falls back to 'ADD' on any error."""
+    prompt = (
+        "You are a memory manager. Decide how to handle a new memory given an existing one.\n"
+        "Reply with ONLY one word: ADD, MERGE, REPLACE, or SKIP.\n\n"
+        "Rules:\n"
+        "- ADD: new memory is distinct enough to store separately\n"
+        "- MERGE: new memory adds detail, context, or nuance to the existing one -- combine them\n"
+        "- REPLACE: new memory contradicts or supersedes the existing one\n"
+        "- SKIP: new memory is essentially a repeat of the existing one\n\n"
+        f"Existing: {existing_content[:500]}\n\n"
+        f"New: {new_content[:500]}\n\n"
+        "Decision:"
+    )
+    try:
+        result = _http_post(
+            f"{OLLAMA_BASE_URL}/api/generate",
+            {"model": METADATA_LLM_MODEL, "prompt": prompt, "stream": False},
+        )
+        decision = result.get("response", "").strip().upper().split()[0]
+        if decision in ("ADD", "MERGE", "REPLACE", "SKIP"):
+            return decision
+    except Exception:
+        pass
+    return "ADD"
+
+
+def _llm_merge_content(new_content: str, existing_content: str) -> str:
+    """Ask the LLM to write a single merged memory from two related ones."""
+    prompt = (
+        "Combine these two related memories into one concise, complete memory.\n"
+        "Preserve all unique facts from both. Write in the same style as the inputs.\n"
+        "Reply with ONLY the merged memory text, no preamble.\n\n"
+        f"Memory 1: {existing_content}\n\n"
+        f"Memory 2: {new_content}\n\n"
+        "Merged memory:"
+    )
+    try:
+        result = _http_post(
+            f"{OLLAMA_BASE_URL}/api/generate",
+            {"model": METADATA_LLM_MODEL, "prompt": prompt, "stream": False},
+        )
+        merged = result.get("response", "").strip()
+        if merged:
+            return merged
+    except Exception:
+        pass
+    # Fallback: concatenate
+    return f"{existing_content}\n\nUpdate: {new_content}"
+
+
 def db_store_deduped(content: str, embedding: list[float], metadata: dict, project: str = "", valid_time: str = "") -> tuple[dict, str]:
-    """Store a memory with dedup. Returns (memory_dict, action) where action is 'stored', 'updated', or 'skipped'."""
+    """Store a memory with dedup + smart LLM merge. Returns (memory_dict, action).
+    action is one of: 'stored', 'updated', 'merged', 'replaced', 'skipped'."""
     # Safety net: block secrets even if caller forgot to check
     content = check_content(content)
+
+    # Phase 1: exact dedup (similarity >= DEDUP_THRESHOLD)
     existing = db_find_duplicate(embedding)
-    if existing is None:
-        return db_store(content, embedding, metadata, project, valid_time), "stored"
+    if existing is not None:
+        if len(content) > len(existing["content"]):
+            memory = db_update(existing["id"], content, embedding, metadata)
+            return memory, "updated"
+        return existing, "skipped"
 
-    # Duplicate found. If new content is longer (more detailed), update it.
-    if len(content) > len(existing["content"]):
-        memory = db_update(existing["id"], content, embedding, metadata)
-        return memory, "updated"
+    # Phase 2: smart merge (similarity in gray zone, LLM required)
+    if METADATA_LLM_MODEL:
+        related = db_find_related(embedding)
+        if related is not None:
+            decision = _llm_merge_decision(content, related["content"])
+            if decision == "SKIP":
+                return related, "skipped"
+            elif decision == "REPLACE":
+                memory = db_update(related["id"], content, embedding, metadata)
+                return memory, "replaced"
+            elif decision == "MERGE":
+                merged_content = _llm_merge_content(content, related["content"])
+                merged_content = check_content(merged_content)
+                merged_embedding = get_embedding(merged_content)
+                merged_meta = extract_metadata(merged_content)
+                memory = db_update(related["id"], merged_content, merged_embedding, merged_meta)
+                return memory, "merged"
+            # decision == "ADD": fall through to store
 
-    # Existing is already as good or better; skip.
-    return existing, "skipped"
+    return db_store(content, embedding, metadata, project, valid_time), "stored"
 
 
 def db_get_pinned(project_filter: str) -> list[dict]:
@@ -1379,6 +1474,65 @@ def _run_all(mcp_host: str, mcp_port: int, rest_host: str, rest_port: int) -> No
     _run_stdio()
 
 
+def _consolidation_loop(interval_seconds: int) -> None:
+    """Background thread: periodically scan for related memories and merge them using the LLM.
+    Only runs if METADATA_LLM_MODEL and OPEN_BRAIN_CONSOLIDATION_INTERVAL are set."""
+    while True:
+        time.sleep(interval_seconds)
+        try:
+            conn = _get_conn()
+            # Fetch all memories ordered by oldest first, in batches
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(
+                    "SELECT id, content, embedding::text, metadata FROM memories "
+                    "WHERE pinned = FALSE ORDER BY created_at ASC LIMIT 200"
+                )
+                rows = [dict(r) for r in cur.fetchall()]
+
+            merged_count = 0
+            seen_ids: set[int] = set()
+            for row in rows:
+                if row["id"] in seen_ids:
+                    continue
+                # Parse embedding back to list
+                try:
+                    emb_str = row["embedding"].strip("[]")
+                    emb = [float(x) for x in emb_str.split(",")]
+                except Exception:
+                    continue
+                related = db_find_related(emb)
+                if related is None or related["id"] in seen_ids or related["id"] == row["id"]:
+                    continue
+                decision = _llm_merge_decision(row["content"], related["content"])
+                if decision == "MERGE":
+                    merged_content = _llm_merge_content(row["content"], related["content"])
+                    try:
+                        merged_content = check_content(merged_content)
+                    except Exception:
+                        continue
+                    merged_emb = get_embedding(merged_content)
+                    merged_meta = extract_metadata(merged_content)
+                    # Keep the older memory (related), update it with merged content
+                    db_update(related["id"], merged_content, merged_emb, merged_meta)
+                    # Delete the newer duplicate
+                    db_delete(row["id"])
+                    seen_ids.add(row["id"])
+                    seen_ids.add(related["id"])
+                    merged_count += 1
+                elif decision == "REPLACE":
+                    db_update(related["id"], row["content"], emb,
+                              row["metadata"] if isinstance(row["metadata"], dict) else {})
+                    db_delete(row["id"])
+                    seen_ids.add(row["id"])
+                    seen_ids.add(related["id"])
+                    merged_count += 1
+
+            if merged_count > 0:
+                print(f"[open-brain] consolidation: merged/replaced {merged_count} memories", file=sys.stderr)
+        except Exception as e:
+            print(f"[open-brain] consolidation error (non-fatal): {e}", file=sys.stderr)
+
+
 def _periodic_check(interval_hours: int) -> None:
     """Background thread: check for unwired agents on an interval."""
     from wire import run_check_quiet, print_first_run_notice
@@ -1499,6 +1653,16 @@ if __name__ == "__main__":
                 daemon=True,
             )
             t.start()
+
+        # Background consolidation (LLM-driven merge/dedup)
+        if METADATA_LLM_MODEL and CONSOLIDATION_INTERVAL > 0:
+            t_consolidate = threading.Thread(
+                target=_consolidation_loop,
+                args=(CONSOLIDATION_INTERVAL,),
+                daemon=True,
+            )
+            t_consolidate.start()
+            print(f"[open-brain] consolidation thread started (every {CONSOLIDATION_INTERVAL}s)", file=sys.stderr)
 
         # Start transport
         if args.transport == "http":

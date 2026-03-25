@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.3] - 2026-03-24
+
+### Added
+
+- **Smart UPDATE/MERGE on store**: When a new memory is semantically related but not an
+  exact duplicate (similarity in `[MERGE_LOWER_THRESHOLD, DEDUP_THRESHOLD)`), the LLM
+  decides whether to `ADD`, `MERGE`, `REPLACE`, or `SKIP`:
+  - `MERGE` — LLM writes a single combined memory preserving all unique facts from both
+  - `REPLACE` — new memory contradicts/supersedes the existing one; old is overwritten
+  - `SKIP` — new memory is essentially a repeat; stored as-is to existing
+  - `ADD` — new memory is distinct enough to store separately (default / fallback)
+  - `action` field in `remember()` / `capture_context()` responses now includes `"merged"`
+    and `"replaced"` in addition to existing `"stored"`, `"updated"`, `"skipped"`.
+- **Background consolidation thread**: When `OPEN_BRAIN_CONSOLIDATION_INTERVAL > 0` and
+  `METADATA_LLM_MODEL` is set, a background thread periodically scans all memories and
+  merges/replaces related ones using the LLM. Disabled by default (`0`).
+- `OPEN_BRAIN_MERGE_LOWER_THRESHOLD` env var (default `0.70`) — controls the lower bound
+  of the smart-merge gray zone.
+- `OPEN_BRAIN_CONSOLIDATION_INTERVAL` env var (default `0`, disabled) — seconds between
+  background consolidation passes.
+- Set `METADATA_LLM_MODEL=qwen2.5:14b` as the default metadata/merge LLM (local Ollama).
+
 ## [0.4.2] - 2026-03-24
 
 ### Added
