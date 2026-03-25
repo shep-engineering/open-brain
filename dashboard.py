@@ -377,8 +377,8 @@ class Dashboard(ctk.CTk):
             card.pack(side="left", expand=True, fill="x", padx=5)
             ctk.CTkLabel(card, text=label, font=("Segoe UI", 11),
                          text_color=DIM).pack(pady=(12, 0))
-            val = ctk.CTkLabel(card, text="—", font=("Segoe UI", 28, "bold"),
-                               text_color=color)
+            val = ctk.CTkLabel(card, text="…", font=("Segoe UI", 28, "bold"),
+                               text_color=BORDER)  # dim loading placeholder
             val.pack(pady=(2, 12))
             self.stat_cards[key] = val
 
@@ -392,7 +392,7 @@ class Dashboard(ctk.CTk):
             pill = ctk.CTkFrame(row, fg_color=PANEL, corner_radius=8,
                                 border_width=1, border_color=BORDER)
             pill.pack(side="left", padx=6, pady=2)
-            dot = ctk.CTkLabel(pill, text="●", font=("Segoe UI", 14), text_color=DIM)
+            dot = ctk.CTkLabel(pill, text="◌", font=("Segoe UI", 14), text_color=BORDER)  # loading ring
             dot.pack(side="left", padx=(12, 4), pady=6)
             ctk.CTkLabel(pill, text=svc, font=("Segoe UI", 12),
                          text_color=DIM).pack(side="left", padx=(0, 6), pady=6)
@@ -412,8 +412,8 @@ class Dashboard(ctk.CTk):
         strip.pack(fill="x", padx=0, pady=0)
         strip.pack_propagate(False)
         self._obs_label = ctk.CTkLabel(
-            strip, text="  Observability: loading...",
-            font=("Consolas", 11), text_color=DIM, anchor="w",
+            strip, text="  Observability: fetching metrics...",
+            font=("Consolas", 11), text_color=BORDER, anchor="w",
         )
         self._obs_label.pack(side="left", padx=12, fill="x")
 
@@ -429,6 +429,7 @@ class Dashboard(ctk.CTk):
         self.type_box = ctk.CTkTextbox(type_panel, fg_color=PANEL, text_color=WHITE,
                                        font=("Consolas", 12), height=170, border_width=0)
         self.type_box.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        self._set_text(self.type_box, "  loading...")
 
         proj_panel = ctk.CTkFrame(row, fg_color=PANEL, corner_radius=10,
                                   border_width=1, border_color=BORDER)
@@ -438,6 +439,7 @@ class Dashboard(ctk.CTk):
         self.proj_box = ctk.CTkTextbox(proj_panel, fg_color=PANEL, text_color=WHITE,
                                        font=("Consolas", 12), height=170, border_width=0)
         self.proj_box.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        self._set_text(self.proj_box, "  loading...")
 
     def _build_tables(self):
         row = ctk.CTkFrame(self, fg_color=BG)
@@ -454,6 +456,8 @@ class Dashboard(ctk.CTk):
         self.recent_scroll = ctk.CTkScrollableFrame(recent_panel, fg_color=PANEL,
                                                     scrollbar_button_color=BORDER)
         self.recent_scroll.pack(fill="both", expand=True, padx=6, pady=(0, 8))
+        ctk.CTkLabel(self.recent_scroll, text="Loading memories...",
+                     font=("Segoe UI", 11), text_color=BORDER).pack(pady=20)
 
         # Hot
         hot_panel = ctk.CTkFrame(row, fg_color=PANEL, corner_radius=10,
@@ -466,6 +470,8 @@ class Dashboard(ctk.CTk):
         self.hot_scroll = ctk.CTkScrollableFrame(hot_panel, fg_color=PANEL,
                                                  scrollbar_button_color=BORDER)
         self.hot_scroll.pack(fill="both", expand=True, padx=6, pady=(0, 8))
+        ctk.CTkLabel(self.hot_scroll, text="Loading memories...",
+                     font=("Segoe UI", 11), text_color=BORDER).pack(pady=20)
 
     def _build_log_panel(self):
         panel = ctk.CTkFrame(self, fg_color=PANEL, corner_radius=10,
@@ -484,7 +490,7 @@ class Dashboard(ctk.CTk):
         self.log_box = ctk.CTkTextbox(panel, fg_color=PANEL, text_color="#88ffcc",
                                       font=("Consolas", 10), border_width=0, height=90)
         self.log_box.pack(fill="x", padx=10, pady=(2, 8))
-        self.log_box.configure(state="disabled")
+        self._set_text(self.log_box, "  waiting for logs...")
 
     # ── Data refresh ──────────────────────────────────────────────────────────
 
