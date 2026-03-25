@@ -314,6 +314,7 @@ class Dashboard(ctk.CTk):
         _ico = BASE_DIR / "assets" / "brain.ico"
         if _ico.exists():
             self.iconbitmap(str(_ico))
+        self._alive = True
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self._build_ui()
         self._schedule_refresh()
@@ -488,6 +489,8 @@ class Dashboard(ctk.CTk):
     # ── Data refresh ──────────────────────────────────────────────────────────
 
     def _schedule_refresh(self):
+        if not self._alive:
+            return
         threading.Thread(target=self._fetch_and_update, daemon=True).start()
         self.after(10000, self._schedule_refresh)
 
@@ -509,10 +512,12 @@ class Dashboard(ctk.CTk):
                      font=("Segoe UI", 11), text_color=DIM).pack(pady=(0, 24), padx=30)
 
         def just_close():
+            self._alive = False
             dialog.destroy()
             self.destroy()
 
         def close_and_stop():
+            self._alive = False
             dialog.destroy()
             self._run_off_script()
             self.destroy()
@@ -533,12 +538,17 @@ class Dashboard(ctk.CTk):
 
         # Defer geometry until after widgets are laid out
         def _center():
-            dialog.update_idletasks()
-            w, h = 400, dialog.winfo_reqheight() + 20
-            x = self.winfo_x() + (self.winfo_width()  - w) // 2
-            y = self.winfo_y() + (self.winfo_height() - h) // 2
-            dialog.geometry(f"{w}x{h}+{x}+{y}")
-            dialog.focus_force()
+            try:
+                if not dialog.winfo_exists():
+                    return
+                dialog.update_idletasks()
+                w, h = 400, dialog.winfo_reqheight() + 20
+                x = self.winfo_x() + (self.winfo_width()  - w) // 2
+                y = self.winfo_y() + (self.winfo_height() - h) // 2
+                dialog.geometry(f"{w}x{h}+{x}+{y}")
+                dialog.focus_force()
+            except Exception:
+                pass
         dialog.after(50, _center)
 
     def _run_off_script(self):
@@ -610,6 +620,8 @@ class Dashboard(ctk.CTk):
         self.after(4000, self._manual_refresh)
 
     def _tick_clock(self):
+        if not self._alive:
+            return
         self.clock_label.configure(text=datetime.now().strftime("%H:%M:%S"))
         self.after(1000, self._tick_clock)
         # Refresh log every 2 seconds
@@ -618,7 +630,8 @@ class Dashboard(ctk.CTk):
 
     def _refresh_log(self):
         lines, source = _tail_server_log()
-        self.after(0, lambda: self._apply_log(lines, source))
+        if self._alive:
+            self.after(0, lambda: self._apply_log(lines, source))
 
     def _apply_log(self, lines, source):
         self._log_source_label.configure(text=source)
@@ -630,7 +643,8 @@ class Dashboard(ctk.CTk):
         ollama  = check_ollama()
         mcp     = check_mcp()
         obs     = fetch_obs_metrics()
-        self.after(0, lambda: self._apply(stats, ollama, mcp, obs))
+        if self._alive:
+            self.after(0, lambda: self._apply(stats, ollama, mcp, obs))
 
     # ── Apply data to widgets ─────────────────────────────────────────────────
 
