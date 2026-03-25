@@ -34,10 +34,7 @@ from opentelemetry.sdk.metrics.export import (
     ConsoleMetricExporter, PeriodicExportingMetricReader,
 )
 from opentelemetry.sdk.resources import Resource
-from opentelemetry.sdk.logs import LoggerProvider, LoggingHandler
-from opentelemetry.sdk.logs.export import BatchLogRecordProcessor, ConsoleLogExporter
 from opentelemetry.trace import StatusCode
-from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
 # ── Config ────────────────────────────────────────────────────────────────────
 SERVICE  = os.getenv("OTEL_SERVICE_NAME",     "open-brain")
