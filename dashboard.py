@@ -622,7 +622,10 @@ class Dashboard(ctk.CTk):
     def _tick_clock(self):
         if not self._alive:
             return
-        self.clock_label.configure(text=datetime.now().strftime("%H:%M:%S"))
+        try:
+            self.clock_label.configure(text=datetime.now().strftime("%H:%M:%S"))
+        except Exception:
+            return
         self.after(1000, self._tick_clock)
         # Refresh log every 2 seconds
         if int(datetime.now().second) % 2 == 0:
@@ -634,9 +637,12 @@ class Dashboard(ctk.CTk):
             self.after(0, lambda: self._apply_log(lines, source))
 
     def _apply_log(self, lines, source):
-        self._log_source_label.configure(text=source)
-        self._set_text(self.log_box, "\n".join(lines))
-        self.log_box.see("end")
+        try:
+            self._log_source_label.configure(text=source)
+            self._set_text(self.log_box, "\n".join(lines))
+            self.log_box.see("end")
+        except Exception:
+            pass
 
     def _fetch_and_update(self):
         stats   = fetch_stats()
@@ -649,6 +655,14 @@ class Dashboard(ctk.CTk):
     # ── Apply data to widgets ─────────────────────────────────────────────────
 
     def _apply(self, stats, ollama, mcp, obs_metrics=None):
+        if not self._alive:
+            return
+        try:
+            self._apply_inner(stats, ollama, mcp, obs_metrics)
+        except Exception:
+            pass
+
+    def _apply_inner(self, stats, ollama, mcp, obs_metrics=None):
         db_state = "offline" if stats.get("error") else "online"
         color_map = {"online": GREEN, "offline": RED, "unknown": YELLOW}
 
