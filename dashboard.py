@@ -498,26 +498,15 @@ class Dashboard(ctk.CTk):
         """Show shutdown dialog when user clicks X."""
         dialog = ctk.CTkToplevel(self)
         dialog.title("Close Dashboard")
-        dialog.geometry("420x200")
         dialog.configure(fg_color=BG)
         dialog.resizable(False, False)
         dialog.protocol("WM_DELETE_WINDOW", dialog.destroy)
         dialog.bind("<Escape>", lambda e: dialog.destroy())
 
-        # Center over dashboard
-        self.update_idletasks()
-        x = self.winfo_x() + (self.winfo_width() - 420) // 2
-        y = self.winfo_y() + (self.winfo_height() - 200) // 2
-        dialog.geometry(f"420x200+{x}+{y}")
-        dialog.focus_force()
-
-        ctk.CTkLabel(dialog, text="Close Open Brain Dashboard?",
-                     font=("Segoe UI", 14, "bold"), text_color=WHITE).pack(pady=(24, 4))
-        ctk.CTkLabel(dialog, text="Optionally stop all Open Brain services.",
-                     font=("Segoe UI", 11), text_color=DIM).pack(pady=(0, 16))
-
-        btn_row = ctk.CTkFrame(dialog, fg_color="transparent")
-        btn_row.pack()
+        ctk.CTkLabel(dialog, text="⬡  Close Open Brain Dashboard?",
+                     font=("Segoe UI", 15, "bold"), text_color=WHITE).pack(pady=(30, 6), padx=30)
+        ctk.CTkLabel(dialog, text="Would you also like to stop all Open Brain services?",
+                     font=("Segoe UI", 11), text_color=DIM).pack(pady=(0, 24), padx=30)
 
         def just_close():
             dialog.destroy()
@@ -528,15 +517,29 @@ class Dashboard(ctk.CTk):
             self._run_off_script()
             self.destroy()
 
-        ctk.CTkButton(btn_row, text="Just Close", width=120, height=34,
+        W = 340
+        ctk.CTkButton(dialog, text="🔴  Close + Stop Open Brain", width=W, height=40,
+                      fg_color="#2a1010", hover_color=RED, text_color="#ff6b6b",
+                      font=("Segoe UI", 12, "bold"),
+                      corner_radius=8, command=close_and_stop).pack(pady=(0, 8), padx=30)
+        ctk.CTkButton(dialog, text="Just Close Dashboard", width=W, height=40,
                       fg_color=PANEL, hover_color=BORDER, text_color=WHITE,
-                      corner_radius=8, command=just_close).pack(side="left", padx=6)
-        ctk.CTkButton(btn_row, text="Close + Stop Open Brain", width=180, height=34,
-                      fg_color="#2a1010", hover_color=RED, text_color=RED,
-                      corner_radius=8, command=close_and_stop).pack(side="left", padx=6)
-        ctk.CTkButton(btn_row, text="Cancel", width=80, height=34,
-                      fg_color=PANEL, hover_color=BORDER, text_color=DIM,
-                      corner_radius=8, command=dialog.destroy).pack(side="left", padx=6)
+                      font=("Segoe UI", 12),
+                      corner_radius=8, command=just_close).pack(pady=(0, 8), padx=30)
+        ctk.CTkButton(dialog, text="Cancel", width=W, height=36,
+                      fg_color="transparent", hover_color=PANEL, text_color=DIM,
+                      font=("Segoe UI", 11),
+                      corner_radius=8, command=dialog.destroy).pack(pady=(0, 20), padx=30)
+
+        # Defer geometry until after widgets are laid out
+        def _center():
+            dialog.update_idletasks()
+            w, h = 400, dialog.winfo_reqheight() + 20
+            x = self.winfo_x() + (self.winfo_width()  - w) // 2
+            y = self.winfo_y() + (self.winfo_height() - h) // 2
+            dialog.geometry(f"{w}x{h}+{x}+{y}")
+            dialog.focus_force()
+        dialog.after(50, _center)
 
     def _run_off_script(self):
         """Run open-brain-off silently in background."""
