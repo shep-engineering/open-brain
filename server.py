@@ -52,8 +52,9 @@ OPENAI_API_KEY     = os.getenv("OPENAI_API_KEY",         "")
 OPENAI_EMBED_MODEL = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
 METADATA_LLM_MODEL = os.getenv("METADATA_LLM_MODEL",    "")
 DEDUP_THRESHOLD    = float(os.getenv("DEDUP_THRESHOLD",  "0.92"))
-DECAY_LAMBDA       = float(os.getenv("OPEN_BRAIN_DECAY_LAMBDA",  "0.005"))
-HYBRID_WEIGHT      = float(os.getenv("OPEN_BRAIN_HYBRID_WEIGHT", "0.3"))
+DECAY_LAMBDA            = float(os.getenv("OPEN_BRAIN_DECAY_LAMBDA",          "0.005"))
+HYBRID_WEIGHT           = float(os.getenv("OPEN_BRAIN_HYBRID_WEIGHT",         "0.3"))
+UPTIME_FLUSH_INTERVAL   = int(os.getenv("OPEN_BRAIN_UPTIME_FLUSH_INTERVAL",   "60"))
 COMPLIANCE_WINDOW  = int(os.getenv("COMPLIANCE_WINDOW",  "300"))  # seconds
 
 # ─── Session Compliance Tracking ─────────────────────────────────────────────
@@ -63,6 +64,30 @@ COMPLIANCE_WINDOW  = int(os.getenv("COMPLIANCE_WINDOW",  "300"))  # seconds
 # is included in the response. Storage is never blocked.
 
 _session_tracker: dict[str, float] = {}
+
+# ─── Uptime Tracking ──────────────────────────────────────────────────────────
+#
+# Decay is based on cumulative server uptime, not wall-clock time.
+# A month-long gap where the server is off counts for nothing.
+# _uptime_offset: total seconds accumulated in prior sessions (loaded from DB)
+# _session_start:  monotonic clock at startup (never goes backward)
+# current_uptime() returns total lifetime uptime seconds for this brain.
+
+_uptime_offset = 0.0
+_session_start = time.monotonic()
+
+
+def current_uptime() -> float:
+    """Total cumulative uptime seconds across all server sessions."""
+    return _uptime_offset + (time.monotonic() - _session_start)
+
+
+def _init_uptime(prior_total: float) -> None:
+    """Set the uptime offset and reset the session clock. Called once at startup."""
+    global _uptime_offset, _session_start
+    _uptime_offset = prior_total
+    _session_start = time.monotonic()
+
 
 
 def _record_search(source: str, project: str) -> None:
@@ -390,11 +415,14 @@ def db_search(
     use_hybrid = HYBRID_WEIGHT > 0 and _has_fts_column(conn)
     use_decay  = DECAY_LAMBDA > 0
 
-    decay_expr = (
-        f"* EXP(-{DECAY_LAMBDA} * EXTRACT(EPOCH FROM "
-        f"(NOW() - COALESCE(last_accessed, created_at))) / 86400.0)"
-        if use_decay else ""
-    )
+    # Uptime-based decay: age = current_uptime_days - last_accessed_uptime_days.
+    # Memories never accessed during an uptime session have last_accessed_uptime=NULL,
+    # which falls back to 0 (max age relative to current uptime -- correct behaviour).
+    if use_decay:
+        now_uptime_days = current_uptime() / 86400.0
+        decay_expr = f"* EXP(-{DECAY_LAMBDA} * ({now_uptime_days} - COALESCE(last_accessed_uptime, 0) / 86400.0))"
+    else:
+        decay_expr = ""
 
     if use_hybrid:
         vec_weight = round(1.0 - HYBRID_WEIGHT, 4)
@@ -405,6 +433,7 @@ def db_search(
             WITH vec_q AS (
                 SELECT id, content, metadata, created_at, project, annotation,
                        upvotes, downvotes, access_count, last_accessed,
+                       last_accessed_uptime,
                        (1.0 - (embedding <=> %s::vector)) AS vec_score
                 FROM memories
                 {where}
@@ -433,6 +462,7 @@ def db_search(
             WITH q AS (
                 SELECT id, content, metadata, created_at, project, annotation,
                        upvotes, downvotes, access_count, last_accessed,
+                       last_accessed_uptime,
                        (embedding <=> %s::vector) AS dist
                 FROM memories
                 {where}
@@ -512,6 +542,46 @@ def db_migrate_hybrid() -> None:
     print("[open-brain] hybrid search migration applied (fts column + GIN index)", file=sys.stderr)
 
 
+def db_migrate_uptime() -> None:
+    """Idempotent migration: create server_uptime table and add last_accessed_uptime column."""
+    conn = _get_conn()
+    with conn.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE IF NOT EXISTS server_uptime ("
+            "  id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),"
+            "  total_seconds FLOAT NOT NULL DEFAULT 0.0,"
+            "  last_heartbeat TIMESTAMPTZ DEFAULT NOW()"
+            ")"
+        )
+        cur.execute("INSERT INTO server_uptime (id, total_seconds) VALUES (1, 0.0) ON CONFLICT DO NOTHING")
+        cur.execute(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_name='memories' AND column_name='last_accessed_uptime' LIMIT 1"
+        )
+        if cur.fetchone() is None:
+            cur.execute("ALTER TABLE memories ADD COLUMN last_accessed_uptime FLOAT")
+    print("[open-brain] uptime migration applied", file=sys.stderr)
+
+
+def db_load_uptime() -> float:
+    """Load the accumulated uptime total from the previous sessions."""
+    conn = _get_conn()
+    with conn.cursor() as cur:
+        cur.execute("SELECT total_seconds FROM server_uptime WHERE id = 1")
+        row = cur.fetchone()
+        return float(row[0]) if row else 0.0
+
+
+def db_flush_uptime(total_seconds: float) -> None:
+    """Write current cumulative uptime to the DB."""
+    conn = _get_conn()
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE server_uptime SET total_seconds = %s, last_heartbeat = NOW() WHERE id = 1",
+            (total_seconds,),
+        )
+
+
 def db_delete(memory_id: int) -> bool:
     conn = _get_conn()
     with conn.cursor() as cur:
@@ -538,11 +608,12 @@ def db_get_by_id(memory_id: int) -> dict | None:
     conn = _get_conn()
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
-            "UPDATE memories SET access_count = access_count + 1, last_accessed = NOW() "
+            "UPDATE memories SET access_count = access_count + 1, last_accessed = NOW(), "
+            "last_accessed_uptime = %s "
             "WHERE id = %s "
             "RETURNING id, content, metadata, created_at, project, annotation, "
             "access_count, last_accessed, upvotes, downvotes, pinned",
-            (memory_id,),
+            (current_uptime(), memory_id),
         )
         row = cur.fetchone()
         return _normalize_row(dict(row)) if row else None
@@ -1286,6 +1357,29 @@ if __name__ == "__main__":
             db_migrate_hybrid()
         except Exception as e:
             print(f"[open-brain] hybrid migration failed (non-fatal): {e}", file=sys.stderr)
+
+        # Uptime tracking: migrate, load prior total, start flush thread
+        try:
+            db_migrate_uptime()
+            _init_uptime(db_load_uptime())
+            print(f"[open-brain] uptime resumed at {_uptime_offset:.0f}s", file=sys.stderr)
+
+            def _uptime_flush_loop(interval: int) -> None:
+                while True:
+                    time.sleep(interval)
+                    try:
+                        db_flush_uptime(current_uptime())
+                    except Exception:
+                        pass
+
+            t_uptime = threading.Thread(
+                target=_uptime_flush_loop,
+                args=(UPTIME_FLUSH_INTERVAL,),
+                daemon=True,
+            )
+            t_uptime.start()
+        except Exception as e:
+            print(f"[open-brain] uptime tracking failed (non-fatal): {e}", file=sys.stderr)
 
         # Periodic background check
         if CHECK_INTERVAL_HOURS > 0:
