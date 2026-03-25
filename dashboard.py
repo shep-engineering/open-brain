@@ -778,10 +778,8 @@ class Dashboard(ctk.CTk):
         """Open a popup showing full memory content."""
         popup = ctk.CTkToplevel(self)
         popup.title("Memory")
-        popup.geometry("700x480")
+        popup.geometry("700x500")
         popup.configure(fg_color=BG)
-        popup.focus_force()
-        # No grab_set — modal grab causes un-closeable windows when content fails
         popup.bind("<Escape>", lambda e: popup.destroy())
         popup.protocol("WM_DELETE_WINDOW", popup.destroy)
 
@@ -795,17 +793,26 @@ class Dashboard(ctk.CTk):
                       fg_color=PANEL, hover_color=RED, text_color=WHITE, corner_radius=6,
                       command=popup.destroy).pack(side="right", padx=12, pady=8)
 
-        # Content — always show something, never silently blank
+        # Content box — created immediately, content inserted after window draws
         display = content.strip() if content and content.strip() else "(no content available)"
-        try:
-            box = ctk.CTkTextbox(popup, fg_color=PANEL, text_color=WHITE,
-                                 font=("Segoe UI", 13), border_width=0, wrap="word")
-            box.pack(fill="both", expand=True, padx=16, pady=16)
-            box.insert("1.0", display)
-            box.configure(state="disabled")
-        except Exception as exc:
-            ctk.CTkLabel(popup, text=f"Error loading content: {exc}",
-                         text_color=RED, font=("Segoe UI", 12)).pack(pady=40)
+        box = ctk.CTkTextbox(popup, fg_color=PANEL, text_color=WHITE,
+                             font=("Segoe UI", 13), border_width=0, wrap="word")
+        box.pack(fill="both", expand=True, padx=16, pady=16)
+
+        def _insert_content():
+            try:
+                if not popup.winfo_exists():
+                    return
+                box.configure(state="normal")
+                box.delete("1.0", "end")
+                box.insert("1.0", display)
+                box.configure(state="disabled")
+                box.see("1.0")
+            except Exception:
+                pass
+
+        # Defer insert until after CTkToplevel finishes its own after() chain (~200ms on Windows)
+        popup.after(200, _insert_content)
 
     @staticmethod
     def _set_text(widget, text):
