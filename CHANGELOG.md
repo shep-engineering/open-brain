@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-03-24
+
+### Changed
+
+- **Uptime-based decay** replaces calendar-time decay. Decay now accumulates only
+  while the server is actually running -- gaps when the server is off (overnight,
+  vacations, power outages) do not count against memory freshness. A month-long
+  break costs you nothing.
+
+### Added
+
+- `server_uptime` table (single-row counter) tracks cumulative active seconds
+  across all server sessions. Auto-created on first start.
+- `last_accessed_uptime` column on `memories` table. Records the uptime counter
+  value at the moment a memory is accessed. Used by the decay formula instead of
+  wall-clock timestamps.
+- Background flush thread writes the running uptime total to the DB every
+  `OPEN_BRAIN_UPTIME_FLUSH_INTERVAL` seconds (default 60). At most this many
+  seconds can be lost on a hard kill / power outage.
+- `OPEN_BRAIN_UPTIME_FLUSH_INTERVAL` env var documented in `.env.example`.
+
 ## [0.4.0] - 2026-03-24
 
 ### Added
