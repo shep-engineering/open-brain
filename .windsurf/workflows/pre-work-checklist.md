@@ -27,6 +27,17 @@ Read the context checkpoints to understand prior work:
 cat docs/planning/CONTEXT_CHECKPOINTS.md
 ```
 
+# Step 2b — Read Live Configuration
+
+**Always read `.env` (or `.env.example` if `.env` doesn't exist) before planning any work.**
+Never assume features are unavailable based on defaults. Check what is actually configured:
+
+- Is `METADATA_LLM_MODEL` set? If yes, LLM-dependent features (smart merge, consolidation, richer metadata) are available.
+- Which Ollama models are available? Check: `curl -s http://localhost:11434/api/tags`
+- Is the DB reachable? Check `DATABASE_URL`.
+
+Do not defer any feature as "LLM-dependent" until you have confirmed `METADATA_LLM_MODEL` is actually blank in the live `.env`.
+
 # Step 3 — Pre-Work Gate
 
 Run the pre-work check:
