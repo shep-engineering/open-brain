@@ -35,7 +35,7 @@ Your thought
     (+ annotations, ratings, access tracking)
               |
               v
-    MCP Server (stdio / HTTP)  <--  server.py  (11 tools)
+    MCP Server (stdio / HTTP)  <--  server.py  (12 tools)
               |
     +---------+-----------+
     v         v           v
@@ -48,11 +48,15 @@ Your thought
 
 - **Cross-agent memory:** Capture in Claude Code, recall in Cursor. One brain, every tool.
 - **Semantic search:** Find memories by meaning, not keywords. "That database decision" finds it even if you never typed those words.
+- **Hybrid search:** Combines vector similarity with full-text ranking for exact names, project codes, and dates.
+- **Uptime-based decay:** Stale memories fade naturally -- but only during active server time. Vacations, power outages, and overnight gaps cost you nothing.
+- **Time-scoped search:** Ask "what did I decide last week?" with `since_days=7`. Filter by creation date.
 - **Auto-capture:** Agents store decisions, bugs, and context as you work. You never have to say "remember this."
 - **Auto-recall:** Agents search the brain before starting tasks. Prior context surfaces automatically.
 - **One-command wiring:** `python server.py wire` auto-discovers and configures every AI tool on your system.
 - **Smart batching:** Embeddings and metadata extraction are batched to avoid GPU model thrashing.
 - **Quality signals:** Rate memories up/down. Access tracking surfaces the most useful memories.
+- **Pinned guardrails:** Pin workflow rules to a project so agents always see them.
 - **Project scoping:** Tag memories by project. Search within a project without noise from others.
 - **100% local:** PostgreSQL + pgvector + Ollama. No cloud. No API keys required. Your data stays yours.
 
@@ -77,5 +81,5 @@ Your thought
 
 - [Installation](getting-started/installation.md): Get up and running in ~15 minutes
 - [Wiring Agents](getting-started/wiring-agents.md): Connect your AI tools to the brain
-- [Tools Reference](tools.md): All 11 MCP tools explained
+- [Tools Reference](tools.md): All 12 MCP tools explained
 - [Architecture](architecture/overview.md): How it all fits together

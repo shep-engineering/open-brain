@@ -25,7 +25,7 @@ Your thought
     (+ annotations, ratings, access tracking)
               │
               ▼
-    MCP Server (stdio / HTTP)  ←  server.py  (11 tools)
+    MCP Server (stdio / HTTP)  ←  server.py  (12 tools)
               │
     ┌─────────┼──────────┐
     ▼         ▼          ▼
@@ -221,10 +221,10 @@ Windsurf only reads `mcp_config.json` at startup. Fully quit and reopen it.
 
 ### Step 4: Verify the MCP server loaded
 
-In Windsurf, click the **MCP icon** (plug icon) in the top-right of the Cascade panel. You should see `open-brain` listed with a green dot and 11 tools:
+In Windsurf, click the **MCP icon** (plug icon) in the top-right of the Cascade panel. You should see `open-brain` listed with a green dot and 12 tools:
 
 - `capture_context`, `search`, `recall`, `remember`, `annotate`
-- `rate`, `list_recent`, `stats`, `prune`, `forget`, `forget_many`
+- `rate`, `list_recent`, `stats`, `prune`, `forget`, `forget_many`, `pin`
 
 If it shows red / failed, check that:
 1. Your `.venv` python path exists (`.venv\Scripts\python.exe` on Windows, `.venv/bin/python` on Linux/macOS)
@@ -301,7 +301,7 @@ Cursor reads `mcp.json` at startup. Fully quit and reopen it.
 
 ### Step 4: Verify
 
-In Cursor, open the chat panel and look for the MCP tools icon (hammer). Click it. You should see `open-brain` with 11 tools listed. A red dot means the server failed to start. Check that Docker is running and the `.venv` path is correct.
+In Cursor, open the chat panel and look for the MCP tools icon (hammer). Click it. You should see `open-brain` with 12 tools listed. A red dot means the server failed to start. Check that Docker is running and the `.venv` path is correct.
 
 ---
 
@@ -401,7 +401,7 @@ You should see: `open-brain: ... ✓ Connected`
 
 ### Step 5: Verify
 
-In any conversation, ask: *"What tools do you have available?"* Claude should list the 11 open-brain tools. If not, confirm Docker is running (`docker ps` shows `open-brain-db`).
+In any conversation, ask: *"What tools do you have available?"* Claude should list the 12 open-brain tools. If not, confirm Docker is running (`docker ps` shows `open-brain-db`).
 
 ---
 
@@ -473,7 +473,7 @@ On recall, agents call `search` automatically at the start of tasks to surface r
 | Tool | Who calls it | Description |
 |------|-------------|-------------|
 | `capture_context` | **Agent, automatically** | Ingests raw session/conversation text, extracts and stores multiple atomic memories at once. Accepts optional `project` to scope memories. |
-| `search` | **Agent, automatically** | Semantic search by meaning. Returns previews (first 200 chars) to save tokens. Filter by `type`, `people`, or `project`. |
+| `search` | **Agent, automatically** | Semantic search by meaning. Returns previews (first 200 chars) to save tokens. Filter by `type`, `people`, `project`, `since_days`, or `until_days`. Hybrid vector + full-text scoring with uptime-based recency decay. |
 | `recall` | Agent or user | Fetch full content of a memory by ID (after finding it via search). Tracks access count. |
 | `remember` | Agent or user | Store a single explicit fact or note. Accepts optional `project` to scope. |
 | `annotate` | Agent or user | Attach a persistent note to an existing memory (corrections, gotchas, extra context). |
@@ -483,6 +483,18 @@ On recall, agents call `search` automatically at the start of tasks to surface r
 | `prune` | User | Remove stale memories (older than N days with low access count). Supports dry-run preview. |
 | `forget` | User | Hard-delete a memory by ID |
 | `forget_many` | User | Batch-delete multiple memories by ID |
+
+### v4 Features
+
+**Uptime-based recency decay:** Memories not recently accessed score lower in search results. Decay accumulates only while the server is running -- power outages, overnight gaps, and vacations cost you nothing. A background thread flushes the uptime counter to the DB every 60 seconds (configurable). Configure with `OPEN_BRAIN_DECAY_LAMBDA` (default `0.005`).
+
+**Hybrid vector + full-text search:** Search combines cosine similarity with PostgreSQL full-text ranking (`ts_rank`). Better retrieval of exact names, project codes, and dates. Auto-migrates a `tsvector` column and GIN index on first start. Configure the blend with `OPEN_BRAIN_HYBRID_WEIGHT` (default `0.3`).
+
+**Time-scoped search:** `search()` now accepts `since_days` and `until_days` to restrict results by creation date. Ask "what did I decide last week?" with `since_days=7`.
+
+**New memory types:** `procedural` (workflow rules, conventions, non-negotiables) and `episodic` (specific past events, session recollections) added alongside the existing types.
+
+**Pinned memories (guardrails):** Pin memories to a project so they always appear at the top of search results, regardless of query. Use for workflow rules agents must always see.
 
 ### v2 Features (inspired by Context Hub)
 
@@ -567,7 +579,7 @@ Then feed each line to `remember` to seed your Open Brain.
 
 ```
 open-brain/
-├── server.py               # Python MCP server, 11 tools
+├── server.py               # Python MCP server, 12 tools
 ├── wire.py                 # MCP client auto-discovery + auto-wiring CLI
 ├── requirements.txt        # Python dependencies
 ├── test_server.py          # End-to-end test suite

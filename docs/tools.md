@@ -1,6 +1,6 @@
 # Tools Reference
 
-Open Brain exposes 11 MCP tools. Agents call most of these automatically, so you rarely need to invoke them yourself.
+Open Brain exposes 12 MCP tools. Agents call most of these automatically, so you rarely need to invoke them yourself.
 
 ---
 
@@ -42,9 +42,14 @@ Semantic search by meaning, not keywords. Returns previews (first 200 chars) to 
 |-----------|------|----------|-------------|
 | `query` | string | Yes | What to search for (natural language) |
 | `limit` | int | No | Max results (default 10, max 50) |
-| `type_filter` | string | No | Filter by memory type |
+| `type_filter` | string | No | Filter by memory type: `decision`, `idea`, `meeting`, `person`, `insight`, `task`, `journal`, `reference`, `note`, `guardrail`, `procedural`, `episodic` |
 | `people_filter` | string[] | No | Filter to memories mentioning specific people |
 | `project` | string | No | Filter to a specific project |
+| `since_days` | int | No | Only return memories created in the last N days (0 = no limit) |
+| `until_days` | int | No | Only return memories older than N days (0 = no limit) |
+| `source` | string | No | Agent identifier for compliance tracking |
+
+Results are ranked by a hybrid score: vector similarity (70%) + full-text rank (30%), multiplied by an uptime-based recency decay factor. Pinned memories for the project always appear first.
 
 **Called by:** Agents automatically before starting tasks.
 
@@ -58,7 +63,7 @@ Fetch the full content of a memory by ID. Use after `search` to get complete tex
 |-----------|------|----------|-------------|
 | `memory_id` | int | Yes | The memory ID from search results |
 
-**Side effects:** Bumps `access_count` and updates `last_accessed`.
+**Side effects:** Bumps `access_count`, updates `last_accessed`, and records `last_accessed_uptime` (used for decay scoring).
 
 ---
 
@@ -139,6 +144,31 @@ Batch-delete multiple memories by ID.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `memory_ids` | int[] | Yes | List of memory IDs to delete |
+
+---
+
+## Pinning Tools
+
+### `pin`
+
+Pin a memory so it always appears at the top of search results for its project, regardless of query similarity. Use for workflow rules, conventions, and guardrails agents must always see.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `memory_id` | int | Yes | The memory ID to pin |
+
+!!! note
+    Memory must belong to a project to be pinned. Global memories (no project) cannot be pinned.
+
+---
+
+### `unpin`
+
+Remove the pin from a memory, returning it to normal search ranking.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `memory_id` | int | Yes | The memory ID to unpin |
 
 ---
 

@@ -16,6 +16,10 @@ All configuration is via environment variables in `.env` (or passed through your
 | `OPENAI_API_KEY` | *(empty)* | Required only for OpenAI embeddings |
 | `METADATA_LLM_MODEL` | *(empty)* | e.g. `qwen2.5:32b`. Empty = heuristic only. |
 | `DEDUP_THRESHOLD` | `0.92` | Cosine similarity threshold for deduplication |
+| `COMPLIANCE_WINDOW` | `300` | Seconds before a search is considered stale for compliance warnings |
+| `OPEN_BRAIN_DECAY_LAMBDA` | `0.005` | Recency decay rate. Score multiplied by `exp(-lambda * uptime_days_since_access)`. Set to `0` to disable. |
+| `OPEN_BRAIN_HYBRID_WEIGHT` | `0.3` | Weight for full-text component in hybrid search. `0.3` = 70% vector + 30% keyword. Set to `0` for pure vector. |
+| `OPEN_BRAIN_UPTIME_FLUSH_INTERVAL` | `60` | Seconds between uptime counter flushes to DB. Max uptime lost on hard kill. |
 | `OPEN_BRAIN_PORT` | `8080` | HTTP transport port |
 | `OPEN_BRAIN_HOST` | `0.0.0.0` | HTTP transport host |
 | `OPEN_BRAIN_CHECK_INTERVAL` | `0` | Hours between unwired-agent checks. 0 = disabled. |
