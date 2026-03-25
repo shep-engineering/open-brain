@@ -637,72 +637,120 @@ class Dashboard(ctk.CTk):
         threading.Thread(target=_do, daemon=True).start()
 
     def _restart_mcp(self):
-        """Kill and restart Open Brain MCP server with animated step progress."""
-        # Disable button to prevent double-click
+        """Restart MCP server with real per-step verification and retries. No fake timeouts."""
+        self._mcp_restart_btn = None
         for w in self.winfo_children():
             if hasattr(w, 'winfo_children'):
                 for b in w.winfo_children():
                     if isinstance(b, ctk.CTkButton) and "Restart" in str(b.cget("text")):
                         b.configure(state="disabled", text="⟳  Restarting...")
+                        self._mcp_restart_btn = b
 
         def _set_status(msg, color=YELLOW):
-            if self._alive:
-                try:
-                    self.status_label.configure(text=msg, text_color=color)
-                except Exception:
-                    pass
+            if not self._alive:
+                return
+            try:
+                self.status_label.configure(text=msg, text_color=color)
+            except Exception:
+                pass
+
+        def _is_running():
+            """Check if server.py is actually running in WSL."""
+            try:
+                r = subprocess.run(
+                    ["wsl", "-e", "bash", "-lc",
+                     "pgrep -f 'server.py' > /dev/null 2>&1 && echo yes || echo no"],
+                    capture_output=True, text=True, timeout=5,
+                    creationflags=_NO_WINDOW,
+                )
+                return r.stdout.strip() == "yes"
+            except Exception:
+                return False
+
+        def _wait_until_stopped(max_attempts=10):
+            """Poll until server.py is confirmed dead."""
+            for i in range(max_attempts):
+                if not _is_running():
+                    return True
+                self.after(0, lambda i=i: _set_status(f"⟳ MCP: waiting for stop... ({i+1}/{max_attempts})"))
+                time.sleep(1)
+            return False
+
+        def _wait_until_started(max_attempts=20):
+            """Poll until server.py is confirmed alive."""
+            for i in range(max_attempts):
+                if _is_running():
+                    return True
+                self.after(0, lambda i=i: _set_status(f"⟳ MCP: waiting for start... ({i+1}/{max_attempts})"))
+                time.sleep(1)
+            return False
 
         def _do_restart():
-            steps = [
-                (0,  "⟳ MCP: stopping server...",      YELLOW),
-                (2,  "⟳ MCP: killing tmux session...", YELLOW),
-                (4,  "⟳ MCP: launching server.py...",  YELLOW),
-                (6,  "⟳ MCP: waiting for startup...",  YELLOW),
-                (9,  "⟳ MCP: checking connection...",  YELLOW),
-            ]
-
-            # Schedule each status message
-            for delay, msg, color in steps:
-                self.after(delay * 1000, lambda m=msg, c=color: _set_status(m, c))
-
+            # ── Step 1: Kill existing server ──────────────────────────────────
+            self.after(0, lambda: _set_status("⟳ MCP: killing existing server..."))
             try:
-                if IS_WINDOWS:
-                    subprocess.run(
-                        ["wsl", "-e", "bash", "-lc",
-                         "pkill -f 'server.py' 2>/dev/null; "
-                         "tmux kill-session -t openbrain 2>/dev/null; "
-                         "sleep 1; "
-                         "tmux new -d -s openbrain "
-                         "'F:/open-brain/.venv/Scripts/python.exe /mnt/f/open-brain/server.py'"],
-                        capture_output=True, timeout=15, creationflags=_NO_WINDOW,
-                    )
-                else:
-                    subprocess.run(
-                        ["bash", str(ON_SCRIPT_SH)],
-                        capture_output=True, timeout=15,
-                    )
-                # Success
-                self.after(10000, lambda: _set_status("● MCP restarted — reconnect in Windsurf", GREEN))
+                subprocess.run(
+                    ["wsl", "-e", "bash", "-lc",
+                     "pkill -f 'server.py' 2>/dev/null; "
+                     "tmux kill-session -t openbrain 2>/dev/null; "
+                     "true"],
+                    capture_output=True, timeout=10, creationflags=_NO_WINDOW,
+                )
             except Exception as exc:
-                self.after(0, lambda: _set_status(f"✗ MCP restart failed: {exc}", RED))
+                self.after(0, lambda: _set_status(f"✗ Kill failed: {exc}", RED))
+                _finish(success=False)
+                return
 
-            # Re-enable button and refresh after 12s
-            def _done():
+            # ── Step 2: Verify it actually stopped ────────────────────────────
+            self.after(0, lambda: _set_status("⟳ MCP: confirming server stopped..."))
+            stopped = _wait_until_stopped(max_attempts=10)
+            if not stopped:
+                self.after(0, lambda: _set_status("✗ MCP: server did not stop — force killing", RED))
+                subprocess.run(
+                    ["wsl", "-e", "bash", "-lc", "pkill -9 -f 'server.py' 2>/dev/null; true"],
+                    capture_output=True, timeout=5, creationflags=_NO_WINDOW,
+                )
+                time.sleep(1)
+
+            # ── Step 3: Launch new server ─────────────────────────────────────
+            self.after(0, lambda: _set_status("⟳ MCP: launching server.py..."))
+            try:
+                subprocess.run(
+                    ["wsl", "-e", "bash", "-lc",
+                     "tmux new -d -s openbrain "
+                     "'F:/open-brain/.venv/Scripts/python.exe "
+                     "/mnt/f/open-brain/server.py 2>>/mnt/f/open-brain/server-crash.log'"],
+                    capture_output=True, timeout=10, creationflags=_NO_WINDOW,
+                )
+            except Exception as exc:
+                self.after(0, lambda: _set_status(f"✗ Launch failed: {exc}", RED))
+                _finish(success=False)
+                return
+
+            # ── Step 4: Verify it actually started ────────────────────────────
+            self.after(0, lambda: _set_status("⟳ MCP: verifying server started..."))
+            started = _wait_until_started(max_attempts=20)
+            if started:
+                self.after(0, lambda: _set_status("✓ MCP server running — reconnect in Windsurf Settings", GREEN))
+                _finish(success=True)
+            else:
+                self.after(0, lambda: _set_status("✗ MCP: server failed to start — check server-crash.log", RED))
+                _finish(success=False)
+
+        def _finish(success: bool):
+            self.after(0, self._manual_refresh)
+            def _re_enable():
                 if not self._alive:
                     return
                 try:
-                    for w in self.winfo_children():
-                        if hasattr(w, 'winfo_children'):
-                            for b in w.winfo_children():
-                                if isinstance(b, ctk.CTkButton) and "Restart" in str(b.cget("text")):
-                                    b.configure(state="normal", text="⟳  Restart MCP")
+                    if self._mcp_restart_btn:
+                        self._mcp_restart_btn.configure(state="normal", text="⟳  Restart MCP")
                 except Exception:
                     pass
-                self._manual_refresh()
-                # Clear status after 5 more seconds
-                self.after(5000, lambda: _set_status(""))
-
-            self.after(12000, _done)
+                if success:
+                    # Clear success message after 8s
+                    self.after(8000, lambda: _set_status("", WHITE))
+            self.after(0, _re_enable)
 
         threading.Thread(target=_do_restart, daemon=True).start()
 
