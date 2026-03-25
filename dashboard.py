@@ -308,7 +308,8 @@ class Dashboard(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("Open Brain Dashboard")
-        self.geometry("1200x800")
+        self.geometry("1200x920")
+        self.minsize(1000, 860)
         self.configure(fg_color=BG)
         self.resizable(True, True)
         _ico = BASE_DIR / "assets" / "brain.ico"
@@ -427,7 +428,7 @@ class Dashboard(ctk.CTk):
         ctk.CTkLabel(type_panel, text="By Type", font=("Segoe UI", 13, "bold"),
                      text_color=PURPLE).pack(anchor="w", padx=14, pady=(10, 4))
         self.type_box = ctk.CTkTextbox(type_panel, fg_color=PANEL, text_color=WHITE,
-                                       font=("Consolas", 12), height=170, border_width=0)
+                                       font=("Consolas", 12), height=140, border_width=0)
         self.type_box.pack(fill="both", expand=True, padx=10, pady=(0, 10))
         self._set_text(self.type_box, "  loading...")
 
@@ -437,7 +438,7 @@ class Dashboard(ctk.CTk):
         ctk.CTkLabel(proj_panel, text="By Project", font=("Segoe UI", 13, "bold"),
                      text_color=PURPLE).pack(anchor="w", padx=14, pady=(10, 4))
         self.proj_box = ctk.CTkTextbox(proj_panel, fg_color=PANEL, text_color=WHITE,
-                                       font=("Consolas", 12), height=170, border_width=0)
+                                       font=("Consolas", 12), height=140, border_width=0)
         self.proj_box.pack(fill="both", expand=True, padx=10, pady=(0, 10))
         self._set_text(self.proj_box, "  loading...")
 
@@ -475,7 +476,7 @@ class Dashboard(ctk.CTk):
 
     def _build_log_panel(self):
         panel = ctk.CTkFrame(self, fg_color=PANEL, corner_radius=10,
-                             border_width=1, border_color=BORDER, height=130)
+                             border_width=1, border_color=BORDER, height=110)
         panel.pack(fill="x", padx=12, pady=(0, 8))
         panel.pack_propagate(False)
 
