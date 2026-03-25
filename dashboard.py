@@ -727,7 +727,7 @@ class Dashboard(ctk.CTk):
                 subprocess.run(
                     ["wsl", "-e", "bash", "-lc",
                      "tmux new -d -s openbrain "
-                     "'F:/open-brain/.venv/Scripts/python.exe "
+                     "'/mnt/f/open-brain/.venv/Scripts/python.exe "
                      "/mnt/f/open-brain/server.py 2>>/mnt/f/open-brain/server-crash.log'"],
                     capture_output=True, timeout=10, creationflags=_NO_WINDOW,
                 )

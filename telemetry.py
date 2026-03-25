@@ -121,13 +121,9 @@ def initialize():
 
     trace.set_tracer_provider(_tracer_provider)
 
-    # ── Meter provider ────────────────────────────────────────────────────────
-    reader = PeriodicExportingMetricReader(
-        ConsoleMetricExporter() if DEV else ConsoleMetricExporter(),
-        export_interval_millis=60_000,
-    )
-    _meter_provider = MeterProvider(resource=_resource, metric_readers=[reader])
-    metrics.set_meter_provider(_meter_provider)
+    # Metrics temporarily disabled (crashing on export)
+    # TODO: Fix metrics exporter closed file issue
+    pass
 
     # ── Auto-instrument psycopg2 + requests ──────────────────────────────────
     try:
