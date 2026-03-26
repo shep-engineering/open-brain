@@ -111,3 +111,21 @@ python server.py
 ```
 
 The server should start without errors. Now [wire it into your AI tools](wiring-agents.md).
+
+---
+
+## Step 7: Launch the Dashboard (Windows)
+
+Open Brain includes a dark-themed monitoring dashboard. It auto-detects whether services are running and starts them if needed.
+
+```sh
+.venv\Scripts\pythonw.exe dashboard.py
+```
+
+To create Desktop shortcuts (ON, OFF, SSE Proxy, Dashboard):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\windows\create-desktop-shortcuts.ps1
+```
+
+See the full [Dashboard guide](../guides/dashboard.md) for details on event-driven refresh, observability, and troubleshooting.

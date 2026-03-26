@@ -38,6 +38,7 @@ nav:
     - Smart Batching: architecture/smart-batching.md
   - Tools Reference: tools.md
   - Guides:
+    - Dashboard: guides/dashboard.md
     - Auto-Capture Rules: guides/auto-capture.md
     - ChatGPT Desktop: guides/chatgpt-desktop.md
     - Migration: guides/migration.md
