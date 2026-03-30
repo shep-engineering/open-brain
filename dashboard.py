@@ -1087,46 +1087,44 @@ class Dashboard(ctk.CTk):
                 widget.bind("<Leave>", lambda e, r=row: r.configure(fg_color="#1a1a28"))
 
     def _open_memory_card(self, content, typ, project, ts):
-        """Open a popup showing full memory content."""
-        popup = ctk.CTkToplevel(self)
+        """Open a popup showing full memory content using native tkinter Toplevel."""
+        import tkinter as tk
+
+        # Debounce: ignore rapid duplicate clicks (CTk fires on parent + child)
+        now = time.time()
+        if hasattr(self, '_last_popup_time') and now - self._last_popup_time < 0.5:
+            return
+        self._last_popup_time = now
+
+        display = content.strip() if content and content.strip() else "(no content available)"
+
+        popup = tk.Toplevel(self)
         popup.title("Memory")
         popup.geometry("700x500")
-        popup.configure(fg_color=BG)
+        popup.configure(bg=BG)
         popup.bind("<Escape>", lambda e: popup.destroy())
         popup.protocol("WM_DELETE_WINDOW", popup.destroy)
 
         # Header
-        hdr = ctk.CTkFrame(popup, fg_color="#1a1a24", corner_radius=0, height=44)
+        hdr = tk.Frame(popup, bg="#1a1a24", height=44)
         hdr.pack(fill="x")
         hdr.pack_propagate(False)
-        ctk.CTkLabel(hdr, text=f"{typ}  ·  {project}  ·  {ts}",
-                     font=("Segoe UI", 13), text_color=PURPLE).pack(side="left", padx=16, pady=10)
-        ctk.CTkButton(hdr, text="✕ Close", width=80, height=28,
-                      fg_color=PANEL, hover_color=RED, text_color=WHITE, corner_radius=6,
-                      command=popup.destroy).pack(side="right", padx=12, pady=8)
+        tk.Label(hdr, text=f"{typ}  ·  {project}  ·  {ts}",
+                 font=("Segoe UI", 13), fg=PURPLE, bg="#1a1a24").pack(side="left", padx=16, pady=10)
+        tk.Button(hdr, text="Close", font=("Segoe UI", 10),
+                  fg=WHITE, bg=PANEL, activebackground=RED, bd=0, padx=12, pady=4,
+                  command=popup.destroy).pack(side="right", padx=12, pady=8)
 
-        # Content box — created immediately, content inserted after window draws
-        display = content.strip() if content and content.strip() else "(no content available)"
-        box = ctk.CTkTextbox(popup, fg_color=PANEL, text_color=DIM,
-                             font=("Segoe UI", 13), border_width=0, wrap="word")
-        box.pack(fill="both", expand=True, padx=16, pady=16)
-        box.insert("1.0", "Loading...")
-        box.configure(state="disabled")
+        # Content
+        txt = tk.Text(popup, bg=PANEL, fg=WHITE, font=("Segoe UI", 13),
+                      wrap="word", bd=0, padx=16, pady=16, relief="flat",
+                      insertbackground=WHITE, selectbackground=PURPLE)
+        txt.pack(fill="both", expand=True, padx=16, pady=(0, 16))
+        txt.insert("1.0", display)
+        txt.configure(state="disabled")
 
-        def _insert_content():
-            try:
-                if not popup.winfo_exists():
-                    return
-                box.configure(state="normal", text_color=WHITE)
-                box.delete("1.0", "end")
-                box.insert("1.0", display)
-                box.configure(state="disabled")
-                box.see("1.0")
-            except Exception:
-                pass
-
-        # Defer insert until after CTkToplevel finishes its own after() chain (~200ms on Windows)
-        popup.after(200, _insert_content)
+        popup.focus_force()
+        popup.lift()
 
     @staticmethod
     def _set_text(widget, text):
