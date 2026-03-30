@@ -169,6 +169,34 @@ After wiring, restart the client and check:
 
 ---
 
+## Claude Code Enforcement Hooks
+
+When you run `python server.py wire`, Open Brain automatically installs **enforcement hooks** for Claude Code. These hooks guarantee that Claude searches your brain before taking any action -- not as a suggestion, but as a hard block.
+
+**What gets installed:**
+
+| File | Location | Purpose |
+|------|----------|---------|
+| `brain-reminder.sh` | `~/.claude/hooks/` | Injects a mandatory reminder on every user message |
+| `require-brain-search.sh` | `~/.claude/hooks/` | **Blocks all tool calls** until `mcp__open-brain__search` is called |
+| Hook config | `~/.claude/settings.json` | Registers both hooks with Claude Code |
+
+**How it works:**
+
+1. You send Claude a message
+2. `UserPromptSubmit` hook fires -- Claude sees the mandatory reminder
+3. If Claude tries to use Bash, Edit, Write, etc. without searching the brain first, the `PreToolUse` hook **blocks it** with an error
+4. Claude is forced to call `mcp__open-brain__search` first
+5. After searching, all tools are unlocked for the rest of the session
+
+Read-only tools (Read, Glob, Grep, ToolSearch) and all `mcp__open-brain__*` tools are whitelisted so Claude can still explore before searching.
+
+**Manual install (if not using `wire`):**
+
+See `hooks/README.md` in the Open Brain repo for manual installation steps.
+
+---
+
 ## Enabling Auto-Capture Behavior
 
 Wiring the MCP connection gives agents *access* to the tools. To make them *use* the tools automatically, add the behavioral rules:
@@ -182,3 +210,6 @@ Wiring the MCP connection gives agents *access* to the tools. To make them *use*
 | Any other client | System prompt field | `prompts/generic-system-prompt.md` |
 
 These rules tell agents to silently capture context after tasks and recall prior context before starting new ones.
+
+!!! tip "Claude Code gets enforcement, other agents get guidance"
+    Claude Code is the only agent with hard enforcement (hooks block tools until brain is searched). Other agents rely on behavioral rules in their config files, plus the `compliance_warning` field in server responses when a search hasn't been performed recently.

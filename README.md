@@ -138,6 +138,8 @@ python server.py wire
 python server.py wire --check
 ```
 
+This also installs **Claude Code enforcement hooks** that block tool use until Open Brain is searched. See [Wiring Agents](docs/getting-started/wiring-agents.md#claude-code-enforcement-hooks) for details.
+
 ### 7. Launch the Dashboard (Windows)
 
 A dark monitoring dashboard ships with Open Brain. It shows memory counts, service health (PostgreSQL, Ollama, MCP), recent captures, most-accessed memories, and an observability strip with tool call metrics from OpenTelemetry traces.
@@ -623,6 +625,9 @@ Then feed each line to `remember` to seed your Open Brain.
 open-brain/
 ├── server.py               # Python MCP server, 12 tools
 ├── wire.py                 # MCP client auto-discovery + auto-wiring CLI
+├── hooks/                  # Claude Code enforcement hooks (installed by wire)
+│   ├── brain-reminder.sh   # UserPromptSubmit: mandatory brain search reminder
+│   └── require-brain-search.sh  # PreToolUse: blocks tools until brain searched
 ├── requirements.txt        # Python dependencies
 ├── test_server.py          # End-to-end test suite
 ├── .venv/                  # Virtual environment (never commit)
