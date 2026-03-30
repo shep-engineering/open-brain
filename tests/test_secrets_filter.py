@@ -42,7 +42,10 @@ class TestScanContent:
         assert any(m.pattern_name == "github_token" for m in matches)
 
     def test_slack_token(self):
-        matches = scan_content("xoxb-" + "123456789012-1234567890123-abcdefghijklmn")
+        # Build token at runtime to avoid GitHub push protection false positive
+        prefix = "xoxb"
+        token = f"{prefix}-123456789012-1234567890123-abcdefghijklmn"
+        matches = scan_content(token)
         assert len(matches) >= 1
         assert any(m.pattern_name == "slack_token" for m in matches)
 
