@@ -284,6 +284,129 @@ def _process_agent(agent: dict, check_only: bool) -> str:
         return "error"
 
 
+# ─── Claude Code Hooks ────────────────────────────────────────────────────────
+
+HOOKS_DIR = Path(__file__).parent / "hooks"
+HOOK_FILES = ["brain-reminder.sh", "require-brain-search.sh"]
+
+HOOKS_CONFIG = {
+    "UserPromptSubmit": [
+        {
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": "",  # filled at install time
+                    "timeout": 5,
+                }
+            ]
+        }
+    ],
+    "PreToolUse": [
+        {
+            "matcher": "(?!mcp__open-brain__).*",
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": "",  # filled at install time
+                    "timeout": 10,
+                }
+            ]
+        }
+    ],
+}
+
+
+def _get_claude_hooks_dest() -> Path:
+    """Return the path to ~/.claude/hooks/, cross-platform."""
+    win_user = _detect_windows_user()
+    if win_user and sys.platform != "darwin":
+        # Running from WSL -- target the Windows-side config
+        return Path(f"/mnt/c/Users/{win_user}/.claude/hooks")
+    return Path.home() / ".claude" / "hooks"
+
+
+def _get_claude_settings_path() -> Path:
+    """Return the path to ~/.claude/settings.json, cross-platform."""
+    return _get_claude_hooks_dest().parent / "settings.json"
+
+
+def _install_claude_hooks(check_only: bool = False) -> str:
+    """
+    Copy hook scripts to ~/.claude/hooks/ and register them in settings.json.
+    Returns status: 'installed', 'up-to-date', 'needs-install', 'error'
+    """
+    settings_path = _get_claude_settings_path()
+    hooks_dest = _get_claude_hooks_dest()
+
+    # Check if source hooks exist in the repo
+    for hf in HOOK_FILES:
+        if not (HOOKS_DIR / hf).exists():
+            print(f"  WARNING: Hook source missing: {HOOKS_DIR / hf}", file=sys.stderr)
+            return "error"
+
+    # Check if hooks are already installed
+    hooks_present = all((hooks_dest / hf).exists() for hf in HOOK_FILES)
+    settings_has_hooks = False
+
+    if settings_path.exists():
+        try:
+            settings = json.loads(settings_path.read_text())
+            settings_has_hooks = (
+                "hooks" in settings
+                and "UserPromptSubmit" in settings.get("hooks", {})
+                and "PreToolUse" in settings.get("hooks", {})
+            )
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    if hooks_present and settings_has_hooks:
+        return "up-to-date"
+
+    if check_only:
+        return "needs-install"
+
+    # --- Install hooks ---
+    import shutil
+
+    # 1. Copy hook scripts
+    hooks_dest.mkdir(parents=True, exist_ok=True)
+    for hf in HOOK_FILES:
+        src = HOOKS_DIR / hf
+        dst = hooks_dest / hf
+        shutil.copy2(src, dst)
+        try:
+            dst.chmod(0o755)
+        except OSError:
+            pass  # Windows doesn't support chmod
+
+    # 2. Build command strings using installed paths
+    reminder_path = str(hooks_dest / "brain-reminder.sh")
+    blocker_path = str(hooks_dest / "require-brain-search.sh")
+
+    hooks_config = json.loads(json.dumps(HOOKS_CONFIG))  # deep copy
+    hooks_config["UserPromptSubmit"][0]["hooks"][0]["command"] = f'bash "{reminder_path}"'
+    hooks_config["PreToolUse"][0]["hooks"][0]["command"] = f'bash "{blocker_path}"'
+
+    # 3. Merge into settings.json (preserve ALL existing settings)
+    if settings_path.exists():
+        try:
+            settings = json.loads(settings_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            settings = {}
+    else:
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings = {}
+
+    settings["hooks"] = hooks_config
+
+    try:
+        _write_config(str(settings_path), settings)
+        return "installed"
+    except OSError as e:
+        print(f"  ERROR writing {settings_path}: {e}", file=sys.stderr)
+        return "error"
+
+
 # ─── Public Interface ─────────────────────────────────────────────────────────
 
 STATUS_ICONS = {
@@ -324,10 +447,25 @@ def run_wire(check_only: bool = False) -> list[dict]:
         if status != "not-installed":
             print(f"          {agent['path']}", file=sys.stderr)
 
+    # Claude Code hooks (enforcement)
+    print(f"\n  {'─' * 56}", file=sys.stderr)
+    print(f"  Claude Code Hooks (brain-search enforcement)", file=sys.stderr)
+    print(f"  {'─' * 56}", file=sys.stderr)
+    hook_status = _install_claude_hooks(check_only)
+    hook_icon = {
+        "up-to-date": "  OK ", "installed": " NEW ",
+        "needs-install": "MISS ", "error": " ERR ",
+    }.get(hook_status, "  ?  ")
+    results.append({"name": "Claude Code Hooks", "path": str(_get_claude_settings_path()), "status": hook_status})
+    print(f"  [{hook_icon}]  Claude Code Hooks", file=sys.stderr)
+    print(f"          {_get_claude_hooks_dest()}", file=sys.stderr)
+    if hook_status == "installed":
+        print(f"          Hooks installed. Restart Claude Code to activate.", file=sys.stderr)
+
     # Summary
-    wired = [r for r in results if r["status"] in ("wired", "created", "updated")]
+    wired = [r for r in results if r["status"] in ("wired", "created", "updated", "installed")]
     ok = [r for r in results if r["status"] == "up-to-date"]
-    missing = [r for r in results if r["status"] in ("needs-config", "needs-update")]
+    missing = [r for r in results if r["status"] in ("needs-config", "needs-update", "needs-install")]
     errors = [r for r in results if r["status"] == "error"]
     skipped = [r for r in results if r["status"] == "not-installed"]
 
@@ -337,14 +475,14 @@ def run_wire(check_only: bool = False) -> list[dict]:
         if missing:
             print(f"  Need wiring:   {len(missing)}", file=sys.stderr)
             for r in missing:
-                print(f"    → {r['name']}", file=sys.stderr)
+                print(f"    -> {r['name']}", file=sys.stderr)
         if not missing:
             print("  All detected agents are wired!", file=sys.stderr)
     else:
         if wired:
             print(f"  Configured:    {len(wired)}", file=sys.stderr)
             for r in wired:
-                print(f"    → {r['name']} ({r['status']})", file=sys.stderr)
+                print(f"    -> {r['name']} ({r['status']})", file=sys.stderr)
         if ok:
             print(f"  Already OK:    {len(ok)}", file=sys.stderr)
         if errors:

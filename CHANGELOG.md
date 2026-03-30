@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.5] - 2026-03-30
+
+### Added
+
+- **Claude Code enforcement hooks**: Two hook scripts that guarantee Claude
+  searches Open Brain before taking any action.
+  - `hooks/brain-reminder.sh` (UserPromptSubmit) -- injects mandatory reminder
+  - `hooks/require-brain-search.sh` (PreToolUse) -- blocks all tools until
+    `mcp__open-brain__search` is called. Read-only tools are whitelisted.
+- **Auto-install via `wire`**: Running `python server.py wire` now automatically
+  copies hooks to `~/.claude/hooks/` and registers them in
+  `~/.claude/settings.json`. Works on Windows, macOS, and Linux.
+- Documentation for hooks in `docs/getting-started/wiring-agents.md`.
+- `hooks/README.md` with manual install instructions.
+
 ## [0.4.4] - 2026-03-25
 
 ### Fixed
