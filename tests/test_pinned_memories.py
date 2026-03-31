@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from server import (
     VALID_TYPES,
     _format_search_entry,
+    _record_search,
     db_get_pinned,
     db_set_pinned,
     db_store,
@@ -255,6 +256,7 @@ class TestGuardrailType:
         assert "guardrail" in VALID_TYPES
 
     def test_remember_with_guardrail_type(self):
+        _record_search("test", TEST_PROJECT)  # satisfy search-first enforcement
         raw = remember(
             "Always run tests before committing",
             source="test",

@@ -78,30 +78,33 @@ class TestRecordSearch:
 
 class TestCheckCompliance:
 
-    def test_no_search_returns_warning(self):
-        warning = _check_compliance("claude", "proj")
-        assert warning is not None
-        assert "No search()" in warning
-        assert "claude" in warning
+    def test_no_search_returns_blocked(self):
+        result = _check_compliance("claude", "proj")
+        assert result is not None
+        assert result["success"] is False
+        assert "BLOCKED" in result["error"]
+        assert result["blocked_by"] == "compliance"
 
     def test_recent_search_returns_none(self):
         _record_search("claude", "proj")
-        warning = _check_compliance("claude", "proj")
-        assert warning is None
+        result = _check_compliance("claude", "proj")
+        assert result is None
 
-    def test_expired_search_returns_stale_warning(self):
+    def test_expired_search_returns_blocked(self):
         _record_search("claude", "proj")
         # Backdate the timestamp
         key = "claude:proj"
         _session_tracker[key] = time.time() - COMPLIANCE_WINDOW - 60
-        warning = _check_compliance("claude", "proj")
-        assert warning is not None
-        assert "ago" in warning
+        result = _check_compliance("claude", "proj")
+        assert result is not None
+        assert result["success"] is False
+        assert "BLOCKED" in result["error"]
+        assert "expired" in result["error"].lower() or "ago" in result["error"].lower()
 
     def test_anonymous_source_returns_none(self):
         # Can't track if no source is given
-        warning = _check_compliance("", "proj")
-        assert warning is None
+        result = _check_compliance("", "proj")
+        assert result is None
 
     def test_different_sources_tracked_independently(self):
         _record_search("claude", "proj")
@@ -119,54 +122,47 @@ class TestCheckCompliance:
 
 class TestRememberCompliance:
 
-    def test_remember_without_prior_search_includes_warning(self):
+    def test_remember_without_prior_search_is_blocked(self):
         raw = remember("Test note for compliance", source="test-agent", project=TEST_PROJECT)
         result = json.loads(raw)
-        assert result["success"] is True
-        assert "compliance_warning" in result
-        assert "No search()" in result["compliance_warning"]
+        assert result["success"] is False
+        assert "BLOCKED" in result["error"]
+        assert result["blocked_by"] == "compliance"
 
-    def test_remember_after_search_has_no_warning(self):
-        # Record a search first
+    def test_remember_after_search_succeeds(self):
         _record_search("test-agent", TEST_PROJECT)
         raw = remember("Test note after search", source="test-agent", project=TEST_PROJECT)
         result = json.loads(raw)
         assert result["success"] is True
-        assert "compliance_warning" not in result
 
-    def test_remember_still_succeeds_with_warning(self):
+    def test_remember_without_search_does_not_store(self):
         raw = remember("Important note to store", source="test-agent", project=TEST_PROJECT)
         result = json.loads(raw)
-        assert result["success"] is True
-        assert result["action"] in ("stored", "updated", "skipped")
-        assert "id" in result
-        # Warning present but didn't block
-        assert "compliance_warning" in result
+        assert result["success"] is False
+        assert "id" not in result
 
-    def test_remember_no_source_no_warning(self):
-        # Anonymous calls can't be tracked, so no warning
+    def test_remember_no_source_not_blocked(self):
+        # Anonymous calls can't be tracked, so not blocked
         raw = remember("Anonymous note", project=TEST_PROJECT)
         result = json.loads(raw)
         assert result["success"] is True
-        assert "compliance_warning" not in result
 
 
 # ─── capture_context() compliance ────────────────────────────────────────────
 
 class TestCaptureContextCompliance:
 
-    def test_capture_without_prior_search_includes_warning(self):
+    def test_capture_without_prior_search_is_blocked(self):
         raw = capture_context(
             "Built a new feature for testing compliance tracking",
             source="test-agent",
             project=TEST_PROJECT,
         )
         result = json.loads(raw)
-        assert result["success"] is True
-        assert "compliance_warning" in result
-        assert "No search()" in result["compliance_warning"]
+        assert result["success"] is False
+        assert "BLOCKED" in result["error"]
 
-    def test_capture_after_search_has_no_warning(self):
+    def test_capture_after_search_succeeds(self):
         _record_search("test-agent", TEST_PROJECT)
         raw = capture_context(
             "Captured after searching, should be compliant",
@@ -175,7 +171,6 @@ class TestCaptureContextCompliance:
         )
         result = json.loads(raw)
         assert result["success"] is True
-        assert "compliance_warning" not in result
 
 
 # ─── search() source param ───────────────────────────────────────────────────
