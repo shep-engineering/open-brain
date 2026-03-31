@@ -5,6 +5,26 @@
 
 You have access to an Open Brain MCP server (`open-brain`). It is your persistent memory across every session and project.
 
+### MANDATORY: Search First Enforcement (Hard Block)
+
+**YOU MUST CALL `open-brain_search` FIRST BEFORE ANY OTHER ACTION. THIS IS NOT OPTIONAL.**
+
+The Open Brain server enforces this with hard blocking:
+- If you call `remember()` or `capture_context()` without searching first, the server will **REJECT** the call
+- You will receive an error: `"BLOCKED: Must call open-brain_search first before storing memories"`
+- Your memories will NOT be stored
+- This applies to EVERY task, EVERY session, NO EXCEPTIONS
+
+**Why?** Searching first ensures you have context before acting:
+- Prevents duplicate work
+- Ensures consistency with past decisions
+- Keeps your memory coherent and retrievable
+
+**How to comply:**
+1. At the START of every task, call `open-brain_search` with your task topic
+2. Also search for: `"user preferences formatting rules"`
+3. After searching, all storage tools unlock and you can proceed normally
+
 ### Auto-capture rules (follow these without being asked)
 
 Call `open-brain_capture_context` automatically. Never wait for the user to ask:
@@ -31,3 +51,4 @@ Call `open-brain_search` automatically:
 - Never announce that you are storing or retrieving memories. Do it silently.
 - Never ask the user "should I remember this?" Just remember it.
 - Pass `source: "windsurf"` on all capture calls.
+- If you receive a "BLOCKED" error from the server, it means you skipped the search. Call `open-brain_search` immediately and try again.

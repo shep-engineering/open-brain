@@ -108,25 +108,32 @@ def _record_search(source: str, project: str) -> None:
     _session_tracker[key] = time.time()
 
 
-def _check_compliance(source: str, project: str) -> str | None:
-    """Check if source searched recently. Returns warning message or None."""
+def _check_compliance(source: str, project: str) -> dict | None:
+    """Check if source searched recently. Returns error dict if blocked, None if compliant.
+    
+    BLOCKING ENFORCEMENT: All agents must call search() before storing memories.
+    No grace period. First call must also search first.
+    """
     if not source:
         return None  # Can't track anonymous calls
     key = f"{source}:{project}" if source and project else source or project or "_global"
     last_search = _session_tracker.get(key)
     if last_search is None:
-        return (
-            f"No search() called by '{source}' before storing. "
-            f"Workflow rules and prior context may have been missed. "
-            f"Best practice: call search() at the start of every task."
-        )
+        return {
+            "success": False,
+            "error": "BLOCKED: Must call open-brain_search first before storing memories",
+            "blocked_by": "compliance",
+            "details": f"No search() called by '{source}' in this session. Mandatory: search for task context before capturing."
+        }
     elapsed = time.time() - last_search
     if elapsed > COMPLIANCE_WINDOW:
         minutes = int(elapsed // 60)
-        return (
-            f"Last search() by '{source}' was {minutes}m ago. "
-            f"Consider searching again for fresh context before capturing."
-        )
+        return {
+            "success": False,
+            "error": f"BLOCKED: Search expired ({minutes}m ago). Call open-brain_search again before storing.",
+            "blocked_by": "compliance",
+            "details": f"Last search() by '{source}' was {minutes}m ago. Fresh context required."
+        }
     return None
 
 
@@ -839,6 +846,11 @@ def remember(content: str, source: str = "", type_override: str = "", project: s
                     Used for bi-temporal queries (as_of in search).
     """
     try:
+        # BLOCKING ENFORCEMENT: Check compliance before storing
+        compliance_error = _check_compliance(source, project)
+        if compliance_error:
+            return json.dumps(compliance_error, indent=2)
+        
         content = check_content(content)
         embedding = get_embedding(content)
         metadata  = extract_metadata(content)
@@ -857,9 +869,6 @@ def remember(content: str, source: str = "", type_override: str = "", project: s
             "action_items": metadata.get("action_items", []),
             "stored_at":    memory["created_at"],
         }
-        warning = _check_compliance(source, project)
-        if warning:
-            response["compliance_warning"] = warning
         return json.dumps(response, indent=2)
     except SecretDetectedError as exc:
         return json.dumps({"success": False, "error": str(exc), "blocked_by": "secrets_filter"})
@@ -1013,6 +1022,40 @@ def stats() -> str:
 
 
 @mcp.tool()
+def brain_startup_reminder() -> str:
+    """System message injection: mandatory startup reminder for all agents.
+    
+    This tool returns a system-level reminder that should be displayed to the user
+    at session start. It informs them that Open Brain enforcement is active and
+    that searching the brain is mandatory before storing memories.
+    
+    Returns a structured message that clients can display prominently.
+    """
+    return json.dumps({
+        "type": "system_message",
+        "level": "mandatory",
+        "title": "Open Brain: Search First Enforcement Active",
+        "message": (
+            "MANDATORY WORKFLOW: You must call open-brain_search FIRST before any other action.\n\n"
+            "Why? Open Brain enforces a 'search first' policy to ensure you have context before acting:\n"
+            "  • Prevents duplicate work\n"
+            "  • Ensures consistency with past decisions\n"
+            "  • Keeps your memory coherent and retrievable\n\n"
+            "What happens if you skip the search?\n"
+            "  • Calls to remember() or capture_context() will be BLOCKED\n"
+            "  • You'll get an error: 'BLOCKED: Must call open-brain_search first'\n"
+            "  • Your memories won't be stored\n\n"
+            "How to comply:\n"
+            "  1. Start every task by calling: open-brain_search with your task topic\n"
+            "  2. Also search for: 'user preferences formatting rules'\n"
+            "  3. After searching, all tools unlock and you can proceed normally\n\n"
+            "This is a hard requirement, not a suggestion."
+        ),
+        "action": "display_at_session_start"
+    }, indent=2)
+
+
+@mcp.tool()
 @instrument("capture_context")
 def capture_context(context: str, source: str = "", project: str = "") -> str:
     """Automatically extract and store memories from raw conversation or session context.
@@ -1041,6 +1084,11 @@ def capture_context(context: str, source: str = "", project: str = "") -> str:
                  Empty string means global (not project-scoped).
     """
     try:
+        # BLOCKING ENFORCEMENT: Check compliance before storing
+        compliance_error = _check_compliance(source, project)
+        if compliance_error:
+            return json.dumps(compliance_error, indent=2)
+        
         # Filter secrets from raw context before any processing
         context = check_content(context)
 
