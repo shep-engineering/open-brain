@@ -97,6 +97,59 @@ def main() -> None:
             """)
             print("✓  Supporting indexes created")
 
+            # 9. Audit log — append-only transaction log of all changes
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS memories_audit (
+                    audit_id    SERIAL      PRIMARY KEY,
+                    operation   TEXT        NOT NULL,
+                    memory_id   INTEGER     NOT NULL,
+                    content     TEXT,
+                    metadata    JSONB,
+                    project     TEXT,
+                    pinned      BOOLEAN,
+                    changed_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    changed_by  TEXT        NOT NULL DEFAULT ''
+                )
+            """)
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS memories_audit_ts_idx
+                ON memories_audit (changed_at DESC)
+            """)
+
+            # 10. Audit trigger — logs INSERT, UPDATE, DELETE with full row data
+            cur.execute("""
+                CREATE OR REPLACE FUNCTION audit_memories()
+                RETURNS trigger AS $body$
+                BEGIN
+                    IF TG_OP = 'DELETE' THEN
+                        INSERT INTO memories_audit (operation, memory_id, content, metadata, project, pinned)
+                        VALUES ('DELETE', OLD.id, OLD.content, OLD.metadata, OLD.project, OLD.pinned);
+                        RETURN OLD;
+                    ELSIF TG_OP = 'UPDATE' THEN
+                        INSERT INTO memories_audit (operation, memory_id, content, metadata, project, pinned)
+                        VALUES ('UPDATE', NEW.id, NEW.content, NEW.metadata, NEW.project, NEW.pinned);
+                        RETURN NEW;
+                    ELSIF TG_OP = 'INSERT' THEN
+                        INSERT INTO memories_audit (operation, memory_id, content, metadata, project, pinned)
+                        VALUES ('INSERT', NEW.id, NEW.content, NEW.metadata, NEW.project, NEW.pinned);
+                        RETURN NEW;
+                    END IF;
+                END;
+                $body$ LANGUAGE plpgsql
+            """)
+            cur.execute("""
+                DO $body$ BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_trigger WHERE tgname = 'memories_audit_trigger'
+                    ) THEN
+                        CREATE TRIGGER memories_audit_trigger
+                        AFTER INSERT OR UPDATE OR DELETE ON memories
+                        FOR EACH ROW EXECUTE FUNCTION audit_memories();
+                    END IF;
+                END $body$
+            """)
+            print("✓  Audit log table and trigger created")
+
             # Verify
             cur.execute("SELECT COUNT(*) FROM memories")
             total = cur.fetchone()[0]  # type: ignore[index]

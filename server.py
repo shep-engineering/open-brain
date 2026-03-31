@@ -804,18 +804,32 @@ def db_rate(memory_id: int, direction: str) -> dict | None:
         return _normalize_row(dict(row)) if row else None
 
 
+PRUNE_MIN_DAYS = 30     # hard floor: never prune anything newer than 30 days
+PRUNE_MAX_DELETE = 50   # hard cap: never delete more than 50 rows per call
+
+
 def db_prune(days: int, min_access: int = 0) -> int:
     """Delete memories older than N days that have been accessed fewer than min_access times.
-    Returns the number of deleted memories. Pinned memories are never pruned."""
+    Returns the number of deleted memories. Pinned memories are never pruned.
+    Hard limits: days >= PRUNE_MIN_DAYS (30), max PRUNE_MAX_DELETE (50) rows per call."""
+    if days < PRUNE_MIN_DAYS:
+        raise ValueError(
+            f"Refusing to prune: days={days} is below the hard minimum of {PRUNE_MIN_DAYS}. "
+            f"This safeguard prevents accidental mass deletion."
+        )
     conn = _get_conn()
     with conn.cursor() as cur:
         cur.execute(
             "DELETE FROM memories "
-            "WHERE created_at < NOW() - INTERVAL '1 day' * %s "
-            "AND access_count <= %s "
-            "AND pinned = FALSE "
-            "RETURNING id",
-            (days, min_access),
+            "WHERE id IN ("
+            "  SELECT id FROM memories "
+            "  WHERE created_at < NOW() - INTERVAL '1 day' * %s "
+            "  AND access_count <= %s "
+            "  AND pinned = FALSE "
+            "  ORDER BY created_at ASC "
+            "  LIMIT %s"
+            ") RETURNING id",
+            (days, min_access, PRUNE_MAX_DELETE),
         )
         return cur.rowcount or 0
 
@@ -1307,12 +1321,22 @@ def prune(days: int = 90, min_access: int = 0, dry_run: bool = True) -> str:
     Deletes memories older than N days that have been accessed fewer than
     min_access times. Use dry_run=True (default) to preview what would be deleted.
 
+    SAFETY: Minimum 30 days. Maximum 50 deletions per call. Pinned memories are
+    never deleted. dry_run defaults to True.
+
     Args:
-        days: Delete memories older than this many days (default 90).
+        days: Delete memories older than this many days (default 90, minimum 30).
         min_access: Only delete memories accessed this many times or fewer (default 0 = never accessed).
-        dry_run: If True (default), only count what would be deleted — don't actually delete.
+        dry_run: If True (default), only count what would be deleted. MUST be explicitly set to False to delete.
     """
     try:
+        if days < PRUNE_MIN_DAYS:
+            return json.dumps({
+                "success": False,
+                "error": f"BLOCKED: days={days} is below the hard minimum of {PRUNE_MIN_DAYS}. "
+                         f"This prevents accidental mass deletion.",
+                "blocked_by": "prune_safeguard",
+            })
         if dry_run:
             conn = _get_conn()
             with conn.cursor() as cur:
@@ -1327,14 +1351,17 @@ def prune(days: int = 90, min_access: int = 0, dry_run: bool = True) -> str:
             return json.dumps({
                 "dry_run":     True,
                 "would_delete": count,
+                "max_per_call": PRUNE_MAX_DELETE,
                 "criteria":    f"older than {days} days, accessed <= {min_access} times",
-                "message":     f"Would delete {count} memories. Set dry_run=False to execute.",
+                "message":     f"Would delete {count} memories (max {PRUNE_MAX_DELETE} per call). "
+                               f"Set dry_run=False to execute.",
             })
         deleted = db_prune(days, min_access)
         return json.dumps({
             "success": True,
             "deleted": deleted,
-            "message": f"Pruned {deleted} stale memories.",
+            "max_per_call": PRUNE_MAX_DELETE,
+            "message": f"Pruned {deleted} stale memories (max {PRUNE_MAX_DELETE} per call).",
         })
     except Exception as exc:
         return json.dumps({"success": False, "error": str(exc)})

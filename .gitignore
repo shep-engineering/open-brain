@@ -38,6 +38,9 @@ server-crash.log
 dashboard-crash.log
 dashboard-error.log
 
+# Database backups
+backups/
+
 # Editor
 .vscode/
 .idea/
