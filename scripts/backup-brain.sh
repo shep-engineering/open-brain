@@ -3,7 +3,7 @@
 # Add to crontab: 0 3 * * * /mnt/f/open-brain/scripts/backup-brain.sh
 
 BACKUP_DIR="/mnt/f/open-brain/backups"
-CONTAINER="open-brain-db-1"
+CONTAINER="open-brain-db"
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 KEEP_DAYS=30
 

@@ -3,7 +3,7 @@ REM Daily backup of Open Brain PostgreSQL database
 REM Add to Windows Task Scheduler to run daily
 
 set BACKUP_DIR=F:\open-brain\backups
-set CONTAINER=open-brain-db-1
+set CONTAINER=open-brain-db
 
 for /f "tokens=1-3 delims=/ " %%a in ('date /t') do set DATESTAMP=%%c%%a%%b
 for /f "tokens=1-2 delims=: " %%a in ('time /t') do set TIMESTAMP=%%a%%b
