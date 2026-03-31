@@ -188,6 +188,15 @@ def instrument(span_name: str | None = None):
     def decorator(fn: Callable) -> Callable:
         name = span_name or fn.__name__
 
+        def _set_caller_attrs(span, kwargs):
+            """Extract source/project from kwargs and add as span attributes."""
+            src = kwargs.get("source", "")
+            proj = kwargs.get("project", "")
+            if src:
+                span.set_attribute("mcp.source", src)
+            if proj:
+                span.set_attribute("mcp.project", proj)
+
         if asyncio.iscoroutinefunction(fn):
             @wraps(fn)
             async def async_wrapper(*args, **kwargs) -> Any:
@@ -197,6 +206,7 @@ def instrument(span_name: str | None = None):
                 with _tracer().start_as_current_span(name) as span:
                     span.set_attribute("mcp.tool", name)
                     span.set_attribute("service.name", SERVICE)
+                    _set_caller_attrs(span, kwargs)
                     try:
                         result = await fn(*args, **kwargs)
                         span.set_status(StatusCode.OK)
@@ -221,6 +231,7 @@ def instrument(span_name: str | None = None):
                 with _tracer().start_as_current_span(name) as span:
                     span.set_attribute("mcp.tool", name)
                     span.set_attribute("service.name", SERVICE)
+                    _set_caller_attrs(span, kwargs)
                     try:
                         result = fn(*args, **kwargs)
                         span.set_status(StatusCode.OK)

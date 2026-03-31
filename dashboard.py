@@ -90,9 +90,12 @@ def _tail_server_log(lines: int = 12):
                     status   = e.get("status", "")
                     dur      = e.get("duration_ms", "")
                     tid      = e.get("trace_id", "")[-8:]  # last 8 chars
+                    attrs    = e.get("attrs") or {}
+                    caller   = attrs.get("mcp.source", "")
+                    caller_tag = f" [{caller}]" if caller else ""
                     ts_short = ts[11:23] if len(ts) > 11 else ts
                     status_tag = " ERR" if status == "ERROR" else ""
-                    results.append((ts, f"[{svc}] {ts_short} {span} {dur}ms t:{tid}{status_tag}"))
+                    results.append((ts, f"[{svc}] {ts_short} {span} {dur}ms t:{tid}{caller_tag}{status_tag}"))
                 except Exception:
                     results.append(("", f"[otel]  {line[:100]}"))
             sources.append("otel")
