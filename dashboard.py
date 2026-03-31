@@ -638,23 +638,37 @@ class Dashboard(ctk.CTk):
 
     def _start_listen_thread(self):
         """Background thread that polls PostgreSQL LISTEN and pokes the GUI on changes."""
+        import select as _sel
         def _listen_loop():
             while self._alive:
+                conn = None
                 try:
                     conn = db_connect()
                     conn.set_isolation_level(0)  # autocommit required for LISTEN
                     cur = conn.cursor()
                     cur.execute("LISTEN memories_changed")
+                    keepalive_counter = 0
                     while self._alive:
-                        conn.poll()
-                        if conn.notifies:
-                            conn.notifies.clear()
-                            if self._alive:
-                                self.after(0, self._on_db_changed)
-                        time.sleep(1)  # check every second
+                        # Use select() to properly wait for notifications (5s timeout)
+                        if _sel.select([conn], [], [], 5) != ([], [], []):
+                            conn.poll()
+                            if conn.notifies:
+                                conn.notifies.clear()
+                                if self._alive:
+                                    self.after(0, self._on_db_changed)
+                        # Keepalive: every 60 iterations (~5 min), ping the connection
+                        keepalive_counter += 1
+                        if keepalive_counter >= 60:
+                            keepalive_counter = 0
+                            cur.execute("SELECT 1")
                 except Exception:
                     if not self._alive:
                         break
+                    try:
+                        if conn:
+                            conn.close()
+                    except Exception:
+                        pass
                     time.sleep(3)  # reconnect backoff
         threading.Thread(target=_listen_loop, daemon=True).start()
 
