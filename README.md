@@ -575,6 +575,35 @@ Copy the relevant rules into your agent configuration:
 
 ---
 
+## Testing
+
+Tests run against an **isolated test database** — never production. A separate Docker container (`open-brain-test-db`) on port 5434 with database `openbrain_test`. Three safety layers prevent tests from ever touching production.
+
+### Quick Start
+
+```sh
+# Start the test database (separate container, ephemeral)
+docker compose -f docker-compose.test.yml up -d
+
+# Run all tests
+pytest tests/ -v
+
+# Or use the convenience script
+bash scripts/test-db.sh -v
+```
+
+### How It Works
+
+1. `conftest.py` overrides `DATABASE_URL` before `server.py` is imported
+2. A session fixture hard-exits if the URL points to production
+3. Fake embeddings (deterministic SHA-256 vectors) — no Ollama needed for tests
+
+To run with real Ollama embeddings: `pytest tests/ -m ollama -v`
+
+See the full [Testing guide](docs/guides/testing.md) for architecture, safety details, and troubleshooting.
+
+---
+
 ## Embedding Models
 
 | Model | Provider | Dimensions | Cost |
@@ -643,6 +672,9 @@ open-brain/
 │   ├── setup_db.py         # One-time DB initialization (includes v2 schema)
 │   ├── migrate_v2.py       # Migration for existing DBs: project, annotations, access tracking, ratings
 │   └── ensure-stack.sh     # Verify/start Ollama + open-brain-db from WSL
-├── docker-compose.yml      # PostgreSQL + pgvector
+├── docker-compose.yml      # PostgreSQL + pgvector (production)
+├── docker-compose.test.yml # Isolated test database (port 5434)
+├── conftest.py             # pytest safety: forces test DB, fake embeddings
+├── pyproject.toml          # pytest configuration
 └── README.md
 ```
