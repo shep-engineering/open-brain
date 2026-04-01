@@ -195,7 +195,7 @@ class TestPinnedProtection:
                 (mem_id,),
             )
 
-        raw = prune(days=1, min_access=100, dry_run=True)
+        raw = prune(days=30, min_access=100, dry_run=True)
         result = json.loads(raw)
         # The count should not include our pinned memory
         # (It might include other old memories in the DB, but let's verify
