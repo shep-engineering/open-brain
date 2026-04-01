@@ -54,6 +54,7 @@ graph TD
 |-----------|-----------|---------|
 | MCP Server | Python + FastMCP | Exposes 11 tools over stdio/HTTP |
 | Database | PostgreSQL 16 + pgvector | Vector storage, JSONB metadata, full SQL |
+| Test Database | PostgreSQL 16 + pgvector (separate container) | Isolated test environment on port 5434 |
 | Vector Index | HNSW (m=16, ef=64) | Fast approximate nearest-neighbor search |
 | Embeddings | Ollama (`nomic-embed-text`) | 768-dim dense vectors, runs locally |
 | Metadata LLM | Ollama (`qwen2.5:32b`) | Rich extraction of people, topics, types |
@@ -69,7 +70,10 @@ open-brain/
 ├── wire.py                 # Agent auto-discovery + wiring CLI
 ├── requirements.txt        # Python dependencies
 ├── test_server.py          # End-to-end test suite
-├── docker-compose.yml      # PostgreSQL + pgvector
+├── docker-compose.yml      # PostgreSQL + pgvector (production)
+├── docker-compose.test.yml # Isolated test database (port 5434)
+├── conftest.py             # pytest safety: forces test DB, fake embeddings
+├── pyproject.toml          # pytest configuration
 ├── .env.example            # Config template
 ├── prompts/
 │   ├── windsurf-rules.md   # Auto-capture rules for Windsurf

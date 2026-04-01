@@ -41,6 +41,7 @@ nav:
     - Dashboard: guides/dashboard.md
     - Auto-Capture Rules: guides/auto-capture.md
     - ChatGPT Desktop: guides/chatgpt-desktop.md
+    - Testing: guides/testing.md
     - Migration: guides/migration.md
 
 markdown_extensions:

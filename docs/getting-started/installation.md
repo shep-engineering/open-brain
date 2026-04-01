@@ -87,7 +87,27 @@ This creates the `memories` table, pgvector extension, HNSW index, and all suppo
 
 ---
 
-## Step 5: Pull the embedding model
+## Step 5: Set up the test database (optional)
+
+Open Brain uses a separate Docker container for tests so they never touch your production data.
+
+```sh
+docker compose -f docker-compose.test.yml up -d
+```
+
+This starts `open-brain-test-db` on port **5434** with database `openbrain_test`. No persistent volume — test data is wiped on container removal.
+
+Run tests:
+
+```sh
+pytest tests/ -v
+```
+
+See the full [Testing guide](../guides/testing.md) for details on safety layers, fake embeddings, and troubleshooting.
+
+---
+
+## Step 6: Pull the embedding model
 
 ```sh
 ollama pull nomic-embed-text
@@ -104,7 +124,7 @@ ollama pull qwen2.5:32b
 
 ---
 
-## Step 6: Verify
+## Step 7: Verify
 
 ```sh
 python server.py
@@ -114,7 +134,7 @@ The server should start without errors. Now [wire it into your AI tools](wiring-
 
 ---
 
-## Step 7: Launch the Dashboard (Windows)
+## Step 8: Launch the Dashboard (Windows)
 
 Open Brain includes a dark-themed monitoring dashboard. It auto-detects whether services are running and starts them if needed.
 
