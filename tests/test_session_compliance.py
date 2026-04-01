@@ -1,7 +1,8 @@
-"""Tests for session compliance tracking.
+"""Tests for session compliance tracking (polling-based model).
 
-Verifies that remember() and capture_context() warn when no recent
-search() has been called by the same source.
+Verifies that remember() and capture_context() block when no recent
+search() has been called, and that the store counter enforces periodic
+re-searching.
 
 Run with: pytest tests/test_session_compliance.py -v
 """
@@ -9,7 +10,6 @@ Run with: pytest tests/test_session_compliance.py -v
 import json
 import os
 import sys
-import time
 
 import pytest
 
@@ -18,11 +18,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from server import (
     _check_compliance,
     _record_search,
+    _record_store,
     _session_tracker,
     capture_context,
     remember,
     search,
-    COMPLIANCE_WINDOW,
+    COMPLIANCE_MAX_STORES,
 )
 
 TEST_PROJECT = "__test_compliance__"
@@ -48,30 +49,47 @@ def clear_tracker():
 
 class TestRecordSearch:
 
-    def test_record_search_stores_timestamp(self):
+    def test_record_search_creates_tracker_entry(self):
         _record_search("claude", "my-project")
-        key = "claude:my-project"
-        assert key in _session_tracker
-        assert isinstance(_session_tracker[key], float)
+        assert "claude" in _session_tracker
+        assert _session_tracker["claude"]["searches"] == 1
+        assert _session_tracker["claude"]["stores_since_search"] == 0
 
-    def test_record_search_updates_on_repeat(self):
+    def test_record_search_increments_on_repeat(self):
         _record_search("claude", "proj")
-        first = _session_tracker["claude:proj"]
-        time.sleep(0.05)
         _record_search("claude", "proj")
-        assert _session_tracker["claude:proj"] > first
+        assert _session_tracker["claude"]["searches"] == 2
+
+    def test_record_search_resets_store_counter(self):
+        _record_search("claude", "proj")
+        _record_store("claude")
+        _record_store("claude")
+        assert _session_tracker["claude"]["stores_since_search"] == 2
+        _record_search("claude", "proj")
+        assert _session_tracker["claude"]["stores_since_search"] == 0
 
     def test_record_search_source_only(self):
         _record_search("cursor", "")
         assert "cursor" in _session_tracker
 
-    def test_record_search_project_only(self):
-        _record_search("", "open-brain")
-        assert "open-brain" in _session_tracker
-
-    def test_record_search_neither(self):
+    def test_record_search_no_source_uses_global(self):
         _record_search("", "")
         assert "_global" in _session_tracker
+
+
+# ─── _record_store ──────────────────────────────────────────────────────────
+
+class TestRecordStore:
+
+    def test_record_store_increments_counter(self):
+        _record_search("claude", "proj")
+        _record_store("claude")
+        assert _session_tracker["claude"]["stores_since_search"] == 1
+
+    def test_record_store_without_search_is_noop(self):
+        # If source never searched, _record_store does nothing (no key yet)
+        _record_store("unknown-agent")
+        assert "unknown-agent" not in _session_tracker
 
 
 # ─── _check_compliance ───────────────────────────────────────────────────────
@@ -90,32 +108,40 @@ class TestCheckCompliance:
         result = _check_compliance("claude", "proj")
         assert result is None
 
-    def test_expired_search_returns_blocked(self):
+    def test_max_stores_exceeded_returns_blocked(self):
         _record_search("claude", "proj")
-        # Backdate the timestamp
-        key = "claude:proj"
-        _session_tracker[key] = time.time() - COMPLIANCE_WINDOW - 60
+        # Simulate COMPLIANCE_MAX_STORES stores without searching
+        for _ in range(COMPLIANCE_MAX_STORES):
+            _record_store("claude")
         result = _check_compliance("claude", "proj")
         assert result is not None
         assert result["success"] is False
         assert "BLOCKED" in result["error"]
-        assert "expired" in result["error"].lower() or "ago" in result["error"].lower()
+
+    def test_search_after_max_stores_unblocks(self):
+        _record_search("claude", "proj")
+        for _ in range(COMPLIANCE_MAX_STORES):
+            _record_store("claude")
+        # Blocked now
+        assert _check_compliance("claude", "proj") is not None
+        # Search again — should unblock
+        _record_search("claude", "proj")
+        assert _check_compliance("claude", "proj") is None
 
     def test_anonymous_source_returns_none(self):
-        # Can't track if no source is given
         result = _check_compliance("", "proj")
         assert result is None
 
     def test_different_sources_tracked_independently(self):
         _record_search("claude", "proj")
-        # cursor never searched
         assert _check_compliance("claude", "proj") is None
         assert _check_compliance("cursor", "proj") is not None
 
-    def test_different_projects_tracked_independently(self):
-        _record_search("claude", "proj-a")
-        assert _check_compliance("claude", "proj-a") is None
-        assert _check_compliance("claude", "proj-b") is not None
+    def test_stores_below_max_are_allowed(self):
+        _record_search("claude", "proj")
+        for _ in range(COMPLIANCE_MAX_STORES - 1):
+            _record_store("claude")
+        assert _check_compliance("claude", "proj") is None
 
 
 # ─── remember() compliance ───────────────────────────────────────────────────
@@ -142,7 +168,6 @@ class TestRememberCompliance:
         assert "id" not in result
 
     def test_remember_no_source_not_blocked(self):
-        # Anonymous calls can't be tracked, so not blocked
         raw = remember("Anonymous note", project=TEST_PROJECT)
         result = json.loads(raw)
         assert result["success"] is True
@@ -179,13 +204,10 @@ class TestSearchSourceParam:
 
     def test_search_accepts_source_param(self):
         raw = search("test query", source="test-agent", project=TEST_PROJECT)
-        # Should not error
         assert isinstance(raw, str)
-        # Should have recorded the search
         assert _check_compliance("test-agent", TEST_PROJECT) is None
 
     def test_search_without_source_still_works(self):
         raw = search("test query", project=TEST_PROJECT)
         assert isinstance(raw, str)
-        # Global key should be recorded
-        assert TEST_PROJECT in _session_tracker or "_global" in _session_tracker
+        assert "_global" in _session_tracker

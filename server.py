@@ -57,17 +57,20 @@ DEDUP_THRESHOLD    = float(os.getenv("DEDUP_THRESHOLD",  "0.92"))
 DECAY_LAMBDA            = float(os.getenv("OPEN_BRAIN_DECAY_LAMBDA",          "0.005"))
 HYBRID_WEIGHT           = float(os.getenv("OPEN_BRAIN_HYBRID_WEIGHT",         "0.3"))
 UPTIME_FLUSH_INTERVAL   = int(os.getenv("OPEN_BRAIN_UPTIME_FLUSH_INTERVAL",   "60"))
-COMPLIANCE_WINDOW       = int(os.getenv("COMPLIANCE_WINDOW",                  "300"))  # seconds
+COMPLIANCE_MAX_STORES   = int(os.getenv("COMPLIANCE_MAX_STORES",              "5"))     # must search again after N stores
 MERGE_LOWER_THRESHOLD   = float(os.getenv("OPEN_BRAIN_MERGE_LOWER_THRESHOLD", "0.70"))  # below this = unrelated
 CONSOLIDATION_INTERVAL  = int(os.getenv("OPEN_BRAIN_CONSOLIDATION_INTERVAL",  "0"))    # 0 = disabled
 
 # ─── Session Compliance Tracking ─────────────────────────────────────────────
 #
-# Tracks when each source last called search(). If remember() or
-# capture_context() is called without a recent search, a compliance_warning
-# is included in the response. Storage is never blocked.
+# Polling-based enforcement: agents must search the brain proportional to
+# how much they store. After COMPLIANCE_MAX_STORES stores without a search,
+# storage is BLOCKED until the agent searches again. This ensures agents
+# continuously USE the brain as working memory, not just check a box at start.
+#
+# Per-source tracking: {source: {"searches": N, "stores_since_search": N}}
 
-_session_tracker: dict[str, float] = {}
+_session_tracker: dict[str, dict] = {}
 
 # ─── Working Memory (Session Scratchpad) ──────────────────────────────────────
 #
@@ -103,37 +106,58 @@ def _init_uptime(prior_total: float) -> None:
 
 
 def _record_search(source: str, project: str) -> None:
-    """Record that a source performed a search."""
-    key = f"{source}:{project}" if source and project else source or project or "_global"
-    _session_tracker[key] = time.time()
+    """Record that a source performed a search. Resets the store counter."""
+    if not source:
+        source = "_global"
+    if source not in _session_tracker:
+        _session_tracker[source] = {"searches": 0, "stores_since_search": 0}
+    _session_tracker[source]["searches"] += 1
+    _session_tracker[source]["stores_since_search"] = 0  # Reset — agent just polled the brain
+
+
+def _record_store(source: str) -> None:
+    """Increment the store counter for a source. Called after each successful store."""
+    if not source:
+        source = "_global"
+    if source in _session_tracker:
+        _session_tracker[source]["stores_since_search"] += 1
 
 
 def _check_compliance(source: str, project: str) -> dict | None:
-    """Check if source searched recently. Returns error dict if blocked, None if compliant.
-    
-    BLOCKING ENFORCEMENT: All agents must call search() before storing memories.
-    No grace period. First call must also search first.
+    """Polling-based compliance: block storage if agent hasn't searched recently enough.
+
+    Rules:
+    - Must search at least once before ANY store (no grace period)
+    - After COMPLIANCE_MAX_STORES stores, must search again
+    - Searching resets the store counter
+    - This enforces continuous brain polling, not a one-time checkbox
+
+    Returns error dict if blocked, None if compliant.
     """
     if not source:
         return None  # Can't track anonymous calls
-    key = f"{source}:{project}" if source and project else source or project or "_global"
-    last_search = _session_tracker.get(key)
-    if last_search is None:
+
+    tracker = _session_tracker.get(source)
+
+    # Never searched in this session
+    if tracker is None or tracker["searches"] == 0:
         return {
             "success": False,
             "error": "BLOCKED: Must call open-brain_search first before storing memories",
             "blocked_by": "compliance",
-            "details": f"No search() called by '{source}' in this session. Mandatory: search for task context before capturing."
+            "details": f"No search() called by '{source}' in this session. The brain is your working memory — poll it before acting."
         }
-    elapsed = time.time() - last_search
-    if elapsed > COMPLIANCE_WINDOW:
-        minutes = int(elapsed // 60)
+
+    # Too many stores without searching again
+    stores = tracker["stores_since_search"]
+    if COMPLIANCE_MAX_STORES > 0 and stores >= COMPLIANCE_MAX_STORES:
         return {
             "success": False,
-            "error": f"BLOCKED: Search expired ({minutes}m ago). Call open-brain_search again before storing.",
+            "error": f"BLOCKED: {stores} stores since last search. Call open-brain_search to refresh context before storing more.",
             "blocked_by": "compliance",
-            "details": f"Last search() by '{source}' was {minutes}m ago. Fresh context required."
+            "details": f"'{source}' has stored {stores} memories without searching. Max is {COMPLIANCE_MAX_STORES}. Search the brain to continue."
         }
+
     return None
 
 
@@ -873,6 +897,7 @@ def remember(content: str, source: str = "", type_override: str = "", project: s
         if source:
             metadata["source"] = source
         memory, action = db_store_deduped(content, embedding, metadata, project, valid_time)
+        _record_store(source)
         response = {
             "success":      True,
             "action":       action,
@@ -1182,6 +1207,7 @@ def capture_context(context: str, source: str = "", project: str = "") -> str:
                 meta["source"] = source
             meta["auto_captured"] = True
             memory, action = db_store_deduped(context, embedding, meta, project)
+            _record_store(source)
             stored.append({"id": memory["id"], "preview": context[:100], "type": meta["type"], "action": action})
 
         response = {
@@ -1190,9 +1216,6 @@ def capture_context(context: str, source: str = "", project: str = "") -> str:
             "stored":        stored,
             "errors":        errors if errors else None,
         }
-        warning = _check_compliance(source, project)
-        if warning:
-            response["compliance_warning"] = warning
         return json.dumps(response, indent=2)
 
     except SecretDetectedError as exc:
