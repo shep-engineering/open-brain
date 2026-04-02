@@ -84,13 +84,18 @@ def _tail_server_log(lines: int = 12):
                     continue
                 try:
                     e = json.loads(line)
+                    attrs    = e.get("attrs") or {}
+                    # Only show MCP tool calls, not DB queries or uptime heartbeats
+                    tool = attrs.get("mcp.tool")
+                    span_name = e.get("span", "")
+                    if not tool and span_name in ("SELECT", "UPDATE", "INSERT", "DELETE", "CREATE"):
+                        continue
                     ts       = e.get("ts", "")
                     svc      = e.get("service", "")[:12].ljust(12)
-                    span     = e.get("span", "")[:28].ljust(28)
+                    span     = span_name[:28].ljust(28)
                     status   = e.get("status", "")
                     dur      = e.get("duration_ms", "")
-                    tid      = e.get("trace_id", "")[-8:]  # last 8 chars
-                    attrs    = e.get("attrs") or {}
+                    tid      = e.get("trace_id", "")[-8:]
                     caller   = attrs.get("mcp.source", "")
                     caller_tag = f" [{caller}]" if caller else ""
                     ts_short = ts[11:23] if len(ts) > 11 else ts
@@ -127,29 +132,31 @@ def _tail_server_log(lines: int = 12):
         except Exception:
             pass
 
-    # 2. Ollama log
+    # 2. Ollama log — only include if recently modified (within 1 hour)
     if OLLAMA_LOG.exists():
         try:
-            raw = OLLAMA_LOG.read_text(errors="replace").splitlines()
-            for line in raw[-50:]:
-                line = line.strip()
-                if not line:
-                    continue
-                # Extract timestamp if present (time=2026-... or [GIN] 2026/...)
-                ts = ""
-                if line.startswith("time="):
-                    try:
-                        ts = line.split(" ")[0].replace("time=", "")
-                    except Exception:
-                        pass
-                elif line.startswith("[GIN]"):
-                    try:
-                        parts = line.split()
-                        ts = f"{parts[1]}T{parts[3]}"
-                    except Exception:
-                        pass
-                results.append((ts, f"[Ollama] {line[:100]}"))
-            sources.append("ollama")
+            import os as _os
+            age_seconds = time.time() - _os.path.getmtime(str(OLLAMA_LOG))
+            if age_seconds < 3600:  # only if modified in last hour
+                raw = OLLAMA_LOG.read_text(errors="replace").splitlines()
+                for line in raw[-50:]:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    ts = ""
+                    if line.startswith("time="):
+                        try:
+                            ts = line.split(" ")[0].replace("time=", "")
+                        except Exception:
+                            pass
+                    elif line.startswith("[GIN]"):
+                        try:
+                            parts = line.split()
+                            ts = f"{parts[1]}T{parts[3]}"
+                        except Exception:
+                            pass
+                    results.append((ts, f"[Ollama] {line[:100]}"))
+                sources.append("ollama")
         except Exception:
             pass
 
@@ -204,10 +211,11 @@ def fetch_obs_metrics() -> dict:
         except Exception:
             pass
 
-    # Last startup from observability log
-    if OBS_LOG.exists():
+    # Last startup: use the earliest OTel trace timestamp from the current day
+    # as a proxy (the server writes traces on every tool call)
+    if OTEL_LOG.exists() and not last_startup:
         try:
-            with open(OBS_LOG, encoding="utf-8", errors="replace") as f:
+            with open(OTEL_LOG, encoding="utf-8", errors="replace") as f:
                 for line in f:
                     line = line.strip()
                     if not line:
@@ -216,8 +224,11 @@ def fetch_obs_metrics() -> dict:
                         e = json.loads(line)
                     except Exception:
                         continue
-                    if e.get("event") == "server.startup":
-                        last_startup = e.get("ts", "")
+                    if e.get("service") == "open-brain":
+                        ts = e.get("ts", "")
+                        if ts:
+                            last_startup = ts
+                            break  # first trace = earliest startup
         except Exception:
             pass
 
@@ -380,18 +391,24 @@ def check_mcp():
     except Exception:
         pass
 
-    # Check 3: WSL tmux session
-    try:
-        result = subprocess.run(
-            ["wsl", "-e", "bash", "-lc",
-             "tmux list-sessions 2>/dev/null | grep -q openbrain && echo running || echo stopped"],
-            capture_output=True, text=True, timeout=3,
-            creationflags=_NO_WINDOW,
-        )
-        if "running" in result.stdout:
-            return "online"
-    except Exception:
-        pass
+    # Check 3: Windows process check -- look for python.exe running server.py
+    if IS_WINDOWS:
+        try:
+            result = subprocess.run(
+                ["tasklist", "/FI", "IMAGENAME eq python.exe", "/FO", "CSV", "/NH"],
+                capture_output=True, text=True, timeout=3,
+                creationflags=_NO_WINDOW,
+            )
+            # Check if any python process has server.py in its command line
+            r2 = subprocess.run(
+                ["wmic", "process", "where", "name='python.exe'", "get", "commandline"],
+                capture_output=True, text=True, timeout=3,
+                creationflags=_NO_WINDOW,
+            )
+            if "server.py" in r2.stdout:
+                return "online"
+        except Exception:
+            pass
 
     return "offline"
 
@@ -422,6 +439,7 @@ class Dashboard(ctk.CTk):
         self._setup_notify_trigger()
         self._start_listen_thread()
         self._schedule_service_check()
+        self._schedule_fallback_refresh()
         # Initial data load
         threading.Thread(target=self._fetch_and_update, daemon=True).start()
         self._tick_clock()
@@ -684,7 +702,7 @@ class Dashboard(ctk.CTk):
         if not self._alive:
             return
         threading.Thread(target=self._check_services, daemon=True).start()
-        self.after(60000, self._schedule_service_check)
+        self.after(30000, self._schedule_service_check)
 
     def _check_services(self):
         """Check Ollama + MCP status and update the UI."""
@@ -693,6 +711,13 @@ class Dashboard(ctk.CTk):
         obs = fetch_obs_metrics()
         if self._alive:
             self.after(0, lambda: self._apply_services(ollama, mcp, obs))
+
+    def _schedule_fallback_refresh(self):
+        """Fallback periodic refresh every 30s in case LISTEN/NOTIFY drops."""
+        if not self._alive:
+            return
+        threading.Thread(target=self._fetch_and_update, daemon=True).start()
+        self.after(30000, self._schedule_fallback_refresh)
 
     def _fetch_data_only(self):
         """Fetch DB stats and apply to UI (no service checks — triggered by NOTIFY)."""
@@ -835,87 +860,91 @@ class Dashboard(ctk.CTk):
             except Exception:
                 pass
 
-        def _is_running():
-            """Check if server.py is actually running in WSL."""
+        def _find_server_pids():
+            """Find PIDs of python.exe processes running server.py (Windows native)."""
+            pids = []
             try:
                 r = subprocess.run(
-                    ["wsl", "-e", "bash", "-lc",
-                     "pgrep -f 'server.py' > /dev/null 2>&1 && echo yes || echo no"],
+                    ["wmic", "process", "where", "name='python.exe'", "get", "processid,commandline"],
                     capture_output=True, text=True, timeout=5,
                     creationflags=_NO_WINDOW,
                 )
-                return r.stdout.strip() == "yes"
+                for line in r.stdout.splitlines():
+                    if "server.py" in line and "dashboard" not in line.lower():
+                        parts = line.strip().split()
+                        if parts:
+                            try:
+                                pids.append(int(parts[-1]))
+                            except ValueError:
+                                pass
             except Exception:
-                return False
+                pass
+            return pids
+
+        def _is_running():
+            return len(_find_server_pids()) > 0
 
         def _wait_until_stopped(max_attempts=10):
-            """Poll until server.py is confirmed dead."""
             for i in range(max_attempts):
                 if not _is_running():
                     return True
-                self.after(0, lambda i=i: _set_status(f"⟳ MCP: waiting for stop... ({i+1}/{max_attempts})"))
+                self.after(0, lambda i=i: _set_status(f"MCP: waiting for stop... ({i+1}/{max_attempts})"))
                 time.sleep(1)
             return False
 
-        def _wait_until_started(max_attempts=20):
-            """Poll until server.py is confirmed alive."""
+        def _wait_until_started(max_attempts=15):
             for i in range(max_attempts):
                 if _is_running():
                     return True
-                self.after(0, lambda i=i: _set_status(f"⟳ MCP: waiting for start... ({i+1}/{max_attempts})"))
+                self.after(0, lambda i=i: _set_status(f"MCP: waiting for start... ({i+1}/{max_attempts})"))
                 time.sleep(1)
             return False
 
         def _do_restart():
-            # ── Step 1: Kill existing server ──────────────────────────────────
-            self.after(0, lambda: _set_status("⟳ MCP: killing existing server..."))
+            # ── Step 1: Kill existing server (Windows native) ─────────────────
+            self.after(0, lambda: _set_status("MCP: stopping existing server..."))
+            pids = _find_server_pids()
+            for pid in pids:
+                try:
+                    subprocess.run(
+                        ["taskkill", "/F", "/PID", str(pid)],
+                        capture_output=True, timeout=5,
+                        creationflags=_NO_WINDOW,
+                    )
+                except Exception:
+                    pass
+
+            # ── Step 2: Verify stopped ────────────────────────────────────────
+            if pids:
+                self.after(0, lambda: _set_status("MCP: confirming stopped..."))
+                _wait_until_stopped(max_attempts=8)
+
+            # ── Step 3: Launch new server (Windows native) ────────────────────
+            self.after(0, lambda: _set_status("MCP: launching server.py..."))
             try:
-                subprocess.run(
-                    ["wsl", "-e", "bash", "-lc",
-                     "pkill -f 'server.py' 2>/dev/null; "
-                     "tmux kill-session -t openbrain 2>/dev/null; "
-                     "true"],
-                    capture_output=True, timeout=10, creationflags=_NO_WINDOW,
+                server_py = str(BASE_DIR / "server.py")
+                python_exe = str(BASE_DIR / ".venv" / "Scripts" / "python.exe")
+                crash_log = str(BASE_DIR / "server-crash.log")
+                subprocess.Popen(
+                    [python_exe, server_py],
+                    stdout=open(crash_log, "a"),
+                    stderr=subprocess.STDOUT,
+                    cwd=str(BASE_DIR),
+                    creationflags=_NO_WINDOW,
                 )
             except Exception as exc:
-                self.after(0, lambda: _set_status(f"✗ Kill failed: {exc}", RED))
+                self.after(0, lambda: _set_status(f"Launch failed: {exc}", RED))
                 _finish(success=False)
                 return
 
-            # ── Step 2: Verify it actually stopped ────────────────────────────
-            self.after(0, lambda: _set_status("⟳ MCP: confirming server stopped..."))
-            stopped = _wait_until_stopped(max_attempts=10)
-            if not stopped:
-                self.after(0, lambda: _set_status("✗ MCP: server did not stop — force killing", RED))
-                subprocess.run(
-                    ["wsl", "-e", "bash", "-lc", "pkill -9 -f 'server.py' 2>/dev/null; true"],
-                    capture_output=True, timeout=5, creationflags=_NO_WINDOW,
-                )
-                time.sleep(1)
-
-            # ── Step 3: Launch new server ─────────────────────────────────────
-            self.after(0, lambda: _set_status("⟳ MCP: launching server.py..."))
-            try:
-                subprocess.run(
-                    ["wsl", "-e", "bash", "-lc",
-                     "tmux new -d -s openbrain "
-                     "'/mnt/f/open-brain/.venv/Scripts/python.exe "
-                     "/mnt/f/open-brain/server.py 2>>/mnt/f/open-brain/server-crash.log'"],
-                    capture_output=True, timeout=10, creationflags=_NO_WINDOW,
-                )
-            except Exception as exc:
-                self.after(0, lambda: _set_status(f"✗ Launch failed: {exc}", RED))
-                _finish(success=False)
-                return
-
-            # ── Step 4: Verify it actually started ────────────────────────────
-            self.after(0, lambda: _set_status("⟳ MCP: verifying server started..."))
-            started = _wait_until_started(max_attempts=20)
+            # ── Step 4: Verify started ────────────────────────────────────────
+            self.after(0, lambda: _set_status("MCP: verifying server started..."))
+            started = _wait_until_started(max_attempts=15)
             if started:
-                self.after(0, lambda: _set_status("✓ MCP server running — reconnect in Windsurf Settings", GREEN))
+                self.after(0, lambda: _set_status("MCP server running", GREEN))
                 _finish(success=True)
             else:
-                self.after(0, lambda: _set_status("✗ MCP: server failed to start — check server-crash.log", RED))
+                self.after(0, lambda: _set_status("MCP: failed to start -- check server-crash.log", RED))
                 _finish(success=False)
 
         def _finish(success: bool):

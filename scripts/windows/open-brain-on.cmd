@@ -33,13 +33,9 @@ if %errorlevel%==0 (
     echo     Ollama started ^(dual GPU, max 2 models loaded^)
 )
 
-echo [4/4] Starting Open Brain MCP server in WSL tmux...
-wsl -e bash -lc "tmux kill-session -t openbrain 2>/dev/null; tmux new -d -s openbrain 'F:/open-brain/.venv/Scripts/python.exe /mnt/f/open-brain/server.py'" >nul 2>&1
-if %errorlevel%==0 (echo     Open Brain server started ^(tmux: openbrain^)) else (
-    echo     WSL tmux failed - trying Windows venv directly...
-    start "" /B F:\open-brain\.venv\Scripts\python.exe F:\open-brain\server.py
-    echo     Open Brain server started ^(Windows venv^)
-)
+echo [4/4] Starting Open Brain MCP server...
+start "" /B F:\open-brain\.venv\Scripts\python.exe F:\open-brain\server.py 2>>F:\open-brain\server-crash.log
+echo     Open Brain server started
 
 echo.
 echo Open Brain v0.4.1 is ON. 12 MCP tools ready for Windsurf / Cursor / Claude Code.

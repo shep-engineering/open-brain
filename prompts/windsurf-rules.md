@@ -5,25 +5,31 @@
 
 You have access to an Open Brain MCP server (`open-brain`). It is your persistent memory across every session and project.
 
-### MANDATORY: Search First Enforcement (Hard Block)
+### MANDATORY: Boot Session First (Hard Block)
 
-**YOU MUST CALL `open-brain_search` FIRST BEFORE ANY OTHER ACTION. THIS IS NOT OPTIONAL.**
+**YOU MUST CALL `open-brain_boot_session(project, source)` FIRST BEFORE ANY OTHER ACTION. THIS IS NOT OPTIONAL.**
 
 The Open Brain server enforces this with hard blocking:
-- If you call `remember()` or `capture_context()` without searching first, the server will **REJECT** the call
-- You will receive an error: `"BLOCKED: Must call open-brain_search first before storing memories"`
+- If you call `remember()` or `capture_context()` without booting first, the server will **REJECT** the call
+- You will receive an error: `"BLOCKED: Must call boot_session(project) first to load project context"`
 - Your memories will NOT be stored
 - This applies to EVERY task, EVERY session, NO EXCEPTIONS
 
-**Why?** Searching first ensures you have context before acting:
-- Prevents duplicate work
-- Ensures consistency with past decisions
-- Keeps your memory coherent and retrievable
+**What boot_session does:**
+- Loads ALL pinned guardrails (non-negotiable rules) with full content
+- Loads project architecture and deployment context
+- Loads recent session history (last 7 days of work)
+- Loads known issues and past corrections
+- Stores everything in working memory for the session
+
+**Why?** Without booting, you have amnesia. You will repeat past mistakes, use wrong platforms (e.g. WSL instead of Windows), and waste the user's time re-explaining things the brain already knows.
 
 **How to comply:**
-1. At the START of every task, call `open-brain_search` with your task topic
-2. Also search for: `"user preferences formatting rules"`
-3. After searching, all storage tools unlock and you can proceed normally
+1. At the START of every session, call `open-brain_boot_session` with the project name and your source (e.g. "windsurf")
+2. READ the returned context carefully -- it contains guardrails, architecture info, and corrections
+3. Then search for your specific task topic: `open-brain_search` with the task description
+4. Also search for: `"user preferences formatting rules"`
+5. After booting and searching, all storage tools unlock
 
 ### Auto-capture rules (follow these without being asked)
 

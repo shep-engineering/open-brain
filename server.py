@@ -28,7 +28,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
@@ -71,6 +71,9 @@ CONSOLIDATION_INTERVAL  = int(os.getenv("OPEN_BRAIN_CONSOLIDATION_INTERVAL",  "0
 # Per-source tracking: {source: {"searches": N, "stores_since_search": N}}
 
 _session_tracker: dict[str, dict] = {}
+
+# Per-source boot tracking: which sources have completed the boot sequence
+_booted_sources: set[str] = set()
 
 # ─── Working Memory (Session Scratchpad) ──────────────────────────────────────
 #
@@ -124,9 +127,10 @@ def _record_store(source: str) -> None:
 
 
 def _check_compliance(source: str, project: str) -> dict | None:
-    """Polling-based compliance: block storage if agent hasn't searched recently enough.
+    """Polling-based compliance: block storage if agent hasn't booted and searched.
 
     Rules:
+    - Must call boot_session() before ANY other tool (loads full project context)
     - Must search at least once before ANY store (no grace period)
     - After COMPLIANCE_MAX_STORES stores, must search again
     - Searching resets the store counter
@@ -136,6 +140,15 @@ def _check_compliance(source: str, project: str) -> dict | None:
     """
     if not source:
         return None  # Can't track anonymous calls
+
+    # Must boot before storing
+    if source not in _booted_sources:
+        return {
+            "success": False,
+            "error": "BLOCKED: Must call boot_session(project) first to load project context",
+            "blocked_by": "boot_required",
+            "details": f"'{source}' has not booted this session. Call boot_session with your project name to load guardrails, architecture context, and recent history before proceeding."
+        }
 
     tracker = _session_tracker.get(source)
 
@@ -1092,6 +1105,125 @@ def brain_startup_reminder() -> str:
         ),
         "action": "display_at_session_start"
     }, indent=2)
+
+
+@mcp.tool()
+@instrument("boot_session")
+def boot_session(project: str = "", source: str = "") -> str:
+    """Boot your brain for this session. MUST be called before any other tool.
+
+    This loads your full project context so you can work effectively:
+    1. Pinned guardrails (non-negotiable rules for this project)
+    2. Project architecture and deployment context
+    3. Recent session history (last 7 days)
+    4. Known issues and corrections
+
+    The context is also stored in working memory (scratchpad) for quick access
+    throughout the session.
+
+    Call this ONCE at the start of every session, before doing anything else.
+
+    Args:
+        project: The project you're working on (e.g. 'open-brain', 'resume-harbor').
+        source: Which agent is booting (e.g. 'claude', 'windsurf', 'cursor').
+    """
+    try:
+        sections = []
+
+        # Step 1: Load pinned guardrails (full content, not previews)
+        pinned = db_get_pinned(project) if project else []
+        if pinned:
+            guardrail_text = []
+            for m in pinned:
+                meta = m.get("metadata", {})
+                if isinstance(meta, str):
+                    meta = json.loads(meta) if meta else {}
+                guardrail_text.append(
+                    f"[GUARDRAIL #{m['id']}] ({meta.get('type', 'unknown')})\n{m['content']}"
+                )
+            sections.append({
+                "section": "PINNED GUARDRAILS",
+                "count": len(pinned),
+                "content": guardrail_text,
+            })
+
+        # Step 2: Project architecture and deployment context
+        if project:
+            arch_embedding = get_embedding(f"{project} architecture deployment how it works platform")
+            arch_memories = db_search(arch_embedding, f"{project} architecture deployment", 5, None, None, project, 0, 0, "")
+            if arch_memories:
+                arch_text = []
+                for m in arch_memories:
+                    arch_text.append(f"[#{m['id']}] {m['content'][:500]}")
+                sections.append({
+                    "section": "PROJECT CONTEXT",
+                    "count": len(arch_memories),
+                    "content": arch_text,
+                })
+
+        # Step 3: Recent session history (last 7 days)
+        if project:
+            session_embedding = get_embedding(f"{project} session changes fixes decisions")
+            session_memories = db_search(session_embedding, f"{project} session", 5, None, None, project, 7, 0, "")
+            if session_memories:
+                session_text = []
+                for m in session_memories:
+                    session_text.append(f"[#{m['id']}] {m['content'][:300]}")
+                sections.append({
+                    "section": "RECENT HISTORY (7 days)",
+                    "count": len(session_memories),
+                    "content": session_text,
+                })
+
+        # Step 4: Known issues and corrections
+        if project:
+            issues_embedding = get_embedding(f"{project} known issues bugs corrections mistakes")
+            issues_memories = db_search(issues_embedding, f"{project} issues corrections", 5, None, None, project, 0, 0, "")
+            if issues_memories:
+                issues_text = []
+                for m in issues_memories:
+                    issues_text.append(f"[#{m['id']}] {m['content'][:300]}")
+                sections.append({
+                    "section": "KNOWN ISSUES & CORRECTIONS",
+                    "count": len(issues_memories),
+                    "content": issues_text,
+                })
+
+        # Step 5: Store summary in scratch pad and mark as booted
+        summary = json.dumps(sections, indent=2)
+        _scratch["boot_context"] = summary
+        _scratch["boot_project"] = project
+        _scratch["boot_source"] = source
+        _scratch["boot_time"] = datetime.now(timezone.utc).isoformat()
+
+        # Mark this source as booted
+        if source:
+            _booted_sources.add(source)
+        # Also record as a search for compliance
+        _record_search(source, project)
+
+        return json.dumps({
+            "success": True,
+            "booted": True,
+            "project": project,
+            "source": source,
+            "sections_loaded": len(sections),
+            "context": sections,
+            "message": f"Brain booted for '{project}'. {len(sections)} context sections loaded. You may now proceed.",
+        }, indent=2)
+
+    except Exception as exc:
+        # Boot should never hard-fail -- degrade gracefully
+        if source:
+            _booted_sources.add(source)
+        _record_search(source, project)
+        return json.dumps({
+            "success": True,
+            "booted": True,
+            "degraded": True,
+            "error": str(exc),
+            "message": "Boot completed with errors. Context may be incomplete. Proceed with caution.",
+        }, indent=2)
 
 
 @mcp.tool()
