@@ -53,10 +53,33 @@ def main() -> None:
                     last_accessed TIMESTAMPTZ,
                     upvotes       INTEGER     NOT NULL DEFAULT 0,
                     downvotes     INTEGER     NOT NULL DEFAULT 0,
-                    pinned        BOOLEAN     NOT NULL DEFAULT FALSE
+                    pinned        BOOLEAN     NOT NULL DEFAULT FALSE,
+                    updated_at    TIMESTAMPTZ DEFAULT NULL
                 )
             """)
             print(f"✓  memories table ready  ({DIMENSIONS}-dim vectors)")
+
+            # 2b. Auto-set updated_at on every UPDATE
+            cur.execute("""
+                CREATE OR REPLACE FUNCTION set_updated_at()
+                RETURNS trigger AS $$
+                BEGIN
+                    NEW.updated_at = NOW();
+                    RETURN NEW;
+                END;
+                $$ LANGUAGE plpgsql
+            """)
+            cur.execute("""
+                DO $$ BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_trigger WHERE tgname = 'memories_set_updated_at'
+                    ) THEN
+                        CREATE TRIGGER memories_set_updated_at
+                        BEFORE UPDATE ON memories
+                        FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+                    END IF;
+                END $$;
+            """)
 
             # 3. HNSW index — fast approximate nearest-neighbour search
             cur.execute("""

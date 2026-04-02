@@ -323,8 +323,9 @@ def fetch_stats():
         accessed = cur.fetchone()[0]
 
         cur.execute(
-            "SELECT content, metadata->>'type', project, created_at "
-            "FROM memories ORDER BY created_at DESC LIMIT 10"
+            "SELECT content, metadata->>'type', project, "
+            "GREATEST(created_at, COALESCE(updated_at, created_at)) as last_modified "
+            "FROM memories ORDER BY last_modified DESC LIMIT 10"
         )
         recent = cur.fetchall()
 

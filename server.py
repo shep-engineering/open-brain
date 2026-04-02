@@ -654,8 +654,8 @@ def db_list_recent(limit: int, days: int | None) -> list[dict]:
 
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
-            f"SELECT id, content, metadata, created_at, pinned FROM memories "
-            f"{date_filter} ORDER BY created_at DESC LIMIT %s",
+            f"SELECT id, content, metadata, created_at, updated_at, pinned FROM memories "
+            f"{date_filter} ORDER BY GREATEST(created_at, COALESCE(updated_at, created_at)) DESC LIMIT %s",
             params,
         )
         return [_normalize_row(dict(r)) for r in cur.fetchall()]
@@ -1049,6 +1049,8 @@ def list_recent(limit: int = 20, days: int = 0) -> str:
                 "people":     meta(m).get("people", [])[:3],
                 "created_at": str(m["created_at"]),
             }
+            if m.get("updated_at"):
+                entry["updated_at"] = str(m["updated_at"])
             if m.get("pinned"):
                 entry["pinned"] = True
             entries.append(entry)
