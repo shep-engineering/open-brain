@@ -69,6 +69,20 @@ except Exception:
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if IS_WINDOWS else 0
 
 
+def _utc_to_local(iso_ts: str) -> str:
+    """Convert an ISO 8601 UTC timestamp string to local time HH:MM:SS."""
+    try:
+        from datetime import timezone as _tz
+        dt = datetime.fromisoformat(iso_ts)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=_tz.utc)
+        local = dt.astimezone()
+        return local.strftime("%H:%M:%S")
+    except Exception:
+        # Fallback: just slice the time portion from the ISO string
+        return iso_ts[11:19] if len(iso_ts) > 11 else iso_ts
+
+
 def _tail_server_log(lines: int = 12):
     """Return (lines_list, source_label) combining OTel traces + Ollama logs."""
     results = []
@@ -98,9 +112,9 @@ def _tail_server_log(lines: int = 12):
                     tid      = e.get("trace_id", "")[-8:]
                     caller   = attrs.get("mcp.source", "")
                     caller_tag = f" [{caller}]" if caller else ""
-                    ts_short = ts[11:23] if len(ts) > 11 else ts
+                    ts_local = _utc_to_local(ts)
                     status_tag = " ERR" if status == "ERROR" else ""
-                    results.append((ts, f"[{svc}] {ts_short} {span} {dur}ms t:{tid}{caller_tag}{status_tag}"))
+                    results.append((ts, f"[{svc}] {ts_local} {span} {dur}ms t:{tid}{caller_tag}{status_tag}"))
                 except Exception:
                     results.append(("", f"[otel]  {line[:100]}"))
             sources.append("otel")
@@ -124,8 +138,8 @@ def _tail_server_log(lines: int = 12):
                     if e.get("tool"):         extra += f" {e['tool']}"
                     if e.get("duration_ms"):  extra += f" {e['duration_ms']:.0f}ms"
                     if e.get("error"):        extra += f" ERR:{e['error'][:35]}"
-                    ts_short = ts[11:23] if len(ts) > 11 else ts
-                    results.append((ts, f"[MCP]    {ts_short} {lvl} {evt}{extra}"))
+                    ts_local = _utc_to_local(ts)
+                    results.append((ts, f"[MCP]    {ts_local} {lvl} {evt}{extra}"))
                 except Exception:
                     results.append(("", f"[MCP]    {line[:100]}"))
             sources.append("mcp-legacy")
@@ -211,24 +225,27 @@ def fetch_obs_metrics() -> dict:
         except Exception:
             pass
 
-    # Last startup: use the earliest OTel trace timestamp from the current day
-    # as a proxy (the server writes traces on every tool call)
+    # Last activity: use the most recent OTel trace from open-brain service
     if OTEL_LOG.exists() and not last_startup:
         try:
-            with open(OTEL_LOG, encoding="utf-8", errors="replace") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        e = json.loads(line)
-                    except Exception:
-                        continue
-                    if e.get("service") == "open-brain":
-                        ts = e.get("ts", "")
-                        if ts:
-                            last_startup = ts
-                            break  # first trace = earliest startup
+            with open(OTEL_LOG, "rb") as f:
+                f.seek(0, 2)
+                size = f.tell()
+                f.seek(max(0, size - 16384))
+                tail = f.read().decode("utf-8", errors="replace")
+            for line in reversed(tail.strip().splitlines()):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    e = json.loads(line)
+                except Exception:
+                    continue
+                if e.get("service") == "open-brain":
+                    ts = e.get("ts", "")
+                    if ts:
+                        last_startup = ts
+                        break
         except Exception:
             pass
 
@@ -1049,7 +1066,8 @@ class Dashboard(ctk.CTk):
             errs    = obs_metrics.get("total_errors", 0)
             rate    = obs_metrics.get("error_rate", 0.0)
             top     = obs_metrics.get("top_tools", [])
-            startup = (obs_metrics.get("last_startup") or "")[:19].replace("T", " ")
+            raw_startup = obs_metrics.get("last_startup") or ""
+            startup = _utc_to_local(raw_startup) if raw_startup else ""
             top_str = "  ".join(f"{t}:{c}" for t, c in top[:3]) if top else "—"
             rate_color = RED if rate > 5 else (YELLOW if rate > 0 else GREEN)
             self._obs_label.configure(

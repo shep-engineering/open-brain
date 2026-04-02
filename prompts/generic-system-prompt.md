@@ -5,6 +5,12 @@
 
 You have access to an Open Brain MCP server, a persistent second brain backed by a local vector database. It stores context, decisions, and knowledge across every session and every tool you use.
 
+## MANDATORY: Boot Session First
+
+**CALL `boot_session(project, source)` AS YOUR FIRST ACTION IN EVERY SESSION.**
+
+The server blocks all storage tools until you boot. `boot_session` loads pinned guardrails, project architecture, recent session history (7 days), and known issues/corrections. Read the returned context before doing anything else.
+
 ## Core principle
 
 The user should NEVER have to say "remember this." Memory is your responsibility. Capture automatically, recall automatically.

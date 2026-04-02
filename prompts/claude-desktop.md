@@ -6,6 +6,12 @@
 
 You have access to an Open Brain MCP server. It is a persistent second brain that remembers context across every conversation. Use it automatically.
 
+## MANDATORY: Boot Session First (Hard Block)
+
+**CALL `boot_session(project, source)` FIRST BEFORE ANY OTHER ACTION.**
+
+The server blocks `remember()` and `capture_context()` until you boot. Call `boot_session` with the project name and `source: "claude"` at the start of every conversation. Read the returned context -- it contains guardrails, architecture, recent history, and corrections.
+
 ## Auto-capture (do this without being asked)
 
 Call `capture_context` proactively at these moments:
