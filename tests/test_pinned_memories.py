@@ -256,6 +256,8 @@ class TestGuardrailType:
         assert "guardrail" in VALID_TYPES
 
     def test_remember_with_guardrail_type(self):
+        from server import _booted_sources
+        _booted_sources.add("test")  # satisfy boot requirement
         _record_search("test", TEST_PROJECT)  # satisfy search-first enforcement
         raw = remember(
             "Always run tests before committing",

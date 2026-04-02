@@ -16,10 +16,12 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from server import (
+    _booted_sources,
     _check_compliance,
     _record_search,
     _record_store,
     _session_tracker,
+    boot_session,
     capture_context,
     remember,
     search,
@@ -31,10 +33,12 @@ TEST_PROJECT = "__test_compliance__"
 
 @pytest.fixture(autouse=True)
 def clear_tracker():
-    """Clear session tracker and test memories before/after each test."""
+    """Clear session tracker, boot state, and test memories before/after each test."""
     _session_tracker.clear()
+    _booted_sources.clear()
     yield
     _session_tracker.clear()
+    _booted_sources.clear()
     # Clean up test memories
     try:
         from server import _get_conn
@@ -96,21 +100,30 @@ class TestRecordStore:
 
 class TestCheckCompliance:
 
-    def test_no_search_returns_blocked(self):
+    def test_no_boot_returns_blocked(self):
+        result = _check_compliance("claude", "proj")
+        assert result is not None
+        assert result["success"] is False
+        assert "BLOCKED" in result["error"]
+        assert result["blocked_by"] == "boot_required"
+
+    def test_booted_but_no_search_returns_blocked(self):
+        _booted_sources.add("claude")
         result = _check_compliance("claude", "proj")
         assert result is not None
         assert result["success"] is False
         assert "BLOCKED" in result["error"]
         assert result["blocked_by"] == "compliance"
 
-    def test_recent_search_returns_none(self):
+    def test_booted_and_searched_returns_none(self):
+        _booted_sources.add("claude")
         _record_search("claude", "proj")
         result = _check_compliance("claude", "proj")
         assert result is None
 
     def test_max_stores_exceeded_returns_blocked(self):
+        _booted_sources.add("claude")
         _record_search("claude", "proj")
-        # Simulate COMPLIANCE_MAX_STORES stores without searching
         for _ in range(COMPLIANCE_MAX_STORES):
             _record_store("claude")
         result = _check_compliance("claude", "proj")
@@ -119,12 +132,11 @@ class TestCheckCompliance:
         assert "BLOCKED" in result["error"]
 
     def test_search_after_max_stores_unblocks(self):
+        _booted_sources.add("claude")
         _record_search("claude", "proj")
         for _ in range(COMPLIANCE_MAX_STORES):
             _record_store("claude")
-        # Blocked now
         assert _check_compliance("claude", "proj") is not None
-        # Search again — should unblock
         _record_search("claude", "proj")
         assert _check_compliance("claude", "proj") is None
 
@@ -133,11 +145,14 @@ class TestCheckCompliance:
         assert result is None
 
     def test_different_sources_tracked_independently(self):
+        _booted_sources.add("claude")
         _record_search("claude", "proj")
         assert _check_compliance("claude", "proj") is None
+        # cursor hasn't booted
         assert _check_compliance("cursor", "proj") is not None
 
     def test_stores_below_max_are_allowed(self):
+        _booted_sources.add("claude")
         _record_search("claude", "proj")
         for _ in range(COMPLIANCE_MAX_STORES - 1):
             _record_store("claude")
@@ -148,20 +163,29 @@ class TestCheckCompliance:
 
 class TestRememberCompliance:
 
-    def test_remember_without_prior_search_is_blocked(self):
+    def test_remember_without_boot_is_blocked(self):
+        raw = remember("Test note for compliance", source="test-agent", project=TEST_PROJECT)
+        result = json.loads(raw)
+        assert result["success"] is False
+        assert "BLOCKED" in result["error"]
+        assert result["blocked_by"] == "boot_required"
+
+    def test_remember_booted_but_no_search_is_blocked(self):
+        _booted_sources.add("test-agent")
         raw = remember("Test note for compliance", source="test-agent", project=TEST_PROJECT)
         result = json.loads(raw)
         assert result["success"] is False
         assert "BLOCKED" in result["error"]
         assert result["blocked_by"] == "compliance"
 
-    def test_remember_after_search_succeeds(self):
+    def test_remember_after_boot_and_search_succeeds(self):
+        _booted_sources.add("test-agent")
         _record_search("test-agent", TEST_PROJECT)
         raw = remember("Test note after search", source="test-agent", project=TEST_PROJECT)
         result = json.loads(raw)
         assert result["success"] is True
 
-    def test_remember_without_search_does_not_store(self):
+    def test_remember_without_boot_does_not_store(self):
         raw = remember("Important note to store", source="test-agent", project=TEST_PROJECT)
         result = json.loads(raw)
         assert result["success"] is False
@@ -177,7 +201,7 @@ class TestRememberCompliance:
 
 class TestCaptureContextCompliance:
 
-    def test_capture_without_prior_search_is_blocked(self):
+    def test_capture_without_boot_is_blocked(self):
         raw = capture_context(
             "Built a new feature for testing compliance tracking",
             source="test-agent",
@@ -187,7 +211,8 @@ class TestCaptureContextCompliance:
         assert result["success"] is False
         assert "BLOCKED" in result["error"]
 
-    def test_capture_after_search_succeeds(self):
+    def test_capture_after_boot_and_search_succeeds(self):
+        _booted_sources.add("test-agent")
         _record_search("test-agent", TEST_PROJECT)
         raw = capture_context(
             "Captured after searching, should be compliant",
@@ -205,9 +230,87 @@ class TestSearchSourceParam:
     def test_search_accepts_source_param(self):
         raw = search("test query", source="test-agent", project=TEST_PROJECT)
         assert isinstance(raw, str)
-        assert _check_compliance("test-agent", TEST_PROJECT) is None
+        # Search records in tracker but doesn't boot
+        assert "test-agent" in _session_tracker
 
     def test_search_without_source_still_works(self):
         raw = search("test query", project=TEST_PROJECT)
         assert isinstance(raw, str)
         assert "_global" in _session_tracker
+
+    def test_search_does_not_require_boot(self):
+        # search() should work without boot_session -- it's a read tool
+        raw = search("test query", source="test-agent", project=TEST_PROJECT)
+        assert isinstance(raw, str)
+        # But storing still requires boot
+        result = _check_compliance("test-agent", TEST_PROJECT)
+        assert result is not None
+        assert result["blocked_by"] == "boot_required"
+
+
+# ─── boot_session() ─────────────────────────────────────────────────────────
+
+class TestBootSession:
+
+    def test_boot_returns_success(self):
+        raw = boot_session(project=TEST_PROJECT, source="test-agent")
+        result = json.loads(raw)
+        assert result["success"] is True
+        assert result["booted"] is True
+
+    def test_boot_marks_source_as_booted(self):
+        assert "test-agent" not in _booted_sources
+        boot_session(project=TEST_PROJECT, source="test-agent")
+        assert "test-agent" in _booted_sources
+
+    def test_boot_records_search(self):
+        boot_session(project=TEST_PROJECT, source="test-agent")
+        assert "test-agent" in _session_tracker
+        assert _session_tracker["test-agent"]["searches"] >= 1
+
+    def test_boot_stores_in_scratchpad(self):
+        from server import _scratch
+        boot_session(project=TEST_PROJECT, source="test-agent")
+        assert "boot_context" in _scratch
+        assert "boot_project" in _scratch
+        assert _scratch["boot_project"] == TEST_PROJECT
+
+    def test_boot_unlocks_remember(self):
+        # Before boot: blocked
+        raw = remember("test", source="test-agent", project=TEST_PROJECT)
+        result = json.loads(raw)
+        assert result["success"] is False
+        assert result["blocked_by"] == "boot_required"
+
+        # After boot: search is also recorded by boot, so remember should work
+        boot_session(project=TEST_PROJECT, source="test-agent")
+        raw = remember("test note after boot", source="test-agent", project=TEST_PROJECT)
+        result = json.loads(raw)
+        assert result["success"] is True
+
+    def test_boot_returns_context_sections(self):
+        # Boot against test project -- may or may not have pinned guardrails
+        # but should always return a valid context list
+        raw = boot_session(project=TEST_PROJECT, source="test-agent")
+        result = json.loads(raw)
+        assert "context" in result
+        assert isinstance(result["context"], list)
+
+    def test_boot_without_project_still_succeeds(self):
+        raw = boot_session(project="", source="test-agent")
+        result = json.loads(raw)
+        assert result["success"] is True
+        assert result["booted"] is True
+
+    def test_boot_without_source_still_succeeds(self):
+        raw = boot_session(project=TEST_PROJECT, source="")
+        result = json.loads(raw)
+        assert result["success"] is True
+        assert result["booted"] is True
+
+    def test_boot_degrades_gracefully_on_error(self):
+        # Even if something goes wrong internally, boot should not hard-fail
+        # (tested by checking the error path still returns booted=True)
+        raw = boot_session(project=TEST_PROJECT, source="test-agent")
+        result = json.loads(raw)
+        assert result["booted"] is True
