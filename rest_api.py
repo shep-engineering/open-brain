@@ -425,6 +425,14 @@ async def pin(memory_id: int):
 async def unpin(memory_id: int):
     return _parse(ob.unpin(memory_id=memory_id))
 
+@app.post("/boot", dependencies=[Security(_auth)])
+async def boot(project: str = "", source: str = ""):
+    return _parse(ob.boot_session(project=project, source=source))
+
+@app.post("/checkpoint", dependencies=[Security(_auth)])
+async def checkpoint(action: str, context: str = "", project: str = "", source: str = ""):
+    return _parse(ob.brain_checkpoint(action=action, context=context, project=project, source=source))
+
 
 @app.get("/export", dependencies=[Security(_auth)])
 async def export_memories(limit: int = 500, days: int = 0):
