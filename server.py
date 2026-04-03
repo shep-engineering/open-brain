@@ -80,6 +80,9 @@ _booted_sources: set[str] = set()
 _checkpoint_tracker: dict[str, dict[str, float]] = {}
 CHECKPOINT_COOLDOWN = 300  # 5 minutes
 
+# Correction tracking: count corrections per session for escalation
+_correction_count: int = 0
+
 # ─── Working Memory (Session Scratchpad) ──────────────────────────────────────
 #
 # Ephemeral key-value store cleared on every server restart.
@@ -916,6 +919,21 @@ def remember(content: str, source: str = "", type_override: str = "", project: s
             metadata["source"] = source
         memory, action = db_store_deduped(content, embedding, metadata, project, valid_time)
         _record_store(source)
+
+        # Auto-pin guardrails when stored with a project
+        auto_pinned = False
+        if metadata.get("type") == "guardrail" and project and not memory.get("pinned"):
+            try:
+                db_set_pinned(memory["id"], True)
+                auto_pinned = True
+            except Exception:
+                pass
+
+        # Track corrections for escalation
+        global _correction_count
+        if metadata.get("type") == "guardrail":
+            _correction_count += 1
+
         response = {
             "success":      True,
             "action":       action,
@@ -926,6 +944,10 @@ def remember(content: str, source: str = "", type_override: str = "", project: s
             "action_items": metadata.get("action_items", []),
             "stored_at":    memory["created_at"],
         }
+        if auto_pinned:
+            response["auto_pinned"] = True
+        if _correction_count > 1:
+            response["session_corrections"] = _correction_count
         return json.dumps(response, indent=2)
     except SecretDetectedError as exc:
         return json.dumps({"success": False, "error": str(exc), "blocked_by": "secrets_filter"})
