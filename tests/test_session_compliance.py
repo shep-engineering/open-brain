@@ -18,13 +18,16 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from server import (
     _booted_sources,
     _check_compliance,
+    _checkpoint_tracker,
     _record_search,
     _record_store,
     _session_tracker,
     boot_session,
+    brain_checkpoint,
     capture_context,
     remember,
     search,
+    CHECKPOINT_COOLDOWN,
     COMPLIANCE_MAX_STORES,
 )
 
@@ -36,9 +39,11 @@ def clear_tracker():
     """Clear session tracker, boot state, and test memories before/after each test."""
     _session_tracker.clear()
     _booted_sources.clear()
+    _checkpoint_tracker.clear()
     yield
     _session_tracker.clear()
     _booted_sources.clear()
+    _checkpoint_tracker.clear()
     # Clean up test memories
     try:
         from server import _get_conn
@@ -314,3 +319,57 @@ class TestBootSession:
         raw = boot_session(project=TEST_PROJECT, source="test-agent")
         result = json.loads(raw)
         assert result["booted"] is True
+
+
+# ─── brain_checkpoint() ─────────────────────────────────────────────────────
+
+class TestBrainCheckpoint:
+
+    def test_checkpoint_returns_success(self):
+        raw = brain_checkpoint(action="edit infrastructure", project=TEST_PROJECT, source="test-agent")
+        result = json.loads(raw)
+        assert result["success"] is True
+        assert "relevant" in result
+        assert "warnings" in result
+
+    def test_checkpoint_records_in_tracker(self):
+        assert "test-agent" not in _checkpoint_tracker
+        brain_checkpoint(action="edit server", project=TEST_PROJECT, source="test-agent")
+        assert "test-agent" in _checkpoint_tracker
+        assert "edit server" in _checkpoint_tracker["test-agent"]
+
+    def test_checkpoint_cooldown_skips_repeat(self):
+        brain_checkpoint(action="edit infrastructure", project=TEST_PROJECT, source="test-agent")
+        # Second call with same action should be skipped
+        raw = brain_checkpoint(action="edit infrastructure", project=TEST_PROJECT, source="test-agent")
+        result = json.loads(raw)
+        assert result.get("skipped") is True
+
+    def test_checkpoint_different_action_not_skipped(self):
+        brain_checkpoint(action="edit infrastructure", project=TEST_PROJECT, source="test-agent")
+        raw = brain_checkpoint(action="edit database", project=TEST_PROJECT, source="test-agent")
+        result = json.loads(raw)
+        assert result.get("skipped") is not True
+        assert result["success"] is True
+
+    def test_checkpoint_returns_relevant_memories(self):
+        raw = brain_checkpoint(action="edit infrastructure", context="startup script", project=TEST_PROJECT, source="test-agent")
+        result = json.loads(raw)
+        assert isinstance(result["relevant"], list)
+        assert isinstance(result["guardrails"], int)
+        assert isinstance(result["relevant_memories"], int)
+
+    def test_checkpoint_requires_action(self):
+        raw = brain_checkpoint(action="", project="", source="test-agent")
+        result = json.loads(raw)
+        assert result["success"] is False
+
+    def test_checkpoint_no_source_uses_global(self):
+        brain_checkpoint(action="test action", project=TEST_PROJECT, source="")
+        assert "_global" in _checkpoint_tracker
+
+    def test_checkpoint_degrades_gracefully(self):
+        # Should not hard-fail even with bad input
+        raw = brain_checkpoint(action="test", project=TEST_PROJECT, source="test-agent")
+        result = json.loads(raw)
+        assert result["success"] is True

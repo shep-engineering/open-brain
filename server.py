@@ -75,6 +75,11 @@ _session_tracker: dict[str, dict] = {}
 # Per-source boot tracking: which sources have completed the boot sequence
 _booted_sources: set[str] = set()
 
+# Per-source checkpoint tracking: {source: {topic: timestamp}}
+# Prevents redundant re-checks on the same topic within CHECKPOINT_COOLDOWN seconds
+_checkpoint_tracker: dict[str, dict[str, float]] = {}
+CHECKPOINT_COOLDOWN = 300  # 5 minutes
+
 # ─── Working Memory (Session Scratchpad) ──────────────────────────────────────
 #
 # Ephemeral key-value store cleared on every server restart.
@@ -1226,6 +1231,98 @@ def boot_session(project: str = "", source: str = "") -> str:
             "error": str(exc),
             "message": "Boot completed with errors. Context may be incomplete. Proceed with caution.",
         }, indent=2)
+
+
+@mcp.tool()
+@instrument("brain_checkpoint")
+def brain_checkpoint(action: str, context: str = "", project: str = "", source: str = "") -> str:
+    """Check the brain before a risky action. Returns relevant memories and warnings.
+
+    Call this BEFORE editing infrastructure files, database code, deployment
+    configs, or any action where past mistakes or decisions are relevant.
+    The brain will search for memories related to what you're about to do
+    and surface any guardrails, corrections, or prior decisions.
+
+    Skips if the same topic was checked within the last 5 minutes.
+
+    Args:
+        action: What you're about to do (e.g. 'edit infrastructure script',
+                'modify database schema', 'push to shep remote').
+        context: Additional context about the specific files or changes.
+        project: The project scope (e.g. 'open-brain').
+        source: Which agent is calling (e.g. 'claude', 'windsurf').
+    """
+    try:
+        # Check cooldown -- skip if same topic checked recently
+        src = source or "_global"
+        if src in _checkpoint_tracker:
+            last_check = _checkpoint_tracker[src].get(action)
+            if last_check and (time.time() - last_check) < CHECKPOINT_COOLDOWN:
+                return json.dumps({
+                    "success": True,
+                    "skipped": True,
+                    "reason": f"Already checked '{action}' {int(time.time() - last_check)}s ago. Cooldown is {CHECKPOINT_COOLDOWN}s.",
+                })
+
+        # Build a search query combining the action and context
+        query = f"{action} {context} {project}".strip()
+        if not query:
+            return json.dumps({"success": False, "error": "action is required"})
+
+        embedding = get_embedding(query)
+        memories = db_search(
+            embedding, query, 5, None, None, project or None, 0, 0, "",
+        )
+
+        # Also get pinned guardrails for this project
+        pinned = db_get_pinned(project) if project else []
+
+        # Record the checkpoint
+        if src not in _checkpoint_tracker:
+            _checkpoint_tracker[src] = {}
+        _checkpoint_tracker[src][action] = time.time()
+
+        # Format results
+        warnings = []
+        relevant = []
+
+        for m in pinned:
+            meta = m.get("metadata", {})
+            if isinstance(meta, str):
+                meta = json.loads(meta) if meta else {}
+            warnings.append({
+                "id": m["id"],
+                "type": "guardrail",
+                "content": m["content"][:500],
+            })
+
+        for m in memories:
+            meta = m.get("metadata", {})
+            if isinstance(meta, str):
+                meta = json.loads(meta) if meta else {}
+            mem_type = meta.get("type", "note")
+            entry = {
+                "id": m["id"],
+                "type": mem_type,
+                "content": m["content"][:300],
+                "similarity": m.get("similarity"),
+            }
+            relevant.append(entry)
+
+        return json.dumps({
+            "success": True,
+            "action": action,
+            "context": context,
+            "guardrails": len(warnings),
+            "relevant_memories": len(relevant),
+            "warnings": warnings,
+            "relevant": relevant,
+            "message": f"Checkpoint complete. {len(warnings)} guardrails, {len(relevant)} relevant memories. Review before proceeding.",
+        }, indent=2)
+
+    except Exception as exc:
+        return json.dumps({"success": True, "degraded": True, "error": str(exc),
+                          "message": "Checkpoint failed but not blocking. Proceed with caution."})
 
 
 @mcp.tool()
