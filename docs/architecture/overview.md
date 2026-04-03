@@ -1,6 +1,6 @@
 # Architecture Overview
 
-Open Brain is a single Python MCP server (`server.py`) backed by PostgreSQL + pgvector. It exposes 11 tools over stdio or HTTP that any MCP-compatible AI client can call.
+Open Brain is a single Python MCP server (`server.py`) backed by PostgreSQL + pgvector. It exposes 19 tools over stdio or HTTP that any MCP-compatible AI client can call.
 
 ---
 
@@ -52,7 +52,7 @@ graph TD
 
 | Component | Technology | Purpose |
 |-----------|-----------|---------|
-| MCP Server | Python + FastMCP | Exposes 11 tools over stdio/HTTP |
+| MCP Server | Python + FastMCP | Exposes 19 tools over stdio/HTTP |
 | Database | PostgreSQL 16 + pgvector | Vector storage, JSONB metadata, full SQL |
 | Test Database | PostgreSQL 16 + pgvector (separate container) | Isolated test environment on port 5434 |
 | Vector Index | HNSW (m=16, ef=64) | Fast approximate nearest-neighbor search |
@@ -66,7 +66,7 @@ graph TD
 
 ```
 open-brain/
-├── server.py               # MCP server, 11 tools
+├── server.py               # MCP server, 19 tools
 ├── wire.py                 # Agent auto-discovery + wiring CLI
 ├── requirements.txt        # Python dependencies
 ├── test_server.py          # End-to-end test suite

@@ -5,6 +5,57 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-04-03
+
+### Added
+
+- **Cognitive Architecture (Phases 1-5)**: Complete session boot and enforcement system:
+  - `boot_session(project, source)` MCP tool: loads pinned guardrails, project architecture,
+    recent session history (7 days), and known issues/corrections at session start. Stores
+    context in working memory scratchpad.
+  - `brain_checkpoint(action, context, project, source)` MCP tool: searches brain before
+    risky actions (editing infrastructure, database, deployment, server, or config files).
+    Returns relevant guardrails and memories with similarity scores. 5-minute cooldown per topic.
+  - `detect-correction.sh` UserPromptSubmit hook: scans user messages for correction patterns
+    (ALL CAPS, profanity, "wrong", "stop", "don't") and injects directive to save the
+    correction as a pinned guardrail immediately.
+  - `require-brain-boot.sh` PreToolUse hook: blocks all non-brain tools until `boot_session`
+    has been called in the session.
+  - `require-brain-checkpoint.sh` PreToolUse hook: BLOCKS editing risky files until
+    `brain_checkpoint` has been called. Hard enforcement.
+  - `require-brain-save.sh` PreToolUse hook: blocks git commit until brain has been written to.
+  - `auto-boot-brain.sh` SessionStart hook: injects boot directive as additionalContext
+    before the AI sees its first user message.
+- **Auto-pin guardrails**: `remember()` with `type_override="guardrail"` and a project
+  automatically pins the memory so it surfaces in every future `boot_session`.
+- **Correction repeat detection**: `db_find_repeated_corrections()` finds guardrail memories
+  with >70% cosine similarity. `stats()` returns `correction_repeat_rate`. `boot_session`
+  surfaces "REPEATED CORRECTIONS (CRITICAL)" section when detected.
+- **REST API endpoints**: `/boot` and `/checkpoint` for HTTP clients (ChatGPT Desktop, etc.)
+- **`updated_at` column**: Auto-set by PostgreSQL trigger on every UPDATE. `list_recent()`
+  and dashboard sort by `GREATEST(created_at, updated_at)` so merged memories surface as
+  recent activity.
+- **Dashboard timezone localization**: All UTC timestamps converted to local time for display.
+  Storage remains UTC.
+
+### Changed
+
+- **Dashboard**: Removed all WSL calls. Windows-native process checks via `wmic`/`taskkill`.
+  30-second fallback refresh. Filtered stale Ollama logs. Fixed "last restart: unknown".
+  Server log shows only MCP tool calls (not DB query noise).
+- **`_check_compliance()`**: Now requires boot before any store operation (not just search).
+  Tracks `_booted_sources` per session.
+- **All agent prompts**: Updated `windsurf-rules.md`, `cursor-rules.md`, `claude-desktop.md`,
+  `generic-system-prompt.md` with boot-first mandatory instructions.
+- **Prune safeguards**: Hard minimum 30 days, max 50 deletions per call. Prevents
+  accidental mass deletion.
+
+### Security
+
+- **Audit log**: `memories_audit` table with row-level trigger captures every INSERT, UPDATE,
+  DELETE with full row data. Added to `setup_db.py` for new installs.
+- **Backup scripts**: Daily `pg_dump` scripts for bash and Windows cmd.
+
 ## [0.4.5] - 2026-03-30
 
 ### Added

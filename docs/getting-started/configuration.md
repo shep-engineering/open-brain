@@ -19,6 +19,7 @@ All configuration is via environment variables in `.env` (or passed through your
 | `OPEN_BRAIN_MERGE_LOWER_THRESHOLD` | `0.70` | Lower bound of smart-merge gray zone `[lower, DEDUP_THRESHOLD)`. Memories in this range are sent to the LLM for ADD/MERGE/REPLACE/SKIP decision. Requires `METADATA_LLM_MODEL`. |
 | `OPEN_BRAIN_CONSOLIDATION_INTERVAL` | `0` | Seconds between background consolidation passes (0 = disabled). Requires `METADATA_LLM_MODEL`. |
 | `COMPLIANCE_WINDOW` | `300` | Seconds before a search is considered stale for compliance warnings |
+| `COMPLIANCE_MAX_STORES` | `5` | Max stores (remember/capture_context) allowed without a recent search. Set to `0` to disable. |
 | `OPEN_BRAIN_DECAY_LAMBDA` | `0.005` | Recency decay rate. Score multiplied by `exp(-lambda * uptime_days_since_access)`. Set to `0` to disable. |
 | `OPEN_BRAIN_HYBRID_WEIGHT` | `0.3` | Weight for full-text component in hybrid search. `0.3` = 70% vector + 30% keyword. Set to `0` for pure vector. |
 | `OPEN_BRAIN_UPTIME_FLUSH_INTERVAL` | `60` | Seconds between uptime counter flushes to DB. Max uptime lost on hard kill. |

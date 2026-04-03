@@ -308,7 +308,7 @@
        (annotations, ratings, access tracking)
                   |
                   v
-       <span style="color:#18ffff;">MCP Server</span> (stdio / HTTP)  --  11 tools
+       <span style="color:#18ffff;">MCP Server</span> (stdio / HTTP)  --  19 tools
                   |
          +-------+--------+--------+--------+
          v       v        v        v        v
@@ -387,9 +387,9 @@
   </div>
 </section>
 
-<!-- SLIDE 8: 11 Tools -->
+<!-- SLIDE 8: 19 Tools -->
 <section data-background-color="#0a0a1a">
-  <h2><span class="gradient-text">11</span> MCP Tools</h2>
+  <h2><span class="gradient-text">19</span> MCP Tools</h2>
   <div class="tool-grid">
     <div class="tool-card fragment">
       <div class="tool-name">capture_context</div>
@@ -408,20 +408,20 @@
       <div class="tool-desc">Store a single explicit thought or decision</div>
     </div>
     <div class="tool-card fragment">
-      <div class="tool-name">rate</div>
-      <div class="tool-desc">Upvote / downvote to surface the best memories</div>
+      <div class="tool-name">boot_session</div>
+      <div class="tool-desc">Load full project context at session start. Mandatory.</div>
     </div>
     <div class="tool-card fragment">
-      <div class="tool-name">annotate</div>
-      <div class="tool-desc">Attach corrections or warnings to existing memories</div>
+      <div class="tool-name">brain_checkpoint</div>
+      <div class="tool-desc">Check brain before risky actions. Blocks until called.</div>
     </div>
     <div class="tool-card fragment">
-      <div class="tool-name">prune</div>
-      <div class="tool-desc">Remove stale, never-accessed memories (dry-run first)</div>
+      <div class="tool-name">pin / unpin</div>
+      <div class="tool-desc">Pin guardrails so they surface in every boot sequence</div>
     </div>
     <div class="tool-card fragment">
-      <div class="tool-name">+ 4 more</div>
-      <div class="tool-desc">list_recent, stats, forget, forget_many</div>
+      <div class="tool-name">+ 8 more</div>
+      <div class="tool-desc">rate, annotate, prune, forget, list_recent, stats, scratch_set/get/list</div>
     </div>
   </div>
 </section>
@@ -492,7 +492,7 @@
   <h2>By The <span class="gradient-text">Numbers</span></h2>
   <div class="stat-row">
     <div class="stat-box fragment">
-      <div class="stat-num gradient-text">11</div>
+      <div class="stat-num gradient-text">19</div>
       <div class="stat-label">MCP Tools</div>
     </div>
     <div class="stat-box fragment">

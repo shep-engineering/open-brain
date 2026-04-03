@@ -61,7 +61,9 @@ Your thought
 - **Working memory:** Ephemeral scratchpad for in-session context. Three tools (`scratch_set`, `scratch_get`, `scratch_list`). Cleared on restart, never pollutes long-term memory.
 - **Bi-temporal modelling:** Two time axes per memory -- `valid_time` (when it happened) and `transaction_time` (when we learned it). Query with `as_of` to see what was known at any point in time.
 - **Live dashboard:** Dark-themed monitoring GUI with memory stats, service health, bar charts, clickable memory rows, and OTel observability metrics. Event-driven via PostgreSQL LISTEN/NOTIFY -- no polling, no strobe. Auto-starts services if needed.
-- **Pinned guardrails:** Pin workflow rules to a project so agents always see them.
+- **Cognitive architecture:** Session boot sequence loads full project context (guardrails, architecture, history, corrections) before the AI can act. Continuous brain checkpoints before risky file edits. Automatic correction detection and auto-pinning.
+- **Secrets protection:** Automatically blocks API keys, tokens, private keys, and credentials from being stored. Prevents accidental leaks to embedding models.
+- **Pinned guardrails:** Pin workflow rules to a project so agents always see them. Corrections are auto-pinned as guardrails.
 - **Project scoping:** Tag memories by project. Search within a project without noise from others.
 - **100% local:** PostgreSQL + pgvector + Ollama. No cloud. No API keys required. Your data stays yours.
 
@@ -87,5 +89,5 @@ Your thought
 - [Installation](getting-started/installation.md): Get up and running in ~15 minutes
 - [Wiring Agents](getting-started/wiring-agents.md): Connect your AI tools to the brain
 - [Dashboard](guides/dashboard.md): Monitor your brain in real time
-- [Tools Reference](tools.md): All 15 MCP tools explained
+- [Tools Reference](tools.md): All 19 MCP tools explained
 - [Architecture](architecture/overview.md): How it all fits together

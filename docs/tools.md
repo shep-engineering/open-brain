@@ -1,6 +1,6 @@
 # Tools Reference
 
-Open Brain exposes 15 MCP tools. Agents call most of these automatically, so you rarely need to invoke them yourself.
+Open Brain exposes 19 MCP tools: 16 user-facing tools and 3 cognitive architecture tools for agent compliance enforcement.
 
 ---
 
@@ -136,7 +136,7 @@ Remove stale memories that are old and rarely accessed.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `older_than_days` | int | No | Minimum age in days |
+| `days` | int | No | Delete memories older than this many days (default 90, minimum 30) |
 | `min_access` | int | No | Minimum access count to keep |
 | `dry_run` | bool | No | Preview what would be deleted (default `true`) |
 
@@ -242,3 +242,61 @@ Remove the pin from a memory, returning it to normal search ranking.
 ```
 
 The user never has to think about memory. Agents capture and recall automatically.
+
+---
+
+## Cognitive Architecture Tools
+
+These tools enforce the session boot and continuous brain check workflow. They are called automatically by Claude Code hooks and agent system prompts.
+
+### `boot_session`
+
+Initialize your brain for a new session. Loads full project context before the AI can act.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project` | string | No | The project to load context for (e.g. "open-brain") |
+| `source` | string | No | Which agent is booting (e.g. "claude", "windsurf") |
+
+**Returns:** Pinned guardrails (full content), project architecture context, recent session history (7 days), known issues/corrections, and repeated correction warnings. All stored in the session scratchpad.
+
+**Enforcement:** Server blocks `remember()` and `capture_context()` until `boot_session` has been called. Claude Code's PreToolUse hook blocks ALL non-brain tools until boot appears in the transcript.
+
+---
+
+### `brain_checkpoint`
+
+Check the brain before a risky action. Searches for relevant memories and surfaces guardrails.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `action` | string | Yes | What you're about to do (e.g. "edit infrastructure script") |
+| `context` | string | No | Specific files or changes |
+| `project` | string | No | Project scope |
+| `source` | string | No | Which agent is calling |
+
+**Returns:** Guardrails and relevant memories with similarity scores. 5-minute cooldown per topic per source.
+
+**Enforcement:** Claude Code's PreToolUse hook BLOCKS editing infrastructure, database, deployment, server, and configuration files until `brain_checkpoint` has been called.
+
+---
+
+### `brain_startup_reminder`
+
+System message injection tool. Returns a structured reminder about Open Brain enforcement. Used by hooks to inject context into the AI's conversation.
+
+---
+
+## Security
+
+### Secrets Filter
+
+All content passed to Open Brain is scanned for API keys, tokens, private keys, and database passwords before embedding or storage. Matches include:
+
+- AWS, Google Cloud, Azure credentials
+- JWT/Bearer tokens
+- SSH/RSA private keys
+- Database connection strings with passwords
+- Generic API key patterns
+
+**Mode:** Reject (default) -- blocks storage entirely and returns an error. The secrets filter runs before embedding, so sensitive content never reaches the embedding model.
