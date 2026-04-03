@@ -690,6 +690,28 @@ def db_stats() -> dict:
     return {"total": total, "by_type": by_type, "recent_7_days": r7, "recent_30_days": r30}
 
 
+def db_find_repeated_corrections() -> list[dict]:
+    """Find guardrail memories that are semantically similar to each other.
+    Returns groups of corrections about the same topic (the AI was corrected
+    on the same thing multiple times)."""
+    conn = _get_conn()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        # Find guardrails with high cosine similarity to other guardrails
+        cur.execute("""
+            SELECT a.id AS id_a, b.id AS id_b,
+                   a.content AS content_a, b.content AS content_b,
+                   round((1 - (a.embedding <=> b.embedding))::numeric, 4) AS similarity
+            FROM memories a
+            JOIN memories b ON a.id < b.id
+            WHERE a.metadata->>'type' = 'guardrail'
+              AND b.metadata->>'type' = 'guardrail'
+              AND (1 - (a.embedding <=> b.embedding)) > 0.70
+            ORDER BY similarity DESC
+            LIMIT 20
+        """)
+        return [_normalize_row(dict(r)) for r in cur.fetchall()]
+
+
 def db_migrate_hybrid() -> None:
     """Idempotent migration: add fts tsvector column and GIN index for hybrid search.
     Safe to call on every startup -- skips silently if already present."""
@@ -1089,15 +1111,33 @@ def list_recent(limit: int = 20, days: int = 0) -> str:
 @mcp.tool()
 @instrument("stats")
 def stats() -> str:
-    """Get statistics about your brain: total memories, by type, recent activity."""
+    """Get statistics about your brain: total memories, by type, recent activity, correction health."""
     try:
         s = db_stats()
-        return json.dumps({
+        repeated = db_find_repeated_corrections()
+        result = {
             "total_memories": s["total"],
             "by_type":        s["by_type"],
             "last_7_days":    s["recent_7_days"],
             "last_30_days":   s["recent_30_days"],
-        }, indent=2)
+            "correction_repeat_rate": len(repeated),
+        }
+        if repeated:
+            result["repeated_corrections"] = [
+                {
+                    "ids": [r["id_a"], r["id_b"]],
+                    "similarity": r["similarity"],
+                    "preview_a": r["content_a"][:100],
+                    "preview_b": r["content_b"][:100],
+                }
+                for r in repeated[:5]
+            ]
+            result["correction_warning"] = (
+                f"WARNING: {len(repeated)} correction pair(s) detected. "
+                f"The same mistakes are being corrected repeatedly. "
+                f"Review these and ensure the lessons are being applied."
+            )
+        return json.dumps(result, indent=2)
     except Exception as exc:
         return json.dumps({"error": str(exc)})
 
@@ -1218,7 +1258,25 @@ def boot_session(project: str = "", source: str = "") -> str:
                     "content": issues_text,
                 })
 
-        # Step 5: Store summary in scratch pad and mark as booted
+        # Step 5: Check for repeated corrections (same mistake corrected multiple times)
+        try:
+            repeated = db_find_repeated_corrections()
+            if repeated:
+                repeat_text = [
+                    f"REPEATED CORRECTION (similarity {r['similarity']}): "
+                    f"Memory #{r['id_a']}: {r['content_a'][:150]} | "
+                    f"Memory #{r['id_b']}: {r['content_b'][:150]}"
+                    for r in repeated[:5]
+                ]
+                sections.append({
+                    "section": "REPEATED CORRECTIONS (CRITICAL)",
+                    "count": len(repeated),
+                    "content": repeat_text,
+                })
+        except Exception:
+            pass
+
+        # Step 6: Store summary in scratch pad and mark as booted
         summary = json.dumps(sections, indent=2)
         _scratch["boot_context"] = summary
         _scratch["boot_project"] = project

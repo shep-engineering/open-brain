@@ -253,6 +253,27 @@ def fetch_obs_metrics() -> dict:
     errtotal = sum(errors.values())
     avg_ms = {t: round(sum(v)/len(v)) for t, v in times.items() if v}
     top5 = sorted(counts.items(), key=lambda x: -x[1])[:5]
+    # Check for repeated corrections
+    correction_repeats = 0
+    try:
+        conn = db_connect()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT COUNT(*) FROM (
+                SELECT a.id
+                FROM memories a
+                JOIN memories b ON a.id < b.id
+                WHERE a.metadata->>'type' = 'guardrail'
+                  AND b.metadata->>'type' = 'guardrail'
+                  AND (1 - (a.embedding <=> b.embedding)) > 0.70
+                LIMIT 20
+            ) sub
+        """)
+        correction_repeats = cur.fetchone()[0]
+        conn.close()
+    except Exception:
+        pass
+
     return {
         "total_calls":  total,
         "total_errors": errtotal,
@@ -260,6 +281,7 @@ def fetch_obs_metrics() -> dict:
         "top_tools":    top5,
         "avg_ms":       avg_ms,
         "last_startup": last_startup,
+        "correction_repeats": correction_repeats,
     }
 
 
@@ -1071,10 +1093,14 @@ class Dashboard(ctk.CTk):
             startup = _utc_to_local(raw_startup) if raw_startup else ""
             top_str = "  ".join(f"{t}:{c}" for t, c in top[:3]) if top else "—"
             rate_color = RED if rate > 5 else (YELLOW if rate > 0 else GREEN)
+            # Check for repeated corrections
+            repeat_count = obs_metrics.get("correction_repeats", 0)
+            repeat_tag = f"   REPEATS: {repeat_count}" if repeat_count > 0 else ""
+            obs_color = RED if repeat_count > 0 else (rate_color if errs > 0 else DIM)
             self._obs_label.configure(
                 text=f"  calls: {calls}   errors: {errs}   err%: {rate}   "
-                     f"top: {top_str}   last restart: {startup or 'unknown'}",
-                text_color=rate_color if errs > 0 else DIM,
+                     f"top: {top_str}   last restart: {startup or 'unknown'}{repeat_tag}",
+                text_color=obs_color,
             )
 
     def _apply_inner_data(self, stats):
