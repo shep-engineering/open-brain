@@ -54,7 +54,8 @@ def main() -> None:
                     upvotes       INTEGER     NOT NULL DEFAULT 0,
                     downvotes     INTEGER     NOT NULL DEFAULT 0,
                     pinned        BOOLEAN     NOT NULL DEFAULT FALSE,
-                    updated_at    TIMESTAMPTZ DEFAULT NULL
+                    updated_at    TIMESTAMPTZ DEFAULT NULL,
+                    projects      TEXT[]      NOT NULL DEFAULT ARRAY[]::TEXT[]
                 )
             """)
             print(f"✓  memories table ready  ({DIMENSIONS}-dim vectors)")
@@ -105,6 +106,12 @@ def main() -> None:
             cur.execute("""
                 CREATE INDEX IF NOT EXISTS memories_project_idx
                 ON memories (project) WHERE project != ''
+            """)
+
+            # 6b. Projects array GIN index for multi-tag queries
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS memories_projects_gin_idx
+                ON memories USING gin (projects)
             """)
 
             # 7. Last-accessed index for pruning

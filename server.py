@@ -338,22 +338,25 @@ def _get_conn() -> psycopg2.extensions.connection:
     return _conn
 
 
-def db_store(content: str, embedding: list[float], metadata: dict, project: str = "", valid_time: str = "") -> dict:
+def db_store(content: str, embedding: list[float], metadata: dict, project: str = "",
+             valid_time: str = "", projects: list[str] | None = None) -> dict:
+    # Build the projects array: always include the primary project + any extras
+    proj_array = list(set(filter(None, (projects or []) + ([project] if project else []))))
     conn = _get_conn()
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         if valid_time:
             cur.execute(
-                "INSERT INTO memories (content, embedding, metadata, project, valid_time, transaction_time) "
-                "VALUES (%s, %s::vector, %s, %s, %s::timestamptz, NOW()) "
-                "RETURNING id, content, metadata, created_at, project, valid_time, transaction_time",
-                (content, _to_vec(embedding), json.dumps(metadata), project, valid_time),
+                "INSERT INTO memories (content, embedding, metadata, project, projects, valid_time, transaction_time) "
+                "VALUES (%s, %s::vector, %s, %s, %s, %s::timestamptz, NOW()) "
+                "RETURNING id, content, metadata, created_at, project, projects, valid_time, transaction_time",
+                (content, _to_vec(embedding), json.dumps(metadata), project, proj_array, valid_time),
             )
         else:
             cur.execute(
-                "INSERT INTO memories (content, embedding, metadata, project, valid_time, transaction_time) "
-                "VALUES (%s, %s::vector, %s, %s, NOW(), NOW()) "
-                "RETURNING id, content, metadata, created_at, project, valid_time, transaction_time",
-                (content, _to_vec(embedding), json.dumps(metadata), project),
+                "INSERT INTO memories (content, embedding, metadata, project, projects, valid_time, transaction_time) "
+                "VALUES (%s, %s::vector, %s, %s, %s, NOW(), NOW()) "
+                "RETURNING id, content, metadata, created_at, project, projects, valid_time, transaction_time",
+                (content, _to_vec(embedding), json.dumps(metadata), project, proj_array),
             )
         return _normalize_row(dict(cur.fetchone()))  # type: ignore[arg-type]
 
@@ -464,7 +467,8 @@ def _llm_merge_content(new_content: str, existing_content: str) -> str:
     return f"{existing_content}\n\nUpdate: {new_content}"
 
 
-def db_store_deduped(content: str, embedding: list[float], metadata: dict, project: str = "", valid_time: str = "") -> tuple[dict, str]:
+def db_store_deduped(content: str, embedding: list[float], metadata: dict, project: str = "",
+                     valid_time: str = "", projects: list[str] | None = None) -> tuple[dict, str]:
     """Store a memory with dedup + smart LLM merge. Returns (memory_dict, action).
     action is one of: 'stored', 'updated', 'merged', 'replaced', 'skipped'."""
     # Safety net: block secrets even if caller forgot to check
@@ -497,7 +501,7 @@ def db_store_deduped(content: str, embedding: list[float], metadata: dict, proje
                 return memory, "merged"
             # decision == "ADD": fall through to store
 
-    return db_store(content, embedding, metadata, project, valid_time), "stored"
+    return db_store(content, embedding, metadata, project, valid_time, projects), "stored"
 
 
 def db_get_pinned(project_filter: str) -> list[dict]:
@@ -507,11 +511,11 @@ def db_get_pinned(project_filter: str) -> list[dict]:
     conn = _get_conn()
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
-            "SELECT id, content, metadata, created_at, project, annotation, "
+            "SELECT id, content, metadata, created_at, project, projects, annotation, "
             "upvotes, downvotes, access_count "
-            "FROM memories WHERE pinned = TRUE AND project = %s "
+            "FROM memories WHERE pinned = TRUE AND (project = %s OR %s = ANY(projects)) "
             "ORDER BY created_at ASC",
-            (project_filter,),
+            (project_filter, project_filter),
         )
         return [_normalize_row(dict(r)) for r in cur.fetchall()]
 
@@ -567,7 +571,8 @@ def db_search(
 
     if project_filter:
         filter_params.append(project_filter)
-        conditions.append("project = %s")
+        filter_params.append(project_filter)
+        conditions.append("(project = %s OR %s = ANY(projects))")
 
     if since_days > 0:
         filter_params.append(since_days)
@@ -836,7 +841,7 @@ def db_get_by_id(memory_id: int) -> dict | None:
             "UPDATE memories SET access_count = access_count + 1, last_accessed = NOW(), "
             "last_accessed_uptime = %s "
             "WHERE id = %s "
-            "RETURNING id, content, metadata, created_at, project, annotation, "
+            "RETURNING id, content, metadata, created_at, updated_at, project, annotation, "
             "access_count, last_accessed, upvotes, downvotes, pinned",
             (current_uptime(), memory_id),
         )
@@ -908,7 +913,8 @@ mcp = FastMCP("open-brain")
 
 @mcp.tool()
 @instrument("remember")
-def remember(content: str, source: str = "", type_override: str = "", project: str = "", valid_time: str = "") -> str:
+def remember(content: str, source: str = "", type_override: str = "", project: str = "",
+             valid_time: str = "", projects: list[str] | None = None) -> str:
     """Store a thought, note, decision, or information in your brain.
 
     Auto-detects type (decision/idea/meeting/task/etc), extracts people, topics,
@@ -920,11 +926,13 @@ def remember(content: str, source: str = "", type_override: str = "", project: s
         source: Where captured from (e.g. 'cursor', 'slack', 'cli').
         type_override: Override auto-detected type:
             decision | idea | meeting | person | insight | task | journal | reference | note
-        project: Project this memory belongs to (e.g. 'open-brain', 'my-app').
+        project: Primary project this memory belongs to (e.g. 'open-brain', 'my-app').
                  Empty string means global (not project-scoped).
         valid_time: ISO 8601 timestamp of when this event actually happened
                     (e.g. '2025-03-01' or '2025-03-01T14:30:00'). Defaults to now.
                     Used for bi-temporal queries (as_of in search).
+        projects: Additional project tags (e.g. ['open-brain', 'archetype-orchestrator']).
+                  The primary project is always included automatically.
     """
     try:
         # BLOCKING ENFORCEMENT: Check compliance before storing
@@ -939,7 +947,7 @@ def remember(content: str, source: str = "", type_override: str = "", project: s
             metadata["type"] = type_override
         if source:
             metadata["source"] = source
-        memory, action = db_store_deduped(content, embedding, metadata, project, valid_time)
+        memory, action = db_store_deduped(content, embedding, metadata, project, valid_time, projects)
         _record_store(source)
 
         # Auto-pin guardrails when stored with a project
@@ -1570,6 +1578,8 @@ def recall(memory_id: int) -> str:
             result["downvotes"] = memory.get("downvotes", 0)
         if memory.get("pinned"):
             result["pinned"] = True
+        if memory.get("updated_at"):
+            result["updated_at"] = str(memory["updated_at"])
         return json.dumps(result, indent=2)
     except Exception as exc:
         return json.dumps({"success": False, "error": str(exc)})

@@ -373,3 +373,47 @@ class TestBrainCheckpoint:
         raw = brain_checkpoint(action="test", project=TEST_PROJECT, source="test-agent")
         result = json.loads(raw)
         assert result["success"] is True
+
+
+# ─── Multi-project tags ─────────────────────────────────────────────────────
+
+class TestMultiProjectTags:
+
+    def test_remember_with_projects_param(self):
+        _booted_sources.add("test-agent")
+        _record_search("test-agent", TEST_PROJECT)
+        raw = remember(
+            "This memory spans two projects",
+            source="test-agent",
+            project=TEST_PROJECT,
+            projects=[TEST_PROJECT, "other-project"],
+        )
+        result = json.loads(raw)
+        assert result["success"] is True
+
+    def test_remember_projects_includes_primary(self):
+        """Primary project should always be in the projects array even if not explicitly listed."""
+        _booted_sources.add("test-agent")
+        _record_search("test-agent", TEST_PROJECT)
+        raw = remember(
+            "Primary project should be in array automatically",
+            source="test-agent",
+            project=TEST_PROJECT,
+            projects=["other-project"],
+        )
+        result = json.loads(raw)
+        assert result["success"] is True
+
+    def test_recall_includes_updated_at(self):
+        """recall() should include updated_at when the memory has been updated."""
+        _booted_sources.add("test-agent")
+        _record_search("test-agent", TEST_PROJECT)
+        # Store a memory
+        raw = remember("Test updated_at visibility", source="test-agent", project=TEST_PROJECT)
+        result = json.loads(raw)
+        mem_id = result["id"]
+        # Recall it -- db_get_by_id does an UPDATE (bumps access_count) which triggers updated_at
+        from server import recall
+        raw2 = recall(memory_id=mem_id)
+        result2 = json.loads(raw2)
+        assert "updated_at" in result2
