@@ -1,4 +1,5 @@
 @echo off
+SETLOCAL EnableDelayedExpansion
 title Open Brain ON
 mkdir F:\open-brain\logs 2>nul
 echo Starting Open Brain MCP server...
@@ -17,10 +18,27 @@ if %errorlevel% neq 0 (
 
 echo [2/4] Checking open-brain-db (Docker)...
 docker start open-brain-db >nul 2>&1
-if %errorlevel%==0 (echo     open-brain-db OK) else (echo     open-brain-db FAILED - is Docker running?)
+if %errorlevel%==0 (echo     open-brain-db container OK) else (echo     open-brain-db FAILED - is Docker running?)
+
+echo     Waiting for PostgreSQL to accept connections...
+set PG_READY=0
+for /L %%i in (1,1,15) do (
+    if !PG_READY!==0 (
+        F:\open-brain\.venv\Scripts\python.exe -c "import psycopg2; psycopg2.connect('postgresql://postgres:password@127.0.0.1:5432/openbrain', connect_timeout=2).close(); print('ready')" >nul 2>&1
+        if !errorlevel!==0 (
+            set PG_READY=1
+            echo     PostgreSQL ready
+        ) else (
+            timeout /t 2 >nul
+        )
+    )
+)
+if !PG_READY!==0 (
+    echo     WARNING: PostgreSQL not responding after 30s - server may fail to connect
+)
 
 echo [3/4] Checking Ollama...
-curl -sf http://localhost:11434/api/tags >nul 2>&1
+curl -sf http://127.0.0.1:11434/api/tags >nul 2>&1
 if %errorlevel%==0 (
     echo     Ollama already running
 ) else (

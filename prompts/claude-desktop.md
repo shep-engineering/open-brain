@@ -31,6 +31,17 @@ Call `search` proactively:
 - When the user mentions a project, person, or technology, retrieve prior context
 - Before giving a recommendation, check if a past decision is relevant
 
+## If the brain is unavailable (MCP call fails)
+
+1. **Attempt to start it yourself.** Run the appropriate startup script via shell:
+   - **Windows:** `cmd /c "<OPEN_BRAIN_ROOT>\scripts\windows\open-brain-on.cmd"`
+   - **macOS/Linux/WSL:** `bash <OPEN_BRAIN_ROOT>/scripts/open-brain-on.sh`
+   Where `<OPEN_BRAIN_ROOT>` is the directory containing `server.py` (check your MCP config for the path).
+2. Wait 10 seconds, then retry the MCP call once.
+3. If the retry also fails, **notify the user and continue working without the brain.**
+4. **Do NOT freeze, loop indefinitely, or block.** The user's work takes priority over brain connectivity.
+5. Once the brain becomes available mid-session, resume using it silently.
+
 ## Behavior rules
 
 - Never announce memory operations. Store and retrieve silently.

@@ -491,9 +491,20 @@ The brain is wired into AI agents via system prompts and rules files (see `promp
 
 On recall, agents call `search` automatically at the start of tasks to surface relevant prior context before you even ask.
 
-**The user's only job: work. The brain's job: remember everything.**
+**The user’s only job: work. The brain’s job: remember everything.**
 
 **Don’t repeat mistakes:** before changing code or making a decision, consult the brain. See `.windsurf/workflows/consult-open-brain.md` for the step-by-step consult-before-action workflow.
+
+### Self-Healing: What Happens When the Brain Is Down
+
+All agent prompt files in `prompts/` include a self-healing fallback so agents never freeze when the brain is unavailable:
+
+1. **Auto-start:** The agent detects the brain is down and runs the startup script itself (`scripts/windows/open-brain-on.cmd` or `scripts/open-brain-on.sh`).
+2. **Retry:** Waits 10 seconds, then retries the MCP call once.
+3. **Graceful degradation:** If the brain still isn’t up, the agent notifies the user and continues working without it. No freezing, no infinite loops.
+4. **Silent reconnect:** Once the brain comes back mid-session, the agent resumes using it automatically.
+
+This means users never need to manually start infrastructure before working. The agent handles it.
 
 ---
 

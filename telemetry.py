@@ -39,7 +39,7 @@ from opentelemetry.trace import StatusCode
 # ── Config ────────────────────────────────────────────────────────────────────
 SERVICE  = os.getenv("OTEL_SERVICE_NAME",     "open-brain")
 VERSION  = os.getenv("OTEL_SERVICE_VERSION",  "0.4.1")
-OTLP_EP  = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
+OTLP_EP  = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://127.0.0.1:4317")
 DEV      = os.getenv("OTEL_DEV", "0") == "1"
 BASE_DIR = Path(__file__).parent
 LOG_DIR  = BASE_DIR / "logs"
@@ -106,9 +106,10 @@ def initialize():
         BatchSpanProcessor(_JSONLSpanExporter(LOG_DIR / "otel-traces.jsonl"))
     )
 
-    # Try OTLP (optional — fails silently if no collector running)
-    # Use short timeout + schedule delay so a missing collector never blocks the process
-    if not DEV:
+    # OTLP gRPC exporter — opt-in only (set OTEL_OTLP_ENABLED=1 when a collector is running).
+    # Without a collector, BatchSpanProcessor retries indefinitely, flooding server-crash.log
+    # with UNAVAILABLE/DEADLINE_EXCEEDED errors and wasting CPU.
+    if os.getenv("OTEL_OTLP_ENABLED", "0") == "1" and not DEV:
         try:
             from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
             _tracer_provider.add_span_processor(

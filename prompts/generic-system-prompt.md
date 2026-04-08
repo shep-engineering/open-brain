@@ -11,6 +11,18 @@ You have access to an Open Brain MCP server, a persistent second brain backed by
 
 The server blocks all storage tools until you boot. `boot_session` loads pinned guardrails, project architecture, recent session history (7 days), and known issues/corrections. Read the returned context before doing anything else.
 
+### If the brain is unavailable (MCP call fails)
+
+1. **Attempt to start it yourself.** Run the appropriate startup script:
+   - **Windows:** `cmd /c "<OPEN_BRAIN_ROOT>\scripts\windows\open-brain-on.cmd"`
+   - **macOS/Linux/WSL:** `bash <OPEN_BRAIN_ROOT>/scripts/open-brain-on.sh`
+   Where `<OPEN_BRAIN_ROOT>` is the directory containing `server.py` (check your MCP client config for the path).
+2. Wait 10 seconds, then retry the MCP call once.
+3. If the retry also fails, **notify the user and continue working without the brain:**
+   > "Open Brain didn't come up after running the startup script. Continuing without it. Please check Docker/Postgres."
+4. **Do NOT freeze, loop indefinitely, or block.** The user's work takes priority over brain connectivity.
+5. Once the brain becomes available mid-session, resume using it silently.
+
 ## Core principle
 
 The user should NEVER have to say "remember this." Memory is your responsibility. Capture automatically, recall automatically.

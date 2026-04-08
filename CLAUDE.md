@@ -8,12 +8,24 @@
 
 Before any work, in order:
 
-1. **Search memory (MANDATORY, no exceptions):** Search open-brain at the START of EVERY task. Do this BEFORE your first action. Run two searches: one for the task topic, one for "user preferences formatting rules". This applies to every task: coding, debugging, docs, research, refactoring, reviews, questions. Every task. Period.
+1. **Boot the brain (MANDATORY, no exceptions):** Call `mcp__open-brain__boot_session` (or `mcp__open-brain__search` as fallback) at the START of EVERY session, BEFORE your first action.
    ```bash
    # Via MCP tool:
+   mcp__open-brain__boot_session project="<project>" source="claude"
    mcp__open-brain__search query="<task topic>"
    mcp__open-brain__search query="user preferences formatting rules"
    ```
+
+   **If the brain is unavailable (MCP call fails):**
+   1. **Attempt to start it yourself.** Detect the platform and run the correct startup script:
+      - **Windows:** `cmd /c "<OPEN_BRAIN_ROOT>\scripts\windows\open-brain-on.cmd"` (via shell)
+      - **macOS/Linux/WSL:** `bash <OPEN_BRAIN_ROOT>/scripts/open-brain-on.sh`
+      Where `<OPEN_BRAIN_ROOT>` is the directory containing `server.py` (check your MCP config for the path).
+   2. Wait 10 seconds after the script finishes, then retry the MCP call once.
+   3. If the retry also fails, **notify the user and continue working without the brain:**
+      > "Open Brain didn't come up after running the startup script. Continuing without it. Please check Docker/Postgres manually."
+   4. **Do NOT freeze, loop indefinitely, or block.** The user's work takes priority over brain connectivity.
+   5. Once the brain becomes available mid-session, resume using it silently.
 2. **Read context checkpoints**: if the file exists:
    ```bash
    cat docs/planning/CONTEXT_CHECKPOINTS.md

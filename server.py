@@ -45,10 +45,10 @@ from telemetry import instrument
 
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
-DATABASE_URL       = os.getenv("DATABASE_URL",           "postgresql://postgres:password@localhost:5432/openbrain")
+DATABASE_URL       = os.getenv("DATABASE_URL",           "postgresql://postgres:password@127.0.0.1:5432/openbrain")
 EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER",     "ollama")
 EMBEDDING_DIMS     = int(os.getenv("EMBEDDING_DIMENSIONS", "768"))
-OLLAMA_BASE_URL    = os.getenv("OLLAMA_BASE_URL",        "http://localhost:11434")
+OLLAMA_BASE_URL    = os.getenv("OLLAMA_BASE_URL",        "http://127.0.0.1:11434")
 OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")
 OPENAI_API_KEY     = os.getenv("OPENAI_API_KEY",         "")
 OPENAI_EMBED_MODEL = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")

@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-04-08
+
+### Fixed
+
+- **OTel OTLP spam**: Gated gRPC trace exporter behind `OTEL_OTLP_ENABLED=1` env var (opt-in).
+  Without a collector running, `BatchSpanProcessor` retried forever, flooding `server-crash.log`.
+- **localhost DNS resolution**: Changed all default URLs from `localhost` to `127.0.0.1` in
+  `server.py`, `telemetry.py`, and `open-brain-on.cmd`. On Windows, `localhost` resolves to
+  both `::1` (IPv6) and `127.0.0.1`, causing double connection attempts and slower failures.
+- **Startup race condition**: `open-brain-on.cmd` now waits for PostgreSQL to accept connections
+  (up to 30s readiness loop) before launching `server.py`. Previously, the server started
+  immediately after `docker start`, causing migration failures on cold boot.
+
+### Added
+
+- **Self-healing agent fallback**: All agent prompt files (`prompts/`, `CLAUDE.md`) now instruct
+  agents to auto-start infrastructure when the brain is unavailable, retry once, then degrade
+  gracefully. Agents never freeze or loop when the brain is down.
+
 ## [0.6.0] - 2026-04-03
 
 ### Added
