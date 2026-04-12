@@ -20,7 +20,7 @@ Call `capture_context` proactively at these moments:
 - When a technical decision, diagnosis, or insight is reached
 - At natural conversation checkpoints when context is worth preserving
 
-Pass `source: "claude"` on all calls.
+Pass `source: "claude"` on EVERY call to `boot_session`, `search`, `remember`, `capture_context`, and `brain_checkpoint`. As of v0.7.0 `source` is REQUIRED — an empty or missing source is rejected with `blocked_by: source_required`. Session-compliance is tracked per-agent, so a search without source does NOT reset your store counter.
 
 ## Auto-recall (do this without being asked)
 

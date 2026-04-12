@@ -196,10 +196,22 @@ class TestRememberCompliance:
         assert result["success"] is False
         assert "id" not in result
 
-    def test_remember_no_source_not_blocked(self):
-        raw = remember("Anonymous note", project=TEST_PROJECT)
+    def test_remember_omitted_source_raises_type_error(self):
+        # Schema-level enforcement: source is positional-required. Omitting
+        # it at the Python level raises TypeError; at the MCP level, the
+        # protocol rejects the call before it reaches the function.
+        with pytest.raises(TypeError):
+            remember("Anonymous note", project=TEST_PROJECT)
+
+    def test_remember_empty_source_rejected_with_clear_error(self):
+        # Body-level enforcement: empty string is as lazy as omitting and
+        # must also fail, otherwise agents could bypass per-agent tracking
+        # by passing source="".
+        raw = remember("Anon attempt", source="", project=TEST_PROJECT)
         result = json.loads(raw)
-        assert result["success"] is True
+        assert result["success"] is False
+        assert result["blocked_by"] == "source_required"
+        assert "source is required" in result["error"]
 
 
 # ─── capture_context() compliance ────────────────────────────────────────────
@@ -238,10 +250,15 @@ class TestSearchSourceParam:
         # Search records in tracker but doesn't boot
         assert "test-agent" in _session_tracker
 
-    def test_search_without_source_still_works(self):
-        raw = search("test query", project=TEST_PROJECT)
-        assert isinstance(raw, str)
-        assert "_global" in _session_tracker
+    def test_search_omitted_source_raises_type_error(self):
+        with pytest.raises(TypeError):
+            search("test query", project=TEST_PROJECT)
+
+    def test_search_empty_source_rejected_with_clear_error(self):
+        raw = search("test query", source="", project=TEST_PROJECT)
+        result = json.loads(raw)
+        assert result["success"] is False
+        assert result["blocked_by"] == "source_required"
 
     def test_search_does_not_require_boot(self):
         # search() should work without boot_session -- it's a read tool
@@ -307,11 +324,15 @@ class TestBootSession:
         assert result["success"] is True
         assert result["booted"] is True
 
-    def test_boot_without_source_still_succeeds(self):
+    def test_boot_empty_source_rejected(self):
         raw = boot_session(project=TEST_PROJECT, source="")
         result = json.loads(raw)
-        assert result["success"] is True
-        assert result["booted"] is True
+        assert result["success"] is False
+        assert result["blocked_by"] == "source_required"
+
+    def test_boot_omitted_source_raises_type_error(self):
+        with pytest.raises(TypeError):
+            boot_session(project=TEST_PROJECT)
 
     def test_boot_degrades_gracefully_on_error(self):
         # Even if something goes wrong internally, boot should not hard-fail
@@ -364,9 +385,13 @@ class TestBrainCheckpoint:
         result = json.loads(raw)
         assert result["success"] is False
 
-    def test_checkpoint_no_source_uses_global(self):
-        brain_checkpoint(action="test action", project=TEST_PROJECT, source="")
-        assert "_global" in _checkpoint_tracker
+    def test_checkpoint_empty_source_rejected(self):
+        raw = brain_checkpoint(action="test action", project=TEST_PROJECT, source="")
+        result = json.loads(raw)
+        assert result["success"] is False
+        assert result["blocked_by"] == "source_required"
+        # Tracker should NOT have a _global entry from a rejected call
+        assert "_global" not in _checkpoint_tracker
 
     def test_checkpoint_degrades_gracefully(self):
         # Should not hard-fail even with bad input
