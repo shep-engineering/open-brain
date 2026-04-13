@@ -117,13 +117,20 @@ def _init_uptime(prior_total: float) -> None:
 
 
 def _record_search(source: str, project: str) -> None:
-    """Record that a source performed a search. Resets the store counter."""
+    """Record that a source performed a search. Resets the per-source
+    store counter.
+
+    Per-agent tracking is authoritative. Source is required at the MCP
+    tool layer, so empty source here only happens via direct Python
+    callers (tests, CLI scripts). Those fall through to the "_global"
+    bucket for backward-compatibility with pre-existing direct callers.
+    """
     if not source:
         source = "_global"
     if source not in _session_tracker:
         _session_tracker[source] = {"searches": 0, "stores_since_search": 0}
     _session_tracker[source]["searches"] += 1
-    _session_tracker[source]["stores_since_search"] = 0  # Reset — agent just polled the brain
+    _session_tracker[source]["stores_since_search"] = 0
 
 
 def _record_store(source: str) -> None:
@@ -132,6 +139,20 @@ def _record_store(source: str) -> None:
         source = "_global"
     if source in _session_tracker:
         _session_tracker[source]["stores_since_search"] += 1
+
+
+def _source_required_error(tool: str) -> str:
+    """Return a canonical error when an MCP tool is called with an empty or
+    missing `source`. Per-agent session compliance requires attribution;
+    an empty source is as lazy as omitting the parameter entirely and
+    is rejected outright so agents cannot game the counter by passing
+    empty values."""
+    return json.dumps({
+        "success": False,
+        "error": f"source is required on {tool}() — pass source='<agent-name>' (e.g. 'claude', 'cursor', 'windsurf').",
+        "blocked_by": "source_required",
+        "details": "Per-agent session compliance requires attribution. A search from one source does NOT reset another source's counter. Use the same source string for boot_session, search, remember, and capture_context in your session."
+    }, indent=2)
 
 
 def _check_compliance(source: str, project: str) -> dict | None:
@@ -166,7 +187,7 @@ def _check_compliance(source: str, project: str) -> dict | None:
             "success": False,
             "error": "BLOCKED: Must call open-brain_search first before storing memories",
             "blocked_by": "compliance",
-            "details": f"No search() called by '{source}' in this session. The brain is your working memory — poll it before acting."
+            "details": f"No search() called by '{source}' in this session. The brain is your working memory — poll it before acting. Make sure you pass source='{source}' on search() — without it the search records against a different bucket and will not satisfy your per-agent compliance."
         }
 
     # Too many stores without searching again
@@ -176,7 +197,7 @@ def _check_compliance(source: str, project: str) -> dict | None:
             "success": False,
             "error": f"BLOCKED: {stores} stores since last search. Call open-brain_search to refresh context before storing more.",
             "blocked_by": "compliance",
-            "details": f"'{source}' has stored {stores} memories without searching. Max is {COMPLIANCE_MAX_STORES}. Search the brain to continue."
+            "details": f"'{source}' has stored {stores} memories without searching. Max is {COMPLIANCE_MAX_STORES}. Call search(query='...', source='{source}') to reset the per-agent counter."
         }
 
     return None
@@ -913,7 +934,7 @@ mcp = FastMCP("open-brain")
 
 @mcp.tool()
 @instrument("remember")
-def remember(content: str, source: str = "", type_override: str = "", project: str = "",
+def remember(content: str, source: str, type_override: str = "", project: str = "",
              valid_time: str = "", projects: list[str] | None = None) -> str:
     """Store a thought, note, decision, or information in your brain.
 
@@ -923,7 +944,11 @@ def remember(content: str, source: str = "", type_override: str = "", project: s
 
     Args:
         content: The thought, note, or information to remember.
-        source: Where captured from (e.g. 'cursor', 'slack', 'cli').
+        source: REQUIRED. Which agent is storing (e.g. 'cursor', 'claude', 'slack').
+                Session-compliance is tracked per-source; this field is how
+                the brain knows which agent polled it and which agent is
+                storing. Pass the same source to search() and remember() so
+                your per-agent compliance counter is consistent.
         type_override: Override auto-detected type:
             decision | idea | meeting | person | insight | task | journal | reference | note
         project: Primary project this memory belongs to (e.g. 'open-brain', 'my-app').
@@ -935,11 +960,13 @@ def remember(content: str, source: str = "", type_override: str = "", project: s
                   The primary project is always included automatically.
     """
     try:
+        if not source:
+            return _source_required_error("remember")
         # BLOCKING ENFORCEMENT: Check compliance before storing
         compliance_error = _check_compliance(source, project)
         if compliance_error:
             return json.dumps(compliance_error, indent=2)
-        
+
         content = check_content(content)
         embedding = get_embedding(content)
         metadata  = extract_metadata(content)
@@ -1016,11 +1043,11 @@ def _format_search_entry(m: dict, pinned: bool = False) -> dict:
 @instrument("search")
 def search(
     query: str,
+    source: str,
     limit: int = 10,
     type_filter: str = "",
     people_filter: Optional[list[str]] = None,
     project: str = "",
-    source: str = "",
     since_days: int = 0,
     until_days: int = 0,
     as_of: str = "",
@@ -1044,8 +1071,12 @@ def search(
             | procedural | episodic
         people_filter: Filter to memories mentioning specific people.
         project: Filter to memories from a specific project (e.g. 'open-brain', 'my-app').
-        source: Which agent is searching (e.g. 'cursor', 'claude'). Used for
-                session compliance tracking.
+        source: REQUIRED. Which agent is searching (e.g. 'cursor', 'claude').
+                Session-compliance is tracked per-source; this field is how
+                the brain knows which agent polled it. Pass the same source
+                to search() and remember() so your per-agent counter stays
+                consistent. A search with a different source (or none) does
+                NOT reset your source's compliance counter.
         since_days: Only return memories created in the last N days (0 = no lower bound).
         until_days: Only return memories older than N days (0 = no upper bound).
         as_of: ISO 8601 timestamp. Only return memories whose valid_time is on or before
@@ -1053,6 +1084,8 @@ def search(
                as of March 1st. Empty string = no filter.
     """
     try:
+        if not source:
+            return _source_required_error("search")
         embedding = get_embedding(query)
         memories  = db_search(
             embedding, query, min(limit, 50), type_filter or None,
@@ -1186,7 +1219,7 @@ def brain_startup_reminder() -> str:
 
 @mcp.tool()
 @instrument("boot_session")
-def boot_session(project: str = "", source: str = "") -> str:
+def boot_session(source: str, project: str = "") -> str:
     """Boot your brain for this session. MUST be called before any other tool.
 
     This loads your full project context so you can work effectively:
@@ -1201,10 +1234,13 @@ def boot_session(project: str = "", source: str = "") -> str:
     Call this ONCE at the start of every session, before doing anything else.
 
     Args:
+        source: REQUIRED. Which agent is booting (e.g. 'claude', 'windsurf',
+                'cursor'). Session-compliance is tracked per-source.
         project: The project you're working on (e.g. 'open-brain', 'resume-harbor').
-        source: Which agent is booting (e.g. 'claude', 'windsurf', 'cursor').
     """
     try:
+        if not source:
+            return _source_required_error("boot_session")
         sections = []
 
         # Step 1: Load pinned guardrails (full content, not previews)
@@ -1323,7 +1359,7 @@ def boot_session(project: str = "", source: str = "") -> str:
 
 @mcp.tool()
 @instrument("brain_checkpoint")
-def brain_checkpoint(action: str, context: str = "", project: str = "", source: str = "") -> str:
+def brain_checkpoint(action: str, source: str, context: str = "", project: str = "") -> str:
     """Check the brain before a risky action. Returns relevant memories and warnings.
 
     Call this BEFORE editing infrastructure files, database code, deployment
@@ -1336,13 +1372,16 @@ def brain_checkpoint(action: str, context: str = "", project: str = "", source: 
     Args:
         action: What you're about to do (e.g. 'edit infrastructure script',
                 'modify database schema', 'push to shep remote').
+        source: REQUIRED. Which agent is calling (e.g. 'claude', 'windsurf').
+                Session-compliance is tracked per-source.
         context: Additional context about the specific files or changes.
         project: The project scope (e.g. 'open-brain').
-        source: Which agent is calling (e.g. 'claude', 'windsurf').
     """
     try:
+        if not source:
+            return _source_required_error("brain_checkpoint")
         # Check cooldown -- skip if same topic checked recently
-        src = source or "_global"
+        src = source
         if src in _checkpoint_tracker:
             last_check = _checkpoint_tracker[src].get(action)
             if last_check and (time.time() - last_check) < CHECKPOINT_COOLDOWN:
@@ -1415,7 +1454,7 @@ def brain_checkpoint(action: str, context: str = "", project: str = "", source: 
 
 @mcp.tool()
 @instrument("capture_context")
-def capture_context(context: str, source: str = "", project: str = "") -> str:
+def capture_context(context: str, source: str, project: str = "") -> str:
     """Automatically extract and store memories from raw conversation or session context.
 
     THIS is the primary tool for automatic brain capture. AI agents should call
@@ -1437,16 +1476,21 @@ def capture_context(context: str, source: str = "", project: str = "") -> str:
     Args:
         context: Raw text to capture — conversation excerpt, session summary,
                  decisions made, things learned. Can be long, dump freely.
-        source:  Which agent is capturing (e.g. 'windsurf', 'cursor', 'claude').
+        source:  REQUIRED. Which agent is capturing (e.g. 'windsurf', 'cursor',
+                 'claude'). Session-compliance is tracked per-source; pass the
+                 same source to search(), boot_session(), and capture_context()
+                 in your session.
         project: Project this memory belongs to (e.g. 'open-brain', 'my-app').
                  Empty string means global (not project-scoped).
     """
     try:
+        if not source:
+            return _source_required_error("capture_context")
         # BLOCKING ENFORCEMENT: Check compliance before storing
         compliance_error = _check_compliance(source, project)
         if compliance_error:
             return json.dumps(compliance_error, indent=2)
-        
+
         # Filter secrets from raw context before any processing
         context = check_content(context)
 

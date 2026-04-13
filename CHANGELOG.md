@@ -5,6 +5,71 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-04-12
+
+### BREAKING
+
+- **`source` is now REQUIRED on `boot_session`, `search`, `remember`,
+  `capture_context`, and `brain_checkpoint`.** Previously optional with a
+  default of `""`. Omitting it now raises `TypeError` at the Python layer
+  (MCP schema rejects the call); passing `source=""` returns a JSON error
+  with `blocked_by: "source_required"` and a remediation message.
+
+### Why
+
+Session-compliance is tracked per-source via `_session_tracker[source]`.
+Empty source falls back to a `"_global"` bucket. When agents
+inconsistently passed `source` (e.g. `search()` without, then
+`remember(source="claude")`), the search updated `"_global"` while the
+store incremented `"claude"` — two different buckets. The compliance
+counter for `"claude"` grew unbounded despite the agent having polled the
+brain, producing spurious `BLOCKED: N stores since last search` errors.
+Agents forgetting to plumb `source` is too consistent a failure mode to
+rely on discipline alone; enforcing it at the MCP schema layer makes the
+footgun impossible.
+
+### Changed
+
+- `server.py::_source_required_error` helper emits canonical
+  `blocked_by: source_required` errors with a remediation hint.
+- `remember(content, source, ...)`: `source` moved to required positional.
+- `search(query, source, ...)`: `source` moved to required positional.
+- `boot_session(source, project="")`: `source` moved to required positional.
+- `brain_checkpoint(action, source, ...)`: `source` moved to required positional.
+- `capture_context(context, source, project="")`: `source` moved to required positional.
+- All five tool bodies reject empty-string `source` at top of `try` block
+  with a clear remediation error.
+
+### Improved
+
+- Compliance error messages now tell the agent exactly how to fix the call:
+  "Call search(query='...', source='{source}') to reset the per-agent
+  counter."
+- `docs/tools.md`: updated Core Tools table to mark `source` required with
+  a BREAKING callout at the end of the section.
+- Agent prompts (`prompts/claude-desktop.md`, `prompts/cursor-rules.md`,
+  `prompts/windsurf-rules.md`, `prompts/generic-system-prompt.md`):
+  explicit required-on-every-call language + mention of
+  `blocked_by: source_required`.
+
+### Tests
+
+- `tests/test_session_compliance.py`: added 6 new tests covering
+  required-positional enforcement (TypeError on omit) and empty-string
+  rejection on all five tools. Replaced 4 obsolete tests that asserted
+  "source-optional" behavior.
+- `tests/test_pinned_memories.py`: updated 5 `search()` calls to pass
+  `source="test"`.
+- Full suite: 101/101 pass.
+
+### Migration
+
+- Any caller (agent, CLI script, test) that was calling these tools
+  without `source` must be updated. The JSON error returned on
+  empty-string calls includes the exact fix.
+- MCP clients pass parameters by name (JSON), so positional-arg reorder
+  does NOT affect MCP callers — only direct Python callers.
+
 ## [0.6.1] - 2026-04-08
 
 ### Fixed

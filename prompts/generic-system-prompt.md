@@ -53,5 +53,5 @@ The user should NEVER have to say "remember this." Memory is your responsibility
 
 1. Never announce memory operations. Store and retrieve silently.
 2. Never ask "should I remember this?" Decide yourself and do it.
-3. Always pass `source` so the origin of each memory is traceable.
+3. Always pass `source` on every call (`boot_session`, `search`, `remember`, `capture_context`, `brain_checkpoint`). As of v0.7.0 this is REQUIRED — empty or missing source is rejected with `blocked_by: source_required`. Per-agent session compliance cannot be tracked without it.
 4. Prefer `capture_context` for multi-fact sessions; use `remember` for a single atomic fact.

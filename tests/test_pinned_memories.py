@@ -106,7 +106,7 @@ class TestSearchInjection:
         _create_test_memory("Always use feature branches for this project", pinned=True)
         _create_test_memory("Some unrelated note about parsing JSON")
 
-        raw = search("parsing JSON", project=TEST_PROJECT)
+        raw = search("parsing JSON", source="test", project=TEST_PROJECT)
         results = json.loads(raw)
         assert len(results) >= 1
         # First result should be the pinned one
@@ -116,7 +116,7 @@ class TestSearchInjection:
     def test_pinned_entries_have_pinned_flag_and_similarity_1(self):
         _create_test_memory("Workflow rule: run tests before commit", pinned=True)
 
-        raw = search("anything at all", project=TEST_PROJECT)
+        raw = search("anything at all", source="test", project=TEST_PROJECT)
         results = json.loads(raw)
         pinned_results = [r for r in results if r.get("pinned")]
         assert len(pinned_results) >= 1
@@ -127,7 +127,7 @@ class TestSearchInjection:
     def test_search_without_project_excludes_pinned(self):
         mem_id = _create_test_memory("Pinned rule that should not appear globally", pinned=True)
 
-        raw = search("Pinned rule that should not appear globally")
+        raw = search("Pinned rule that should not appear globally", source="test")
         results = json.loads(raw)
         if isinstance(results, list):
             pinned_results = [r for r in results if r.get("pinned")]
@@ -136,7 +136,7 @@ class TestSearchInjection:
     def test_pinned_not_duplicated_in_results(self):
         _create_test_memory("Unique guardrail content for dedup test xyz", pinned=True)
 
-        raw = search("Unique guardrail content for dedup test xyz", project=TEST_PROJECT)
+        raw = search("Unique guardrail content for dedup test xyz", source="test", project=TEST_PROJECT)
         results = json.loads(raw)
         ids = [r["id"] for r in results]
         # No duplicate IDs
@@ -151,7 +151,7 @@ class TestSearchInjection:
         _create_test_memory("Regular note E about debugging")
 
         # Search with limit=2 -- should get 2 pinned + up to 2 semantic
-        raw = search("testing coding debugging", limit=2, project=TEST_PROJECT)
+        raw = search("testing coding debugging", source="test", limit=2, project=TEST_PROJECT)
         results = json.loads(raw)
         pinned_count = sum(1 for r in results if r.get("pinned"))
         semantic_count = sum(1 for r in results if not r.get("pinned"))

@@ -12,7 +12,8 @@ Store a single explicit thought, note, or decision.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `thought` | string | Yes | The content to store |
+| `content` | string | Yes | The content to store |
+| `source` | string | **Yes** | Which agent is storing (e.g. `"claude"`, `"cursor"`). REQUIRED since v0.7.0 for per-agent session compliance. |
 | `type_override` | string | No | Force a specific memory type |
 | `project` | string | No | Tag with a project name for scoped filtering |
 
@@ -27,7 +28,7 @@ The primary auto-capture tool. Ingests raw conversation or session text, decompo
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `context` | string | Yes | Raw session text to process |
-| `source` | string | No | Which agent is capturing (e.g. `"claude"`, `"cursor"`) |
+| `source` | string | **Yes** | Which agent is capturing (e.g. `"claude"`, `"cursor"`). REQUIRED since v0.7.0. |
 | `project` | string | No | Tag with a project name |
 
 **Called by:** Agents automatically after completing tasks, fixing bugs, or making decisions.
@@ -41,6 +42,7 @@ Semantic search by meaning, not keywords. Returns previews (first 200 chars) to 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `query` | string | Yes | What to search for (natural language) |
+| `source` | string | **Yes** | Agent identifier for per-agent compliance tracking. REQUIRED since v0.7.0 — a search from one source does NOT reset another source's counter. |
 | `limit` | int | No | Max results (default 10, max 50) |
 | `type_filter` | string | No | Filter by memory type: `decision`, `idea`, `meeting`, `person`, `insight`, `task`, `journal`, `reference`, `note`, `guardrail`, `procedural`, `episodic` |
 | `people_filter` | string[] | No | Filter to memories mentioning specific people |
@@ -48,11 +50,12 @@ Semantic search by meaning, not keywords. Returns previews (first 200 chars) to 
 | `since_days` | int | No | Only return memories created in the last N days (0 = no limit) |
 | `until_days` | int | No | Only return memories older than N days (0 = no limit) |
 | `as_of` | string | No | ISO 8601 timestamp. Only return memories whose `valid_time` ≤ this date (bi-temporal query). E.g. `'2025-03-01'` |
-| `source` | string | No | Agent identifier for compliance tracking |
 
 Results are ranked by a hybrid score: vector similarity (70%) + full-text rank (30%), multiplied by an uptime-based recency decay factor. Pinned memories for the project always appear first.
 
 **Called by:** Agents automatically before starting tasks.
+
+> **BREAKING (v0.7.0):** `source` is now required on `search`, `remember`, `capture_context`, `boot_session`, and `brain_checkpoint`. Empty or omitted source is rejected with `blocked_by: source_required`. Rationale: per-agent session compliance can't be tracked without attribution, and agents were inconsistently plumbing `source` through, causing compliance blocks to fire on calls that should have been resetting their own counter.
 
 ---
 

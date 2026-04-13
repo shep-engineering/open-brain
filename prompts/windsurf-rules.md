@@ -67,5 +67,5 @@ Call `open-brain_search` automatically:
 
 - Never announce that you are storing or retrieving memories. Do it silently.
 - Never ask the user "should I remember this?" Just remember it.
-- Pass `source: "windsurf"` on all capture calls.
+- Pass `source: "windsurf"` on EVERY call (`boot_session`, `search`, `remember`, `capture_context`, `brain_checkpoint`). As of v0.7.0 `source` is REQUIRED — empty or missing source is rejected with `blocked_by: source_required`.
 - If you receive a "BLOCKED" error from the server, it means you skipped the search. Call `open-brain_search` immediately and try again.
