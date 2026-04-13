@@ -5,6 +5,89 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-04-13
+
+### Changed — Dashboard launcher rewritten in pure Python
+
+Replaces the fragile `.cmd` launcher chain
+(`dashboard.cmd → pythonw → dashboard.py → Popen(cmd /c on.cmd) →
+start /B ollama-serve.cmd → ollama serve` — 5 process boundaries) with
+a single Python module, `scripts/infrastructure.py`, that dashboard.py
+calls directly.
+
+**Why:** every attempted patch to the `.cmd` chain this cycle (4+) uncovered
+a new failure mode: cmd quote-parsing, `%~dp0` in if/else blocks, `::`
+comments inside `( ... )`, `start /B` redirection applying to START
+instead of the spawned command, `start` default-`/K` keeping cmd alive,
+inherited stdout pipe held by detached children, file-sharing conflicts
+on shared append log, `printf '-...'` dash-as-flag errors. The chain was
+fragile by construction; rebuilding in Python eliminates the entire class.
+
+**Empirical verification (2026-04-13):**
+- Launched `ollama serve` via the new detach pattern
+  (`stdin=DEVNULL, stdout=<file>, stderr=STDOUT, close_fds=True,
+  creationflags=DETACHED_PROCESS|CREATE_NO_WINDOW|CREATE_NEW_PROCESS_GROUP`).
+  Parent returned in 0ms; ollama ready at t=2.7s; parent exited;
+  ollama still alive and serving.
+- Launched `dashboard.py` via pythonw. Splash window appeared, drove
+  `infrastructure.bring_up()` in a worker thread, completed in ~4s,
+  main window title flipped to `"Open Brain Dashboard"`. No hang.
+- 17/17 unit tests pass (mocked subprocess).
+
+### Added
+
+- `scripts/infrastructure.py` — new module. Public API:
+  `Infrastructure.ensure_docker/ensure_db/ensure_ollama/stop_all` +
+  `bring_up(on_progress=...)` + `bring_down(on_progress=...)`.
+  Different launch patterns per process type:
+  - Short-lived CLI (`docker info`/`docker start`/`docker stop`/`taskkill`):
+    `subprocess.run(capture_output=True, timeout=N)`.
+  - Long-lived console (`ollama serve`): `subprocess.Popen` with the
+    full detach flag set described above.
+  - GUI (`Docker Desktop.exe`): `Popen` with stdio redirected to
+    DEVNULL, no detach flags (GUI self-registers tray).
+  - Readiness polling: `docker info`, `psycopg2.connect(connect_timeout=N)`,
+    `urllib.request.urlopen(ollama_api, timeout=N)`, each in a bounded
+    poll loop with clear timeout/failure paths.
+- `tests/test_infrastructure.py` — 17 mocked tests covering fast-path,
+  cold-start, timeout, launch-failure, and `stop_all` semantics for
+  each component.
+- Structured `Progress` dataclass for splash/log communication. Every
+  bring_up/bring_down step emits `{step, status, detail, elapsed_s}`
+  entries to both `logs/startup.log` and the UI callback.
+
+### Changed — dashboard.py
+
+- `launch_open_brain()` removed. Replaced by `infrastructure.bring_up`
+  invoked from `StartupSplash` worker thread.
+- `StartupSplash.__init__` no longer takes a `proc` argument. Takes
+  only `master` and `on_ready`. Internal worker thread calls
+  `infrastructure.bring_up(on_progress=self._on_progress)` and handles
+  success/failure via `self.after(0, ...)` UI marshalling.
+- `Dashboard._run_off_script` replaced: now calls
+  `infrastructure.bring_down()` in a daemon thread instead of spawning
+  `cmd /c open-brain-off.cmd` in a new console.
+- `Dashboard._start_service` Ollama path uses
+  `infrastructure.Infrastructure().ensure_ollama()` for consistent
+  detach semantics with startup.
+
+### Kept (for users who prefer CLI-first workflow)
+
+- `scripts/windows/open-brain-on.cmd` — still works. Dashboard no
+  longer invokes it. Comment explains the dashboard uses
+  `infrastructure.py` directly now.
+- `scripts/windows/open-brain-off.cmd` — still works for desktop
+  shortcut users. Dashboard uses `infrastructure.bring_down()` instead.
+- `scripts/windows/open-brain-dashboard.cmd` — unchanged; it just
+  invokes `pythonw dashboard.py` with a wmic single-instance check.
+
+### Migration
+
+No API changes. MCP schema unchanged. The launcher internals are
+purely implementation. Users who only click the desktop shortcut see
+a cleaner splash (structured progress instead of streamed cmd output)
+and — critically — no more splash hang.
+
 ## [0.7.0] - 2026-04-12
 
 ### BREAKING

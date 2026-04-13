@@ -295,22 +295,21 @@ def is_db_up() -> bool:
         return False
 
 
-def launch_open_brain():
-    """Fire the Open Brain ON script, capturing stdout for the splash screen."""
-    if IS_WINDOWS and ON_SCRIPT.exists():
-        return subprocess.Popen(
-            ["cmd", "/c", str(ON_SCRIPT)],
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, bufsize=1,
-            creationflags=subprocess.CREATE_NO_WINDOW,
-        )
-    elif ON_SCRIPT_SH.exists():
-        return subprocess.Popen(
-            ["bash", str(ON_SCRIPT_SH)],
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, bufsize=1,
-        )
-    return None
+# Note: the old `launch_open_brain()` helper that wrapped `cmd /c on.cmd` in a
+# stdout=PIPE subprocess has been REMOVED. It was the root cause of the splash
+# hang (the chain cmd.exe -> start /B ollama-serve.cmd -> ollama.exe inherited
+# the parent's PIPE, so the splash's `for line in proc.stdout` reader never saw
+# EOF because the inherited write-end stayed open for ollama's lifetime).
+#
+# Startup now goes through scripts/infrastructure.py directly — one process
+# boundary, explicit handle redirection, no pipe inheritance possible.
+# open-brain-on.cmd is kept for users who want to manage infra outside the
+# dashboard, but dashboard.py no longer invokes it.
+
+# Import the pure-Python infrastructure module. Path setup — dashboard.py lives
+# at the repo root alongside scripts/.
+sys.path.insert(0, str(BASE_DIR / "scripts"))
+import infrastructure  # noqa: E402
 
 
 def db_connect():
@@ -841,34 +840,28 @@ class Dashboard(ctk.CTk):
         dialog.after(50, _center)
 
     def _run_off_script(self):
-        """Run open-brain-off silently in background."""
-        off_script = BASE_DIR / "scripts" / "windows" / "open-brain-off.cmd"
-        off_sh     = BASE_DIR / "scripts" / "open-brain-off.sh"
-        try:
-            if IS_WINDOWS and off_script.exists():
-                subprocess.Popen(
-                    ["cmd", "/c", str(off_script)],
-                    creationflags=subprocess.CREATE_NEW_CONSOLE,
-                )
-            elif off_sh.exists():
-                subprocess.Popen(["bash", str(off_sh)])
-        except Exception:
-            pass
+        """Run infrastructure.bring_down() in a daemon thread.
+
+        Replaces the prior `cmd /c open-brain-off.cmd` Popen. Same effect
+        (stop ollama, db, Docker Desktop) but Python-native, logged via
+        infrastructure.py's Progress callbacks, and without spawning a new
+        console window.
+        """
+        def _do():
+            try:
+                infrastructure.bring_down()
+            except Exception:
+                pass
+        threading.Thread(target=_do, daemon=True).start()
 
     def _start_service(self, svc: str):
         """Start a specific service that is down."""
         def _do():
             if svc == "Ollama":
-                if IS_WINDOWS:
-                    subprocess.Popen(
-                        ["cmd", "/c",
-                         "set OLLAMA_NUM_GPU=2 && set CUDA_VISIBLE_DEVICES=0,1 && "
-                         "set OLLAMA_KEEP_ALIVE=30m && set OLLAMA_MAX_LOADED_MODELS=2 && "
-                         f"ollama serve >{BASE_DIR / 'logs' / 'ollama.log'} 2>&1"],
-                        creationflags=subprocess.CREATE_NO_WINDOW,
-                    )
-                else:
-                    subprocess.Popen(["ollama", "serve"])
+                # Use infrastructure.ensure_ollama for consistent detach
+                # semantics (same Popen flags as startup; see
+                # scripts/infrastructure.py for the verified pattern).
+                infrastructure.Infrastructure().ensure_ollama(timeout=30)
             elif svc == "PostgreSQL":
                 subprocess.run(
                     ["docker", "start", "open-brain-db"],
@@ -1226,9 +1219,17 @@ class Dashboard(ctk.CTk):
 
 
 class StartupSplash(ctk.CTkToplevel):
-    """Startup splash that streams open-brain-on output live, then opens dashboard."""
+    """Startup splash that drives scripts/infrastructure.py in a worker thread.
 
-    def __init__(self, master, proc, on_ready):
+    Constructor signature changed 2026-04-13: no longer takes a `proc` arg.
+    The old design tee'd cmd's stdout into the splash; that reader hung when
+    any inheritor held the pipe open. The new design calls
+    `infrastructure.bring_up(on_progress=...)` in a daemon thread and receives
+    structured `Progress` events, which the splash renders into the log box
+    and status line. Tk widget updates are marshalled via `self.after(0, ...)`.
+    """
+
+    def __init__(self, master, on_ready):
         super().__init__(master)
         self.title("Open Brain — Starting")
         self.geometry("620x420")
@@ -1261,9 +1262,8 @@ class StartupSplash(ctk.CTkToplevel):
         self.log_box.pack(fill="both", expand=True, padx=16, pady=(0, 16))
         self.log_box.configure(state="disabled")
 
-        self._proc = proc
         self._on_ready = on_ready
-        threading.Thread(target=self._stream_output, daemon=True).start()
+        threading.Thread(target=self._run_bringup, daemon=True).start()
 
     def _append(self, line: str):
         self.log_box.configure(state="normal")
@@ -1272,26 +1272,30 @@ class StartupSplash(ctk.CTkToplevel):
         self.log_box.configure(state="disabled")
         self.msg.configure(text=line.strip()[:80] if line.strip() else "Starting...")
 
-    def _stream_output(self):
-        """Read stdout from the ON script line by line, then wait for DB."""
-        if self._proc and self._proc.stdout:
-            for line in self._proc.stdout:
-                line = line.rstrip()
-                self.after(0, lambda l=line: self._append(l))
-            self._proc.wait()
+    def _on_progress(self, prog):
+        """Called from the worker thread. Marshal to UI thread."""
+        line = prog.format()
+        self.after(0, lambda l=line: self._append(l))
 
-        # Script done — now wait for DB to be reachable
-        self.after(0, lambda: self.msg.configure(text="Waiting for database..."))
-        for attempt in range(60):
-            if is_db_up():
-                self.after(0, self._ready)
-                return
-            self.after(0, lambda a=attempt: self.msg.configure(
-                text=f"Waiting for database... ({a + 1}s)"))
-            time.sleep(1)
-        self.after(0, lambda: self.msg.configure(
-            text="Could not connect after 60s. Check Docker."))
-        self.after(0, lambda: self.bar.stop())
+    def _run_bringup(self):
+        """Call infrastructure.bring_up() then hand off to the main dashboard.
+
+        Runs in a daemon thread. Never touches UI state directly — uses
+        self.after(0, ...) to schedule UI work on the Tk main loop.
+        """
+        try:
+            ok = infrastructure.bring_up(on_progress=self._on_progress)
+        except Exception as exc:  # pragma: no cover — safety net
+            msg = f"infrastructure.bring_up raised: {exc!r}"
+            self.after(0, lambda m=msg: self._append(m))
+            ok = False
+
+        if ok:
+            self.after(0, self._ready)
+        else:
+            self.after(0, lambda: self.msg.configure(
+                text="Startup failed — see logs/startup.log"))
+            self.after(0, lambda: self.bar.stop())
 
     def _ready(self):
         self.bar.stop()
@@ -1325,9 +1329,9 @@ if __name__ == "__main__":
             # Open Brain already running — go straight to dashboard
             launch_dashboard()
         else:
-            # Not running — launch it, stream output into splash
-            proc = launch_open_brain()
-            splash = StartupSplash(root, proc, launch_dashboard)
+            # Not running — show splash; it drives infrastructure.bring_up
+            # in a worker thread and invokes launch_dashboard on success.
+            splash = StartupSplash(root, launch_dashboard)
             root.mainloop()  # keeps splash alive until ready
 
     except Exception:
