@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Open Brain: Demo</title>
 <link rel="stylesheet" href="vendor/reveal.css">
 <link rel="stylesheet" href="vendor/black.css">
@@ -16,6 +16,16 @@
     --brain-dark: #0a0a1a;
     --brain-card: #13132b;
   }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    overflow-x: hidden;
+    -webkit-text-size-adjust: 100%;
+  }
+  .reveal pre { overflow-x: auto; max-width: 100%; box-sizing: border-box; }
+  .reveal table { max-width: 100%; box-sizing: border-box; }
+  .reveal .slides section { box-sizing: border-box; }
 
   .reveal {
     font-family: 'Inter', sans-serif;
@@ -204,20 +214,42 @@
     .reveal .slides section { padding: 5px 10px; }
     .reveal h1 { font-size: 1.2em; }
     .reveal h2 { font-size: 1.0em; }
+    .reveal h3 { font-size: 0.9em; }
     .reveal .slides section img { max-width: 90% !important; }
-    .tool-grid { grid-template-columns: 1fr 1fr; gap: 3px; }
-    .tool-card { padding: 4px 8px; font-size: 0.4em; }
-    .flow-step { padding: 6px 10px; font-size: 0.45em; margin: 3px 0; }
-    .agent-row { gap: 5px; margin: 10px 0; }
-    .agent-badge { padding: 4px 8px; font-size: 0.4em; }
-    .stat-row { gap: 10px; flex-wrap: wrap; }
-    .stat-num { font-size: 1.3em; }
-    .stat-label { font-size: 0.4em; }
-    .wire-demo { font-size: 0.35em; padding: 8px; }
-    .reveal pre { font-size: 0.35em; padding: 8px; }
-    .reveal blockquote { font-size: 0.5em; padding: 6px 10px; margin: 5px auto; }
-    .comparison-table { font-size: 0.4em; }
-    .subtitle { font-size: 0.45em; }
+    .tool-grid { grid-template-columns: 1fr; gap: 4px; }
+    .tool-card { padding: 6px 10px; font-size: 0.45em; }
+    .flow-step { padding: 6px 10px; font-size: 0.5em; margin: 4px 0; }
+    .agent-row { gap: 6px; margin: 12px 0; }
+    .agent-badge { padding: 5px 10px; font-size: 0.45em; }
+    .stat-row { gap: 14px; flex-wrap: wrap; margin: 14px 0; }
+    .stat-box { flex: 0 0 45%; }
+    .stat-num { font-size: 1.6em; }
+    .stat-label { font-size: 0.45em; }
+    .wire-demo { font-size: 0.4em; padding: 10px; }
+    .reveal pre { font-size: 0.4em; padding: 10px; width: 100%; }
+    .reveal blockquote { font-size: 0.55em; padding: 8px 12px; margin: 8px auto; width: 92%; }
+    .comparison-table { font-size: 0.45em; width: 100%; }
+    .comparison-table th, .comparison-table td { padding: 6px 8px; }
+    .subtitle { font-size: 0.5em; }
+    .reveal .controls { display: none; }
+    .reveal .progress { height: 3px; }
+  }
+
+  @media (max-width: 480px) {
+    .reveal h1 { font-size: 1.0em; }
+    .reveal h2 { font-size: 0.9em; }
+    .tool-grid { grid-template-columns: 1fr; }
+    .tool-card { font-size: 0.5em; }
+    .flow-step { font-size: 0.55em; }
+    .stat-num { font-size: 1.4em; }
+    .reveal pre { font-size: 0.35em; }
+    .wire-demo { font-size: 0.35em; }
+    .agent-row { gap: 4px; }
+    .agent-badge { font-size: 0.5em; padding: 4px 8px; }
+  }
+
+  @media (orientation: portrait) and (max-width: 768px) {
+    .comparison-table { display: block; overflow-x: auto; white-space: nowrap; }
   }
 </style>
 </head>
@@ -547,20 +579,24 @@
 
 <script src="vendor/reveal.js"></script>
 <script>
+var isMobile = window.matchMedia('(max-width: 768px)').matches;
 Reveal.initialize({
   hash: true,
-  transition: 'slide',
+  transition: isMobile ? 'fade' : 'slide',
   transitionSpeed: 'default',
   backgroundTransition: 'fade',
   center: false,
   width: 1200,
   height: 700,
-  margin: 0.02,
-  minScale: 0.5,
+  margin: isMobile ? 0.04 : 0.02,
+  minScale: 0.1,
   maxScale: 2.0,
-  controls: true,
+  controls: !isMobile,
+  controlsTutorial: false,
   progress: true,
-  slideNumber: true,
+  slideNumber: !isMobile,
+  touch: true,
+  hideInactiveCursor: true,
   autoAnimateEasing: 'ease-in-out',
   autoAnimateDuration: 0.8,
 });

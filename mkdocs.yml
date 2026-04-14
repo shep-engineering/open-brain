@@ -44,6 +44,9 @@ nav:
     - Testing: guides/testing.md
     - Migration: guides/migration.md
 
+extra_css:
+  - stylesheets/extra.css
+
 markdown_extensions:
   - pymdownx.highlight:
       anchor_linenums: true
