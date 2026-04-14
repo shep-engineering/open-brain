@@ -162,10 +162,10 @@ claude mcp add open-brain "/path/to/open-brain/.venv/bin/python" "/path/to/open-
 
 After wiring, restart the client and check:
 
-- **Windsurf:** MCP icon (plug) in Cascade panel, green dot, 11 tools
+- **Windsurf:** MCP icon (plug) in Cascade panel, green dot, 19 tools
 - **Cursor:** Chat panel, hammer icon, `open-brain` listed
 - **Claude Code:** Run `claude mcp list`. Should show `open-brain: ... Connected`
-- **Claude Desktop:** Ask "What tools do you have?" Should list the 11 tools
+- **Claude Desktop:** Ask "What tools do you have?" Should list the 19 tools
 
 ---
 

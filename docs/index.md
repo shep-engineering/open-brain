@@ -35,7 +35,7 @@ Your thought
     (+ annotations, ratings, access tracking)
               |
               v
-    MCP Server (stdio / HTTP)  <--  server.py  (12 tools)
+    MCP Server (stdio / HTTP)  <--  server.py  (19 tools)
               |
     +---------+-----------+
     v         v           v
