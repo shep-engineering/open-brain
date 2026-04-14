@@ -51,6 +51,10 @@ exclude_docs: |
   # that must NOT ship to shep-engineering.github.io/open-brain/.
   # See brain memory #1055 / this file's git blame for rationale.
 
+  # Third-party reference PDFs kept locally for convenience but never
+  # published (provenance/licensing not audited for redistribution).
+  *.pdf
+
 extra_css:
   - stylesheets/extra.css
 

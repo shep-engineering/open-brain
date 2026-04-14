@@ -50,3 +50,9 @@ backups/
 
 # Task workflow markers (WIP timestamps, not meaningful for distribution)
 .task-markers/
+
+# Third-party reference PDFs — kept locally in docs/ for reading,
+# but NOT tracked in git and NOT published to shep-engineering.
+# Provenance/licensing not audited for public redistribution.
+*.pdf
+!docs/assets/**/*.pdf
