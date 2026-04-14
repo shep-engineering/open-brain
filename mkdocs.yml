@@ -44,6 +44,13 @@ nav:
     - Testing: guides/testing.md
     - Migration: guides/migration.md
 
+exclude_docs: |
+  planning/
+  # Internal working notes — COGNITIVE_ARCHITECTURE, CONTEXT_CHECKPOINTS,
+  # DECISIONS_LOG, RALPH_LOOP, SPRINT_BACKLOG, etc. Proprietary content
+  # that must NOT ship to shep-engineering.github.io/open-brain/.
+  # See brain memory #1055 / this file's git blame for rationale.
+
 extra_css:
   - stylesheets/extra.css
 
