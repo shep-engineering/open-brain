@@ -80,8 +80,59 @@ pytest tests/ -m ollama -v
 | `tests/test_pinned_memories.py` | Pinned/guardrail memory CRUD and protection | Yes |
 | `tests/test_session_compliance.py` | Polling-based compliance enforcement | Yes |
 | `tests/test_secrets_filter.py` | Secret detection patterns and false positives | No |
+| `tests/test_infrastructure.py` | Pure-Python launcher (`bring_up`/`bring_down`, graceful Ctrl+Break, ownership model). Mocked subprocess + urllib. | No |
+| `tests/mobile/test_demo_nav.py` | Reveal.js demo deck on mobile — Pixel 5 emulation, portrait + landscape, chevron taps + swipes + rotation. | No (uses Playwright's bundled Chromium) |
 
 All test files that touch the database use project-scoped cleanup fixtures (`__test_pinned__`, `__test_compliance__`) for additional isolation.
+
+---
+
+## Mobile UX evaluator harness
+
+`tests/mobile/test_demo_nav.py` is a self-contained Playwright harness
+that builds the docs site (`mkdocs build`), serves it on a local port,
+opens it in Chromium with Pixel 5 device emulation, and drives the
+reveal.js demo deck through real touch + pointer events. Catches mobile
+UX regressions that desktop browser checks miss entirely.
+
+### Run
+
+```sh
+.venv\Scripts\python.exe tests/mobile/test_demo_nav.py
+```
+
+Exit code is 0 iff all 20 assertions pass. Failures drop screenshots in
+`logs/mobile-test-shots/` for visual evidence.
+
+### What it asserts
+
+For both `portrait (393x851)` and `landscape (851x393)`:
+
+1. Page loads on slide 0
+2. Right + left chevrons render and are visible
+3. Tap right chevron → slide advances; tap left → goes back
+4. Horizontal swipe R→L advances; L→R goes back
+5. **Vertical swipe (swipe-up) does NOT navigate** — locks navigation to horizontal gestures + chevrons
+
+Plus a portrait→landscape rotation assertion that the mobile chrome
+(chevrons + slide counter) survives the viewport change without `at-edge`
+disabling pointer events.
+
+### Harness-fidelity disclaimers
+
+Documented in the test file. Briefly: Playwright's `set_viewport_size`
+doesn't fire the full layout-recompute chain Reveal needs after rotation,
+so post-rotation `Reveal.next()` silently no-ops in this harness even
+though it works on a real phone (where the OS-level rotation fires
+`orientationchange` properly). The rotation test therefore asserts
+**chrome survival** but not **post-rotation navigation** — that's
+deferred to the planned Tier-2 AVD/adb harness.
+
+### When to add this to CI
+
+Currently runs locally before any `docs/demo/index.html` change is
+deployed. Add to CI when an `mkdocs gh-deploy` workflow is wired up —
+the harness should gate the deploy on green.
 
 ---
 

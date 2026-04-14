@@ -5,6 +5,105 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-04-14
+
+### Added — Dashboard single-instance guard
+
+`dashboard.py` now detects an already-running instance at startup, brings
+that window to the foreground, and exits 0. Covers every launch path
+(desktop shortcut, `.cmd` wrapper, CLI) because the check lives inside
+the Python process — not in a wrapper script the shortcut bypasses.
+
+Implementation uses `psutil.process_iter` to find any python process
+whose argv has a `Path.name == 'dashboard.py'` AND resolves to our
+on-disk file. Critical Windows-specific detail: the scan must exclude
+the **process ancestor chain**, not just `os.getpid()` —
+`.venv\Scripts\python.exe` is a launcher that re-execs as the base
+interpreter, so both processes live during startup and both carry the
+same `dashboard.py` argv. Without ancestor-skip, the guard falsely
+matched its own launcher parent and exited silently. Verified E2E with
+a real two-click test on the desktop shortcut.
+
+### Added — Dashboard GPU/compute-device selector (ticket #5074)
+
+A "GPU" dropdown in the dashboard titlebar lets the user pick which
+CUDA device Ollama binds to. Useful on machines with multiple GPUs
+where one card needs to stay free for other workloads (gaming, other
+ML jobs).
+
+- `nvidia-smi -L` populates the dropdown with friendly names
+  ("RTX 5090", "RTX 3080 Ti", "Auto (both)").
+- Selection persists to `logs/dashboard-config.json` as `gpu_device`.
+- `infrastructure.resolved_cuda_visible_devices()` reads the config
+  and overrides `CUDA_VISIBLE_DEVICES` on every subsequent ollama
+  spawn — including spawns from the launcher (`.cmd`/`.ps1`) flow.
+- "Apply" button does a graceful shutdown→respawn via the v0.9.0
+  pipeline (model unload → Ctrl+Break → `ensure_ollama` with new env).
+- Graceful degradation: if `nvidia-smi` is unavailable or reports no
+  GPUs, the selector hides itself.
+
+### Added — Mobile-UX evaluator harness (Tier 1)
+
+`tests/mobile/test_demo_nav.py` — Playwright + Chromium harness that
+builds the docs site, serves it locally, and drives the reveal.js
+demo deck through Pixel 5 device emulation in both portrait and
+landscape. Asserts: page loads, chevrons render, taps advance/regress
+slides, horizontal swipes navigate, swipe-up does NOT navigate (the
+specific bug Shep hit), and the mobile chrome survives a portrait→
+landscape rotation.
+
+Pre-fix run reproduced 3 known bugs + 3 the diagnostic surfaced;
+post-fix run is **20/20 PASS**. Adds `playwright>=1.58` to
+`requirements.txt`.
+
+This is the harness-engineering Phase-2 evaluator pattern from
+`docs/planning/BRAIN_HARNESS_PLAN.md`, applied to the mobile demo
+specifically. Approach scales to other UI work.
+
+### Added — `docs/references.md`
+
+Wired into mkdocs nav. Links the Oracle "Agent Memory" article
+(reference rather than redistributing the PDF), the Anthropic
+harness-engineering posts used in research, and the MCP spec.
+
+### Fixed — Mobile reveal.js demo: chevrons broken in portrait, missing in landscape
+
+Earlier mobile-nav attempt (commit 58d25d3) shipped without device-
+level testing and broke in three specific ways:
+
+- **Right chevron didn't work** because `Reveal.isLastSlide()` returns
+  `true` on slide 0 of a 12-slide deck in this Reveal build, and my
+  CSS set `pointer-events: none` on the resulting `disabled` class.
+  Fixed by using `Reveal.getIndices().h` math directly and renaming
+  the visual class to `at-edge` — opacity-only, never blocks taps.
+- **No chevrons in landscape** because `@media (max-width: 768px)`
+  misses landscape phones (often 900+px wide), AND
+  `const isMobile = matchMedia(...)` was computed once at page load
+  and never updated on orientationchange. Fixed by switching the
+  CSS gate to `@media (pointer: coarse)` (covers both orientations
+  + tablets) and dropping the JS `isMobile` constant entirely so
+  CSS handles all orientation logic via live media queries.
+- **Swipe-up advanced** because the slide content was taller than
+  the viewport, so swipe-up was actually browser-level scrolling
+  (not Reveal navigation). Fixed by `body { overflow: hidden;
+  overscroll-behavior: none }` under `pointer:coarse` so vertical
+  scroll can't happen.
+
+Plus: chevron handlers now bind both `touchstart` (with
+`preventDefault`+`stopPropagation` to keep Reveal's gesture handler
+from also processing the same touch) AND `click` (fallback for
+keyboard / non-touch). Added an always-on slide counter
+("3 / 12") fixed bottom-center as a permanent affordance. Safe-area-
+inset positioning so notched devices don't clip the chrome.
+
+### Added — `docs/planning/BRAIN_HARNESS_PLAN.md`
+
+Internal design doc reframing Open Brain through Anthropic's April-2026
+harness-engineering body of work. Six proposed phases (Skills layer →
+Hook installer → Evaluator-for-checkpoint + Event log → Handoff →
+Audit) with effort/risk/value estimates and a recommended sequence.
+Filtered from the public build via `exclude_docs`.
+
 ## [0.9.1] - 2026-04-13
 
 ### Fixed — Scrub hardcoded personal paths from tracked tree
