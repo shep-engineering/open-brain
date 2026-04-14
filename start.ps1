@@ -12,7 +12,7 @@ param(
 )
 
 $ErrorActionPreference = "Continue"
-$OB = "F:\open-brain"
+$OB = Split-Path -Parent $MyInvocation.MyCommand.Path
 $PYTHON = "$OB\.venv\Scripts\python.exe"
 $PID_FILE = "$OB\.open-brain.pid"
 

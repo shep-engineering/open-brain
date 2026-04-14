@@ -1,6 +1,7 @@
 """
 Open Brain — OpenTelemetry instrumentation layer.
-Follows the Observability Archetype constitution in F:\\my-archetypes\\observability.
+Follows the Observability Archetype constitution (see the
+archetype-orchestrator project).
 
 Every MCP tool call, DB query, and dashboard refresh produces:
   - A correlated OTel span (exported to OTLP + otel-traces.jsonl)

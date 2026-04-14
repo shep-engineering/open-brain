@@ -1,7 +1,17 @@
 @echo off
 SETLOCAL EnableDelayedExpansion
 title Open Brain ON
-mkdir F:\open-brain\logs 2>nul
+
+REM Resolve the repo root relative to this script's location, so the
+REM launcher works regardless of where the repo is installed.
+set SCRIPT_DIR=%~dp0
+set OB_ROOT=%SCRIPT_DIR%..\..
+for %%I in ("%OB_ROOT%") do set OB_ROOT=%%~fI
+
+set PYTHON=%OB_ROOT%\.venv\Scripts\python.exe
+set DB_URL=postgresql://postgres:password@127.0.0.1:5432/openbrain
+
+mkdir "%OB_ROOT%\logs" 2>nul
 echo Starting Open Brain MCP server...
 
 echo [1/4] Starting Docker Desktop (if needed)...
@@ -24,7 +34,7 @@ echo     Waiting for PostgreSQL to accept connections...
 set PG_READY=0
 for /L %%i in (1,1,15) do (
     if !PG_READY!==0 (
-        F:\open-brain\.venv\Scripts\python.exe -c "import psycopg2; psycopg2.connect('postgresql://postgres:password@127.0.0.1:5432/openbrain', connect_timeout=2).close(); print('ready')" >nul 2>&1
+        "%PYTHON%" -c "import psycopg2; psycopg2.connect('%DB_URL%', connect_timeout=2).close(); print('ready')" >nul 2>&1
         if !errorlevel!==0 (
             set PG_READY=1
             echo     PostgreSQL ready
@@ -47,15 +57,15 @@ if %errorlevel%==0 (
     set CUDA_VISIBLE_DEVICES=0,1
     set OLLAMA_KEEP_ALIVE=30m
     set OLLAMA_MAX_LOADED_MODELS=2
-    start "" /B ollama serve >F:\open-brain\logs\ollama.log 2>&1
+    start "" /B ollama serve >"%OB_ROOT%\logs\ollama.log" 2>&1
     echo     Ollama started ^(dual GPU, max 2 models loaded^)
 )
 
 echo [4/4] Starting Open Brain MCP server...
-start "" /B F:\open-brain\.venv\Scripts\python.exe F:\open-brain\server.py 2>>F:\open-brain\server-crash.log
+start "" /B "%PYTHON%" "%OB_ROOT%\server.py" 2>>"%OB_ROOT%\server-crash.log"
 echo     Open Brain server started
 
 echo.
-echo Open Brain v0.4.1 is ON. 12 MCP tools ready for Windsurf / Cursor / Claude Code.
+echo Open Brain v0.9.0 is ON. 19 MCP tools ready for Windsurf / Cursor / Claude Code.
 echo   - Hybrid search ^(vector + full-text^), uptime-based decay, time-scoped search
 echo   - procedural + episodic memory types, pinned guardrails

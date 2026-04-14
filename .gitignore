@@ -47,3 +47,6 @@ backups/
 *.swp
 .archetypes/task-state/
 .open-brain.pid
+
+# Task workflow markers (WIP timestamps, not meaningful for distribution)
+.task-markers/

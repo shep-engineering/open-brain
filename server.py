@@ -13,8 +13,8 @@ Usage:
 
 MCP client config:
     {
-      "command": "F:\\open-brain\\.venv\\Scripts\\python.exe",
-      "args": ["F:\\open-brain\\server.py"]
+      "command": "<OPEN_BRAIN_ROOT>\\.venv\\Scripts\\python.exe",
+      "args": ["<OPEN_BRAIN_ROOT>\\server.py"]
     }
 """
 from __future__ import annotations
