@@ -658,6 +658,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#belief-revision-added-v0110" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Belief Revision (added v0.11.0)
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1088,6 +1099,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#belief-revision-added-v0110" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Belief Revision (added v0.11.0)
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1285,8 +1307,64 @@
 <td><code>last_accessed</code></td>
 <td>Identify stale memories for pruning</td>
 </tr>
+<tr>
+<td>Partial B-tree</td>
+<td><code>id WHERE superseded_by_id IS NULL</code></td>
+<td>Fast active-only scans (added v0.11.0)</td>
+</tr>
+<tr>
+<td>Partial B-tree</td>
+<td><code>superseded_by_id WHERE NOT NULL</code></td>
+<td>Reverse-lookup superseded chain (added v0.11.0)</td>
+</tr>
 </tbody>
 </table>
+<hr />
+<h2 id="belief-revision-added-v0110">Belief Revision (added v0.11.0)</h2>
+<p>Memories are <strong>revisable beliefs</strong>, not immutable facts. When an
+agent learns a corrected version of a previously-stored memory, it
+calls <code>supersede(old_id, new_content, reason, source)</code> — the brain
+creates a new memory through the standard pipeline and writes its ID
+into <code>old.superseded_by_id</code>. The old memory is preserved (audit
+trail intact) but excluded from default search/recall results.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>Before supersede:
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>  id=101 &quot;ON script doesn&#39;t start MCP&quot;  superseded_by_id=NULL
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>  id=102 &quot;ON script DOES start MCP via tmux&quot;  superseded_by_id=NULL
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>After supersede(101, &quot;ON script does NOT start MCP server in v0.7.0+;
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>  start happens via the MCP client spawning server.py&quot;, reason=...)
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>  id=101 &quot;ON script doesn&#39;t start MCP&quot;  superseded_by_id=103
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>  id=102 &quot;ON script DOES start MCP via tmux&quot;  superseded_by_id=NULL
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>  id=103 &quot;ON script does NOT start MCP server in v0.7.0+; ...&quot;
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>                                              superseded_by_id=NULL  (NEW)
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>search() now returns 102, 103 only — 101 is filtered out.
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>search(include_superseded=True) returns all three.
+<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>recall(101) returns 101&#39;s content + a banner pointing at 103.
+</code></pre></div>
+<p><strong>Why structurally instead of by deletion:</strong> preserves the audit
+trail of past beliefs (you can always reconstruct what was thought
+to be true at any point) AND prevents an agent that already has a
+stale memory ID from getting silent "not found" errors after a
+correction. The supersession metadata tells them where the truth
+moved to.</p>
+<p><strong>Schema columns:</strong>
+- <code>superseded_by_id INTEGER REFERENCES memories(id) ON DELETE SET NULL</code>
+- <code>superseded_at TIMESTAMPTZ</code>
+- <code>superseded_reason TEXT</code> (required on every supersede call —
+  no silent overwrites)</p>
+<p><strong>Dedup interaction:</strong> <code>db_find_duplicate</code> and <code>db_find_related</code>
+filter <code>WHERE superseded_by_id IS NULL</code>. Without this, re-storing
+content similar to a corrected (now-superseded) memory would
+false-match against the stale version and skip the write.</p>
+<p><strong>Pinning inheritance</strong> is opt-in via <code>inherit_pinned=True</code> on
+<code>supersede()</code>. Defaults to NOT inheriting — explicit opt-in
+prevents accidental promotion of a non-guardrail to guardrail
+status when correcting a pinned memory.</p>
+<p>See <code>tools.md</code> for the <code>supersede</code> and <code>unsupersede</code> MCP tool
+reference. See <code>docs/planning/BELIEF_REVISION_DESIGN.md</code> (internal)
+for the full design discussion + alternatives considered.</p>
 
 
 
