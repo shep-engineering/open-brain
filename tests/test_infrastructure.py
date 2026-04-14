@@ -172,6 +172,8 @@ class TestEnsureOllama:
         popen_calls = []
 
         class FakePopen:
+            pid = 99999  # ollama pid gets written to ollama.pid after spawn
+
             def __init__(self, *args, **kwargs):
                 popen_calls.append(kwargs)
 
@@ -182,12 +184,24 @@ class TestEnsureOllama:
 
         assert popen_calls, "Popen should have been called for cold start"
         kwargs = popen_calls[0]
-        # Verify the CRITICAL detach parameters
+        # Verify the CRITICAL spawn parameters
         assert kwargs["stdin"] is subprocess.DEVNULL
         assert kwargs["stderr"] is subprocess.STDOUT
         assert kwargs["close_fds"] is True
         if infrastructure.IS_WINDOWS:
-            assert kwargs["creationflags"] == infrastructure.DETACH_FLAGS_CONSOLE
+            # Must NOT include DETACHED_PROCESS — it would block Ctrl+Break.
+            # Must include CREATE_NEW_CONSOLE + CREATE_NEW_PROCESS_GROUP and
+            # a STARTUPINFO that hides the console window.
+            flags = kwargs["creationflags"]
+            assert not (flags & subprocess.DETACHED_PROCESS), \
+                "DETACHED_PROCESS must not be set — breaks graceful shutdown"
+            assert flags & subprocess.CREATE_NEW_CONSOLE, \
+                "CREATE_NEW_CONSOLE required for hidden console + Ctrl+Break"
+            assert flags & subprocess.CREATE_NEW_PROCESS_GROUP, \
+                "CREATE_NEW_PROCESS_GROUP required for targeted signaling"
+            si = kwargs["startupinfo"]
+            assert si.wShowWindow == subprocess.SW_HIDE, \
+                "console window must be hidden (SW_HIDE)"
         else:
             assert kwargs["start_new_session"] is True
 
@@ -203,23 +217,78 @@ class TestEnsureOllama:
 # ---------- stop_all ----------
 
 class TestStopAll:
-    def test_calls_expected_commands(self, tmp_path):
+    def test_externally_managed_ollama_is_not_killed(self, tmp_path):
+        """When there is no ollama.pid file, ollama is assumed to be
+        externally managed (Windows desktop app, systemd, etc.). We must
+        unload models but NEVER issue a process kill — the external
+        manager would respawn, and we'd be rude to any other consumer."""
         calls = []
         infra = infrastructure.Infrastructure(
             on_progress=lambda p: calls.append(p),
             logs_dir=tmp_path / "logs",
         )
+        assert not infra.ollama_pid_file.exists()  # precondition
         with patch.object(infrastructure.subprocess, "run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0, stderr="")
+            mock_run.return_value = MagicMock(returncode=0, stderr="", stdout="")
             infra.stop_all()
 
         invoked = [c.args[0] for c in mock_run.call_args_list]
-        # Flatten first token of each cmd
         first_tokens = [a[0] for a in invoked]
-        assert "ollama" in first_tokens
+        # docker stop open-brain-db must still run
         assert "docker" in first_tokens
+        docker_cmds = [a for a in invoked if a[0] == "docker"]
+        assert any("open-brain-db" in a for a in docker_cmds)
+        # Must enumerate loaded models
+        ollama_cmds = [a for a in invoked if a[0] == "ollama"]
+        assert any(a[1] == "ps" for a in ollama_cmds)
+        # MUST NOT kill ollama process when externally managed
         if infrastructure.IS_WINDOWS:
-            assert "taskkill" in first_tokens
+            taskkills = [a for a in invoked if a[0] == "taskkill"]
+            ollama_kills = [a for a in taskkills if any("ollama" in tok.lower() for tok in a)]
+            assert not ollama_kills, f"must not kill externally-managed ollama: {ollama_kills}"
+            dd_kills = [a for a in invoked if "Docker Desktop.exe" in a]
+            assert not dd_kills, f"must not kill Docker Desktop: {dd_kills}"
+        else:
+            pkills = [a for a in invoked if a[0] == "pkill"]
+            assert not pkills, f"must not pkill externally-managed ollama: {pkills}"
+        # And a progress entry must explicitly flag the externally-managed case
+        statuses = [c.detail for c in calls]
+        assert any("externally managed" in s for s in statuses), \
+            f"expected 'externally managed' log line, got {statuses}"
+
+    def test_owned_ollama_gets_graceful_signal(self, tmp_path):
+        """When ollama.pid file is present and the pid is 'alive', we
+        must deliver a graceful shutdown: on Windows that's the Ctrl+Break
+        helper subprocess; on POSIX it's SIGTERM via os.kill."""
+        logs = tmp_path / "logs"
+        logs.mkdir()
+        (logs / "ollama.pid").write_text("12345", encoding="utf-8")
+        calls = []
+        infra = infrastructure.Infrastructure(
+            on_progress=lambda p: calls.append(p),
+            logs_dir=logs,
+        )
+        with patch.object(infrastructure.subprocess, "run") as mock_run, \
+             patch.object(infrastructure.os, "kill") as mock_kill, \
+             patch.object(infra, "_win_send_ctrl_break", return_value=True) as mock_break, \
+             patch.object(infra, "_pid_is_alive", side_effect=[True, False]):
+            mock_run.return_value = MagicMock(returncode=0, stderr="", stdout="")
+            infra.stop_all()
+
+        if infrastructure.IS_WINDOWS:
+            assert mock_break.called, "expected Ctrl+Break helper to be invoked"
+            assert mock_break.call_args.args == (12345,)
+            # os.kill must NOT be used for the graceful step on Windows
+            # (it doesn't reliably deliver CTRL_BREAK across consoles).
+            assert not mock_kill.called or \
+                all(c.args[1] != infrastructure.signal.CTRL_BREAK_EVENT
+                    for c in mock_kill.call_args_list)
+        else:
+            assert mock_kill.called, "expected os.kill(pid, SIGTERM) on POSIX"
+            sent_pid, sent_sig = mock_kill.call_args.args
+            assert sent_pid == 12345
+            assert sent_sig == infrastructure.signal.SIGTERM
+        assert not (logs / "ollama.pid").exists()
 
     def test_never_raises_on_missing_binaries(self, tmp_path):
         infra = infrastructure.Infrastructure(logs_dir=tmp_path / "logs")

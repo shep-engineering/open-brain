@@ -5,6 +5,127 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-04-13
+
+### Added — Genuine graceful ollama shutdown (Ctrl+Break via Win32)
+
+Replaces `taskkill /F` as the primary ollama stop mechanism with a real
+OS-level graceful signal delivered through Win32's
+`GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, pgid)`. Ollama's Go server
+handles the signal, closes in-flight requests, tears down model contexts,
+and exits on its own — typical exit time **<1.5s after signal** vs. the
+instant-but-dirty force-kill previously used.
+
+**Why:** the prior implementation was functional but halfbaked for a
+shippable product. SIGKILL-equivalent termination left model weights in
+VRAM until process teardown, bypassed ollama's own cleanup path, and
+emitted no evidence that shutdown was clean vs. forced.
+
+**How the signal gets delivered** (documented for future spelunkers):
+
+1. **Spawn flags changed.** `DETACHED_PROCESS` REMOVED — it forbids the
+   child from having a console, making Ctrl+Break impossible to deliver.
+   Replaced with `CREATE_NEW_CONSOLE | CREATE_NEW_PROCESS_GROUP` plus
+   `STARTUPINFO.wShowWindow = SW_HIDE` so the child has a real but
+   invisible console and is the leader of its own process group.
+2. **PID persistence.** `ensure_ollama` writes the spawned PID to
+   `logs/ollama.pid`. `_stop_ollama` runs in a different Python process
+   (dashboard close dialog → bring_down thread) so it needs a file handoff
+   to find the process-group leader.
+3. **Signal delivery via helper subprocess.** In-process
+   `FreeConsole`/`AttachConsole` would detach the main dashboard from
+   its own console and potentially kill us from our own signal. Instead,
+   `_win_send_ctrl_break` runs a small `python -c` helper that:
+   `FreeConsole()` → `AttachConsole(ollama_pid)` →
+   `SetConsoleCtrlHandler(NULL, TRUE)` → `GenerateConsoleCtrlEvent(1, pid)`.
+4. **Target the pgid, not zero.** `GenerateConsoleCtrlEvent(CTRL_BREAK, 0)`
+   broadcasts to every process sharing the console — including the
+   helper, which then dies with `STATUS_CONTROL_C_EXIT` (0xC000013A).
+   Passing the target PID as `dwProcessGroupId` routes the signal only
+   to ollama's group. Helper exits cleanly with rc=0.
+5. **Empirical proof of graceful.** Exit-within-grace-window (≤10s) is
+   the evidence: if ollama ignored the signal we'd fall through to the
+   `/F` fallback; we don't. Ollama's Go runtime doesn't emit a
+   distinctive shutdown log line, so log-scanning for proof was dropped.
+
+**Force-kill fallback** is still wired but only triggers if the graceful
+path fails to land an exit inside 10s — verified not to trigger in
+normal operation.
+
+### Added — Process ownership model
+
+`_stop_ollama` now distinguishes between "we spawned this ollama" and
+"someone else spawned this ollama" (e.g., the Windows Ollama desktop app
+has a watchdog at `ollama app.exe` that auto-respawns `ollama.exe`). The
+distinction is driven by the presence of `logs/ollama.pid`:
+
+- **Owned** (pid file exists + pid alive): unload models → graceful
+  Ctrl+Break → poll exit → optional force-kill.
+- **Externally managed** (no pid file, or dead pid): unload models and
+  walk away. Killing would be futile (the watchdog respawns) and rude
+  (other consumers of the shared ollama server get disrupted).
+
+`ensure_ollama`'s fast path (API already responding) now explicitly
+clears any stale pid file so the external-management branch fires on
+the next stop.
+
+### Added — `ollama ps`-driven model unload
+
+Before any termination step, `_stop_ollama` calls `ollama ps`, parses
+loaded models, and issues `ollama stop <model>` per model to release
+VRAM cleanly. This is the documented graceful unload — correct whether
+or not we own the server process.
+
+### Fixed — `stop_all` no longer kills Docker Desktop
+
+Prior behavior (`taskkill /IM "Docker Desktop.exe" /F`) was overreach:
+users often run unrelated containers (other project DBs, redis, dev
+environments) that would be collateral damage. `_stop_docker_desktop`
+is removed entirely; `stop_all` now only stops `ollama` (when owned)
+and the `open-brain-db` container. Docker Desktop and every other
+container stay up.
+
+### Fixed — Dead-code `ollama stop` with no args
+
+`_stop_ollama` previously called `subprocess.run(["ollama", "stop"])`
+with no argument, which errors with `accepts 1 arg(s), received 0` and
+does nothing. Removed. Real graceful unload is the `ollama ps` → per-
+model-`ollama stop <name>` loop above.
+
+### Fixed — `UnicodeDecodeError` parsing `ollama ps` output
+
+Subprocess calls reading ollama's CLI output now pass
+`encoding="utf-8", errors="replace"` — `ollama ps` can emit bytes that
+fail cp1252 decoding (e.g., `0x8f` in model-tag rendering).
+
+### Fixed — Dashboard shutdown daemon-thread race
+
+`_run_off_script` previously spawned a `daemon=True` thread to run
+`bring_down()` and then immediately destroyed the main window. Window
+destruction ended the Tk mainloop → Python exited → daemon thread was
+killed mid-shutdown. Symptom: `startup.log` showed `stop:start` with
+no follow-up `stop:info` entries, and ollama + db stayed running after
+"Close + Stop". Fix: `_run_off_script` now swaps the close dialog into
+a "Stopping Open Brain services…" progress panel, runs `bring_down` on
+a **non-daemon** thread with a progress callback updating the label,
+polls the thread via `after()`, and destroys both windows only after
+the thread has exited. UI stays responsive during the 1–5s shutdown.
+
+### Changed — `logs/ollama.pid`
+
+New runtime artifact. Created on `ensure_ollama` when we spawn the
+server; removed on successful graceful stop or force-kill. Presence
+determines ownership in `_stop_ollama`.
+
+### Empirical verification (2026-04-13)
+
+| Path | Result |
+|---|---|
+| Unit tests (`tests/test_infrastructure.py`) | 18/18 pass |
+| Python-API shutdown (`infrastructure._stop_ollama` direct call) | Ctrl+Break delivered, ollama exited in **0.53–1.44s** |
+| Full GUI flow (desktop shortcut → splash → main UI → Close + Stop) | Graceful chain complete in 5.05s total: signal sent, ollama exited gracefully 1.44s later, db stopped, Docker Desktop untouched, dashboard closed |
+| Docker Desktop process count pre/post shutdown | **unchanged** (3 → 3) |
+
 ## [0.8.0] - 2026-04-13
 
 ### Changed — Dashboard launcher rewritten in pure Python

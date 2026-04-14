@@ -806,9 +806,7 @@ class Dashboard(ctk.CTk):
 
         def close_and_stop():
             self._alive = False
-            dialog.destroy()
-            self._run_off_script()
-            self.destroy()
+            self._run_off_script(dialog)
 
         W = 340
         ctk.CTkButton(dialog, text="🔴  Close + Stop Open Brain", width=W, height=40,
@@ -839,20 +837,63 @@ class Dashboard(ctk.CTk):
                 pass
         dialog.after(50, _center)
 
-    def _run_off_script(self):
-        """Run infrastructure.bring_down() in a daemon thread.
+    def _run_off_script(self, dialog):
+        """Run infrastructure.bring_down() and destroy the window only after
+        it finishes.
 
-        Replaces the prior `cmd /c open-brain-off.cmd` Popen. Same effect
-        (stop ollama, db, Docker Desktop) but Python-native, logged via
-        infrastructure.py's Progress callbacks, and without spawning a new
-        console window.
+        Prior version used daemon=True; when the main window was destroyed,
+        mainloop exited, Python exited, and the daemon thread was killed
+        mid-`bring_down`. Result: ollama and docker stayed running with a
+        `stop:start` log entry but no follow-up `stop:info` entries.
+
+        Fix: replace the dialog contents with a "Stopping…" message, run
+        bring_down on a NON-daemon thread, poll completion via `after()`,
+        and only destroy the dialog + main window after the thread has
+        joined. UI stays responsive because polling yields control back
+        to the Tk event loop each tick.
         """
-        def _do():
+        # Swap dialog contents for a "stopping" progress message.
+        for child in dialog.winfo_children():
+            child.destroy()
+        dialog.title("Stopping Open Brain")
+        ctk.CTkLabel(dialog, text="⬡  Stopping Open Brain services…",
+                     font=("Segoe UI", 15, "bold"), text_color=WHITE).pack(pady=(30, 6), padx=30)
+        status_lbl = ctk.CTkLabel(dialog, text="starting shutdown",
+                                  font=("Segoe UI", 11), text_color=DIM)
+        status_lbl.pack(pady=(0, 24), padx=30)
+        dialog.protocol("WM_DELETE_WINDOW", lambda: None)
+        dialog.update_idletasks()
+
+        def on_progress(p):
             try:
-                infrastructure.bring_down()
+                dialog.after(0, lambda: status_lbl.configure(
+                    text=f"{p.step}:{p.status} — {p.detail}"[:80]
+                ))
             except Exception:
                 pass
-        threading.Thread(target=_do, daemon=True).start()
+
+        def _do():
+            try:
+                infrastructure.bring_down(on_progress=on_progress)
+            except Exception:
+                pass
+
+        t = threading.Thread(target=_do, daemon=False)
+        t.start()
+
+        def _poll():
+            if t.is_alive():
+                dialog.after(100, _poll)
+                return
+            try:
+                dialog.destroy()
+            except Exception:
+                pass
+            try:
+                self.destroy()
+            except Exception:
+                pass
+        dialog.after(100, _poll)
 
     def _start_service(self, svc: str):
         """Start a specific service that is down."""
