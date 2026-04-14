@@ -11,6 +11,7 @@ Open Brain ships with a dark-themed monitoring dashboard built on customtkinter.
 | **Stat Cards** | Total memories, +1 hour, +24 hours, pinned, upvoted, accessed |
 | **Service Pills** | PostgreSQL, Ollama, MCP Server status (green/red/yellow). One-click Start button when a service is down. |
 | **Titlebar Dots** | Per-service colored dots at a glance |
+| **GPU Selector** *(v0.10.0+)* | Dropdown auto-populated from `nvidia-smi -L` showing the available CUDA devices ("RTX 5090", "RTX 3080 Ti", "Auto"). Hidden if `nvidia-smi` reports no GPUs. Apply button does a graceful Ollama restart so the new selection takes effect. |
 | **By Type / By Project** | Bar charts showing memory distribution |
 | **Recent Memories** | Last 10 memories with clickable rows to read full content |
 | **Most Accessed** | Top 10 most-recalled memories (quality signal) |
@@ -31,7 +32,7 @@ This eliminates the "strobe" effect that timer-based polling causes.
 
 ## Launching
 
-The dashboard detects whether Open Brain is already running. If services are up, it opens directly. If not, it shows a startup splash that drives `scripts/infrastructure.py`'s `bring_up()` in a worker thread — bringing up Docker, the `open-brain-db` container, and `ollama serve` in sequence while streaming structured progress to the splash and to `logs/startup.log`. Since v0.8.0 this is a pure-Python flow (no `.cmd` chain, no pipe inheritance); since v0.9.0 shutdown uses a real Win32 Ctrl+Break graceful signal for ollama instead of `taskkill /F`.
+The dashboard detects whether Open Brain is already running. If services are up, it opens directly. If not, it shows a startup splash that drives `scripts/infrastructure.py`'s `bring_up()` in a worker thread — bringing up Docker, the `open-brain-db` container, and `ollama serve` in sequence while streaming structured progress to the splash and to `logs/startup.log`. Since v0.8.0 this is a pure-Python flow (no `.cmd` chain, no pipe inheritance); since v0.9.0 shutdown uses a real Win32 Ctrl+Break graceful signal for ollama instead of `taskkill /F`; since v0.10.0 a single-instance guard inside `dashboard.py` itself prevents a duplicate window when the desktop shortcut is double-clicked twice — it focuses the existing window instead of spawning a second one.
 
 === "Desktop Shortcut (Windows)"
 
