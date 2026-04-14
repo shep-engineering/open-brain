@@ -47,6 +47,25 @@ Before any work, in order:
   ```
 - Branch naming convention: `feat/`, `fix/`, `docs/`, `chore/`, `refactor/`
 
+## 1.5. Belief Revision: Supersede, Don't Just Add
+
+When you encounter a memory in the brain that's wrong, outdated, or
+contradicts current truth (especially a pinned guardrail), do NOT
+just `remember()` the corrected version on top — that leaves both
+memories active and confuses future agents.
+
+Instead, call `supersede(old_memory_id, corrected_content, reason, source)`.
+The brain creates the new memory through the standard pipeline AND
+marks the old one as superseded so future searches return only the
+current truth. The audit trail is preserved (you can still
+`recall(old_id)` to see what was previously believed + a banner
+pointing at the corrector).
+
+If the old memory was a pinned guardrail and the new one should
+inherit guardrail status, pass `inherit_pinned=True`.
+
+If you make a mistake, `unsupersede(memory_id, source)` reverses it.
+
 ## 2. Discover Before You Act
 
 Before writing any code, know what rules apply to this task:
