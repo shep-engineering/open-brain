@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Open Brain Dashboard - dark windowed GUI (customtkinter)
-Usage: F:\open-brain\.venv\Scripts\python.exe dashboard.py
+Usage: <OPEN_BRAIN_ROOT>\\.venv\\Scripts\\python.exe dashboard.py
 """
 
 import json

@@ -1,6 +1,6 @@
 # Open Brain — Stop all services
 
-$OB = "F:\open-brain"
+$OB = Split-Path -Parent $MyInvocation.MyCommand.Path
 $PID_FILE = "$OB\.open-brain.pid"
 
 Write-Host ""

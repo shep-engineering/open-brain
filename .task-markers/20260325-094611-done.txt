@@ -1,2 +1,0 @@
-completed: 2026-03-25T14:46:11Z
-tested: dashboard.py tested against live DB (218 memories, all panels verified), Desktop shortcut created, global CLAUDE.md updated with pre/post-work gates and OS startup table, F:/open-brain/CLAUDE.md script paths fixed

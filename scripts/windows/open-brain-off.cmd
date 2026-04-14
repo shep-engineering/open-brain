@@ -1,26 +1,19 @@
 @echo off
 title Open Brain OFF
-echo Stopping Open Brain and freeing resources...
 
-echo [1/4] Stopping Open Brain MCP server (WSL tmux)...
-wsl -e bash -lc "tmux kill-session -t openbrain 2>/dev/null" >nul 2>&1
-if %errorlevel%==0 (echo     Open Brain server stopped) else (echo     Server was not running)
+REM Resolve the repo root relative to this script's location, then
+REM delegate to the pure-Python graceful shutdown (infrastructure.py).
+REM That path unloads ollama models cleanly, Ctrl+Break's the server
+REM (if we own it), stops the open-brain-db container, and leaves
+REM Docker Desktop running so unrelated containers survive. See
+REM scripts/infrastructure.py for the full behavior.
+set SCRIPT_DIR=%~dp0
+set OB_ROOT=%SCRIPT_DIR%..\..
+for %%I in ("%OB_ROOT%") do set OB_ROOT=%%~fI
 
-echo [2/4] Stopping open-brain-db (Docker)...
-docker stop open-brain-db >nul 2>&1
-if %errorlevel%==0 (echo     open-brain-db stopped) else (echo     open-brain-db was not running)
-
-echo [3/4] Unloading Ollama models and stopping Ollama...
-ollama stop >nul 2>&1
-timeout /t 2 >nul
-taskkill /IM ollama.exe /F >nul 2>&1
-echo     Ollama stopped
-
-echo [4/4] Stopping Docker Desktop and WSL...
-taskkill /IM "Docker Desktop.exe" /F >nul 2>&1
-wsl --shutdown >nul 2>&1
-echo     Docker/WSL stopped
+echo Stopping Open Brain gracefully...
+"%OB_ROOT%\.venv\Scripts\python.exe" -c "import sys; sys.path.insert(0, r'%OB_ROOT%\scripts'); from infrastructure import bring_down; bring_down()"
 
 echo.
-echo Open Brain is OFF. VRAM and resources freed.
+echo Open Brain is OFF. Docker Desktop left running (respects other containers).
 timeout /t 3 >nul

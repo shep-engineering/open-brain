@@ -17,15 +17,15 @@ Do NOT proceed with any task until Open Brain is confirmed running. Do NOT creat
 
 | OS | How to start | Script location |
 |----|-------------|-----------------|
-| **Windows** | Double-click **"Open Brain ON"** shortcut on Desktop | `F:\open-brain\scripts\windows\open-brain-on.cmd` |
-| **WSL / Linux / Mac** | `bash /path/to/open-brain/scripts/open-brain-on.sh` | `F:\open-brain\scripts\open-brain-on.sh` (WSL: `/mnt/f/open-brain/scripts/open-brain-on.sh`) |
+| **Windows** | Double-click **"Open Brain ON"** shortcut on Desktop | `<OPEN_BRAIN_ROOT>\scripts\windows\open-brain-on.cmd` |
+| **WSL / Linux / Mac** | `bash /path/to/open-brain/scripts/open-brain-on.sh` | `<OPEN_BRAIN_ROOT>\scripts\open-brain-on.sh` (WSL: `/mnt/f/open-brain/scripts/open-brain-on.sh`) |
 
 ### How to stop Open Brain by OS
 
 | OS | How to stop | Script location |
 |----|------------|-----------------|
-| **Windows** | Double-click **"Open Brain OFF"** shortcut on Desktop | `F:\open-brain\scripts\windows\open-brain-off.cmd` |
-| **WSL / Linux / Mac** | `bash /path/to/open-brain/scripts/open-brain-off.sh` | `F:\open-brain\scripts\open-brain-off.sh` |
+| **Windows** | Double-click **"Open Brain OFF"** shortcut on Desktop | `<OPEN_BRAIN_ROOT>\scripts\windows\open-brain-off.cmd` |
+| **WSL / Linux / Mac** | `bash /path/to/open-brain/scripts/open-brain-off.sh` | `<OPEN_BRAIN_ROOT>\scripts\open-brain-off.sh` |
 
 ---
 

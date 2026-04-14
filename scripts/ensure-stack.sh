@@ -5,9 +5,9 @@
 # Checks: Ollama (port 11434) + open-brain-db Docker container
 # If either is down, launches "AI Mode ON.cmd" and waits for readiness.
 #
-# Usage:
-#   bash F:/open-brain/scripts/ensure-stack.sh           # check + auto-start
-#   bash F:/open-brain/scripts/ensure-stack.sh --check   # check only, no start
+# Usage (run from repo root, or pass full path):
+#   bash scripts/ensure-stack.sh           # check + auto-start
+#   bash scripts/ensure-stack.sh --check   # check only, no start
 # =============================================================================
 
 CHECK_ONLY=0
