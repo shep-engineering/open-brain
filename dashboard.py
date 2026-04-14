@@ -530,6 +530,128 @@ class Dashboard(ctk.CTk):
             command=self._restart_mcp,
         ).pack(side="right", padx=0, pady=9)
 
+        self._build_gpu_selector(bar)
+
+    def _build_gpu_selector(self, bar):
+        """GPU/compute-device selector. Only appears if nvidia-smi is
+        available and reports at least one CUDA GPU. Changes write to
+        logs/dashboard-config.json; ollama picks up the new value on
+        its next (re)start."""
+        try:
+            sys.path.insert(0, str(BASE_DIR / "scripts"))
+            from infrastructure import (
+                list_nvidia_gpus, load_dashboard_config, save_dashboard_config,
+            )
+        except Exception:
+            return
+
+        gpus = list_nvidia_gpus()
+        if not gpus:
+            return
+
+        # Build ((label, config_value), ...) options. The "auto" entry
+        # stores an empty string, which resolved_cuda_visible_devices()
+        # treats as "fall back to OLLAMA_ENV default (all visible)".
+        if len(gpus) > 1:
+            options = [("Auto (both)", "")]
+        else:
+            options = [("Auto", "")]
+        for g in gpus:
+            options.append((g["name"], g["index"]))
+        self._gpu_options = options
+
+        cfg = load_dashboard_config()
+        saved_val = str(cfg.get("gpu_device", "") or "")
+        current_label = next(
+            (lbl for lbl, val in options if val == saved_val),
+            options[0][0],
+        )
+
+        import tkinter as _tk
+        gpu_frame = ctk.CTkFrame(bar, fg_color="transparent")
+        gpu_frame.pack(side="right", padx=(0, 8), pady=9)
+        ctk.CTkLabel(
+            gpu_frame, text="GPU:", font=("Segoe UI", 11), text_color=DIM,
+        ).pack(side="left", padx=(0, 4))
+
+        self._gpu_var = _tk.StringVar(value=current_label)
+        self._gpu_menu = ctk.CTkOptionMenu(
+            gpu_frame,
+            variable=self._gpu_var,
+            values=[lbl for lbl, _ in options],
+            width=140, height=28,
+            fg_color=PANEL, button_color=PANEL,
+            text_color=WHITE, font=("Segoe UI", 11),
+            command=self._on_gpu_change,
+        )
+        self._gpu_menu.pack(side="left")
+
+        ctk.CTkButton(
+            gpu_frame, text="⟳  Apply", width=70, height=28,
+            fg_color=PANEL, hover_color="#1a3a2a", text_color=GREEN,
+            corner_radius=8, font=("Segoe UI", 11),
+            command=self._restart_ollama,
+        ).pack(side="left", padx=(6, 0))
+
+    def _on_gpu_change(self, label: str):
+        """Persist the new compute-device selection."""
+        try:
+            from infrastructure import save_dashboard_config
+        except Exception:
+            return
+        val = next((v for lbl, v in self._gpu_options if lbl == label), "")
+        save_dashboard_config({"gpu_device": val})
+        try:
+            self.status_label.configure(
+                text=f"Compute device: {label}. Click Apply to restart Ollama.",
+                text_color=YELLOW,
+            )
+        except Exception:
+            pass
+
+    def _restart_ollama(self):
+        """Gracefully stop + respawn ollama so it picks up the new
+        CUDA_VISIBLE_DEVICES from dashboard-config.json. Runs on a
+        worker thread; progress surfaces in ``status_label``."""
+        def _set_status(msg, color=YELLOW):
+            if not getattr(self, "_alive", True):
+                return
+            try:
+                self.after(0, lambda: self.status_label.configure(text=msg, text_color=color))
+            except Exception:
+                pass
+
+        def _work():
+            try:
+                from infrastructure import (
+                    Infrastructure, resolved_cuda_visible_devices,
+                )
+            except Exception as e:
+                _set_status(f"Restart failed: {e}", RED)
+                return
+            infra = Infrastructure(on_progress=lambda p: _set_status(
+                f"{p.step}:{p.status} — {p.detail}"[:80]
+            ))
+            _set_status("Stopping Ollama (graceful)…")
+            try:
+                infra._stop_ollama()
+            except Exception as e:
+                _set_status(f"stop failed: {e}", RED)
+                return
+            gpu = resolved_cuda_visible_devices()
+            _set_status(f"Starting Ollama on CUDA_VISIBLE_DEVICES={gpu}…")
+            try:
+                ok = infra.ensure_ollama(timeout=30)
+            except Exception as e:
+                _set_status(f"start failed: {e}", RED)
+                return
+            if ok:
+                _set_status(f"Ollama restarted on CUDA_VISIBLE_DEVICES={gpu}", GREEN)
+            else:
+                _set_status("Ollama failed to come back up — see logs/startup.log", RED)
+
+        threading.Thread(target=_work, daemon=False).start()
+
     def _build_stat_cards(self):
         row = ctk.CTkFrame(self, fg_color=BG)
         row.pack(fill="x", padx=12, pady=(10, 0))

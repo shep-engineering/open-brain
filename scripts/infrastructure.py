@@ -104,19 +104,96 @@ LOGS_DIR = BASE / "logs"
 OLLAMA_LOG = LOGS_DIR / "ollama.log"
 OLLAMA_PID_FILE = LOGS_DIR / "ollama.pid"
 STARTUP_LOG = LOGS_DIR / "startup.log"
+DASHBOARD_CONFIG_FILE = LOGS_DIR / "dashboard-config.json"
 
 DOCKER_DESKTOP_EXE = Path(r"C:\Program Files\Docker\Docker\Docker Desktop.exe")
 DB_CONTAINER = "open-brain-db"
 DB_URL = "postgresql://postgres:password@127.0.0.1:5432/openbrain"
 OLLAMA_API = "http://127.0.0.1:11434/api/tags"
 
-# Ollama env vars (formerly set by on.cmd)
+# Ollama env vars (formerly set by on.cmd).
+#
+# CUDA_VISIBLE_DEVICES is overridden at runtime from dashboard-config.json
+# (key `gpu_device`) when present, so the user's Dashboard → Compute Device
+# selection controls which card ollama binds to. Default ("0,1") lets
+# ollama see both cards and allocate freely — same as the prior behavior.
 OLLAMA_ENV = {
     "OLLAMA_NUM_GPU": "2",
     "CUDA_VISIBLE_DEVICES": "0,1",
     "OLLAMA_KEEP_ALIVE": "30m",
     "OLLAMA_MAX_LOADED_MODELS": "2",
 }
+
+
+def list_nvidia_gpus() -> list[dict]:
+    """Return a list of NVIDIA GPUs detected on this machine via
+    ``nvidia-smi -L``. Each entry: ``{"index": "0", "name": "RTX 5090"}``.
+
+    Returns an empty list if nvidia-smi is unavailable or fails. The
+    caller should treat an empty result as "auto/unknown; do not set
+    CUDA_VISIBLE_DEVICES" rather than an error.
+    """
+    try:
+        r = subprocess.run(
+            ["nvidia-smi", "-L"],
+            capture_output=True, text=True, timeout=5,
+            encoding="utf-8", errors="replace",
+        )
+        if r.returncode != 0:
+            return []
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return []
+    gpus: list[dict] = []
+    # Lines look like: "GPU 0: NVIDIA GeForce RTX 5090 (UUID: GPU-...)"
+    import re as _re
+    pat = _re.compile(r"^GPU\s+(\d+):\s+(.+?)(?:\s+\(UUID:.*\))?\s*$")
+    for line in (r.stdout or "").splitlines():
+        m = pat.match(line.strip())
+        if not m:
+            continue
+        idx, raw_name = m.group(1), m.group(2).strip()
+        # Strip the common "NVIDIA GeForce " prefix for display brevity
+        display = raw_name.replace("NVIDIA GeForce ", "").strip()
+        gpus.append({"index": idx, "name": display, "full_name": raw_name})
+    return gpus
+
+
+def load_dashboard_config() -> dict:
+    """Read logs/dashboard-config.json. Returns {} if missing/corrupt."""
+    import json as _json
+    try:
+        with open(DASHBOARD_CONFIG_FILE, "r", encoding="utf-8") as f:
+            data = _json.load(f)
+            return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_dashboard_config(updates: dict) -> None:
+    """Merge ``updates`` into logs/dashboard-config.json and write back."""
+    import json as _json
+    cfg = load_dashboard_config()
+    cfg.update(updates)
+    try:
+        DASHBOARD_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(DASHBOARD_CONFIG_FILE, "w", encoding="utf-8") as f:
+            _json.dump(cfg, f, indent=2)
+    except OSError:
+        pass
+
+
+def resolved_cuda_visible_devices() -> str:
+    """The value of ``CUDA_VISIBLE_DEVICES`` to use for this ollama spawn.
+
+    Priority: ``gpu_device`` key in logs/dashboard-config.json, then the
+    default ``OLLAMA_ENV["CUDA_VISIBLE_DEVICES"]``. An empty string value
+    in the config means "let CUDA choose" — we skip setting the var.
+    """
+    cfg = load_dashboard_config()
+    val = cfg.get("gpu_device")
+    if isinstance(val, str) and val.strip():
+        return val.strip()
+    return OLLAMA_ENV["CUDA_VISIBLE_DEVICES"]
 
 
 @dataclass
@@ -322,6 +399,10 @@ class Infrastructure:
         self._emit("ollama", "info", "launching `ollama serve` (detached)")
         env = os.environ.copy()
         env.update(OLLAMA_ENV)
+        # Honor the dashboard's Compute Device selection if present.
+        gpu = resolved_cuda_visible_devices()
+        env["CUDA_VISIBLE_DEVICES"] = gpu
+        self._emit("ollama", "info", f"CUDA_VISIBLE_DEVICES={gpu}")
 
         # CRITICAL pattern: full handle redirection + close_fds + Windows
         # detach flags. This was verified empirically 2026-04-13 — the parent
