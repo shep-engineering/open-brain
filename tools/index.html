@@ -906,6 +906,34 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#skills-layer-v0120" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Skills Layer (v0.12.0+)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Skills Layer (v0.12.0+)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#load_skill" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_skill
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#pinning-tools" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1585,6 +1613,34 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#skills-layer-v0120" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Skills Layer (v0.12.0+)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Skills Layer (v0.12.0+)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#load_skill" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_skill
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#pinning-tools" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1730,7 +1786,7 @@
 
 
 <h1 id="tools-reference">Tools Reference</h1>
-<p>Open Brain exposes 21 MCP tools: 18 user-facing tools and 3 cognitive architecture tools for agent compliance enforcement.</p>
+<p>Open Brain exposes 22 MCP tools: 19 user-facing tools and 3 cognitive architecture tools for agent compliance enforcement.</p>
 <hr />
 <h2 id="core-tools">Core Tools</h2>
 <h3 id="remember"><code>remember</code></h3>
@@ -1768,6 +1824,12 @@
 <td>string</td>
 <td>No</td>
 <td>Tag with a project name for scoped filtering</td>
+</tr>
+<tr>
+<td><code>skill_trigger</code></td>
+<td>dict</td>
+<td>No</td>
+<td>Tag this memory as a skill (v0.12.0+). See <a href="#skills-layer-v0120">Skills Layer</a> for shape and behavior.</td>
 </tr>
 </tbody>
 </table>
@@ -1881,7 +1943,8 @@
 </tr>
 </tbody>
 </table>
-<p>Results are ranked by a hybrid score: vector similarity (70%) + full-text rank (30%), multiplied by an uptime-based recency decay factor. Pinned memories for the project always appear first.</p>
+<p>Results are ranked by a hybrid score: vector similarity (70%) + full-text rank (30%), multiplied by an uptime-based recency decay factor. Pinned memories for the project always appear first, followed by skill-triggered auto-matches (see <a href="#skills-layer-v0120">Skills Layer</a>), then semantic matches.</p>
+<p><strong>Skill auto-match</strong> <em>(added v0.12.0):</em> if any memory has <code>skill_trigger.keywords</code> that substring-match the query, up to <code>OPEN_BRAIN_SKILL_TRIGGER_MAX</code> (default 5) are inserted at the top of the result set with a <code>via_skill_trigger: "&lt;name&gt;"</code> flag.</p>
 <p><strong>Called by:</strong> Agents automatically before starting tasks.</p>
 <blockquote>
 <p><strong>BREAKING (v0.7.0):</strong> <code>source</code> is now required on <code>search</code>, <code>remember</code>, <code>capture_context</code>, <code>boot_session</code>, and <code>brain_checkpoint</code>. Empty or omitted source is rejected with <code>blocked_by: source_required</code>. Rationale: per-agent session compliance can't be tracked without attribution, and agents were inconsistently plumbing <code>source</code> through, causing compliance blocks to fire on calls that should have been resetting their own counter.</p>
@@ -2281,6 +2344,57 @@
 </tbody>
 </table>
 <hr />
+<h2 id="skills-layer-v0120">Skills Layer (v0.12.0+)</h2>
+<p>Memories tagged with a <code>skill_trigger</code> JSONB payload become <strong>conditionally-loaded</strong> — they don't ship on every <code>boot_session</code>, and instead surface when a keyword matches a query or when explicitly loaded by name. This shrinks the instruction budget spent on always-on guardrails.</p>
+<p><code>skill_trigger</code> shape:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="p">{</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;ollama-shutdown-graceful&quot;</span><span class="p">,</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span><span class="nt">&quot;keywords&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;ollama&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;shutdown&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;graceful&quot;</span><span class="p">],</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">  </span><span class="nt">&quot;projects&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">  </span><span class="nt">&quot;always_on&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="p">}</span>
+</code></pre></div></p>
+<ul>
+<li><code>name</code> — globally unique identifier for <code>load_skill()</code> lookup.</li>
+<li><code>keywords</code> — case-insensitive substring match against the query (OR across keywords).</li>
+<li><code>projects</code> — empty array = global skill, loadable from any project. Populated = only loadable/surfaced inside those projects.</li>
+<li><code>always_on</code> — if <code>true</code>, the memory still loads at boot (for the narrow set of rules that must fire every session). Default <code>false</code>.</li>
+</ul>
+<p>Memories with <code>skill_trigger = NULL</code> behave exactly as before (backwards-compatible).</p>
+<h3 id="load_skill"><code>load_skill</code></h3>
+<p>Load a specific skill by its trigger name. Use when you're about to start work on a topic you know has a named skill (e.g. <code>ollama-shutdown-graceful</code> before touching ollama shutdown code). Returns <code>success</code>, <code>content</code>, <code>id</code>, <code>type</code>, <code>project</code>, and <code>skill_trigger</code> metadata.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name</code></td>
+<td>string</td>
+<td><strong>Yes</strong></td>
+<td>The <code>skill_trigger.name</code> of the skill.</td>
+</tr>
+<tr>
+<td><code>source</code></td>
+<td>string</td>
+<td><strong>Yes</strong></td>
+<td>Agent identifier.</td>
+</tr>
+<tr>
+<td><code>project</code></td>
+<td>string</td>
+<td>No</td>
+<td>Current project scope. Required to load project-scoped skills.</td>
+</tr>
+</tbody>
+</table>
+<p>Only active (non-superseded) skills are returned.</p>
+<hr />
 <h2 id="pinning-tools">Pinning Tools</h2>
 <h3 id="pin"><code>pin</code></h3>
 <p>Pin a memory so it always appears at the top of search results for its project, regardless of query similarity. Use for workflow rules, conventions, and guardrails agents must always see.</p>
@@ -2329,22 +2443,22 @@
 </table>
 <hr />
 <h2 id="agent-workflow">Agent Workflow</h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>1. Agent starts task
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>   |
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>   v
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>2. search(): find prior context (silent)
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>   |
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>   v
-<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>3. Work happens (coding, research, discussion)
-<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>   |
-<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>   v
-<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>4. capture_context(): store what was learned (silent)
-<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>   |
-<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>   v
-<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>5. Later: another task on same topic
-<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>   |
-<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>   v
-<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>6. search(): prior decision is already there
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>1. Agent starts task
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>   |
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>   v
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>2. search(): find prior context (silent)
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>   |
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>   v
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>3. Work happens (coding, research, discussion)
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>   |
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>   v
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>4. capture_context(): store what was learned (silent)
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>   |
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>   v
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>5. Later: another task on same topic
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>   |
+<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>   v
+<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a>6. search(): prior decision is already there
 </code></pre></div>
 <p>The user never has to think about memory. Agents capture and recall automatically.</p>
 <hr />
@@ -2377,6 +2491,7 @@
 </tbody>
 </table>
 <p><strong>Returns:</strong> Pinned guardrails (full content), project architecture context, recent session history (7 days), known issues/corrections, and repeated correction warnings. All stored in the session scratchpad.</p>
+<p><em>(v0.12.0)</em> The pinned-guardrails set returned at boot now excludes skill-tagged memories unless <code>skill_trigger.always_on</code> is <code>true</code>. Skill-triggered memories instead surface via <code>search</code> keyword auto-match or explicit <code>load_skill(name)</code>. See <a href="#skills-layer-v0120">Skills Layer</a>.</p>
 <p><strong>Enforcement:</strong> Server blocks <code>remember()</code> and <code>capture_context()</code> until <code>boot_session</code> has been called. Claude Code's PreToolUse hook blocks ALL non-brain tools until boot appears in the transcript.</p>
 <hr />
 <h3 id="brain_checkpoint"><code>brain_checkpoint</code></h3>

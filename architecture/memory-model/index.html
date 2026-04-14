@@ -669,6 +669,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#skills-layer-added-v0120" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Skills Layer (added v0.12.0)
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1110,6 +1121,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#skills-layer-added-v0120" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Skills Layer (added v0.12.0)
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1317,6 +1339,11 @@
 <td><code>superseded_by_id WHERE NOT NULL</code></td>
 <td>Reverse-lookup superseded chain (added v0.11.0)</td>
 </tr>
+<tr>
+<td>Partial GIN</td>
+<td><code>skill_trigger WHERE skill_trigger IS NOT NULL</code></td>
+<td>Skill-layer keyword scans (added v0.12.0)</td>
+</tr>
 </tbody>
 </table>
 <hr />
@@ -1365,6 +1392,46 @@ status when correcting a pinned memory.</p>
 <p>See <code>tools.md</code> for the <code>supersede</code> and <code>unsupersede</code> MCP tool
 reference. See <code>docs/planning/BELIEF_REVISION_DESIGN.md</code> (internal)
 for the full design discussion + alternatives considered.</p>
+<hr />
+<h2 id="skills-layer-added-v0120">Skills Layer (added v0.12.0)</h2>
+<p>Pinning meant "load this memory at every session boot". That worked
+until the pinned set grew to ~26 guardrails on a single project and
+started competing with actual task reasoning for the agent's
+instruction budget. The skills layer decouples <em>priority</em> (pinned)
+from <em>load behavior</em> (always-on vs. triggered).</p>
+<p>A memory can now carry a <code>skill_trigger JSONB</code> payload:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="p">{</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;ollama-shutdown-graceful&quot;</span><span class="p">,</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span><span class="nt">&quot;keywords&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;ollama&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;shutdown&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;graceful&quot;</span><span class="p">],</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">  </span><span class="nt">&quot;projects&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">  </span><span class="nt">&quot;always_on&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="p">}</span>
+</code></pre></div>
+<ul>
+<li><strong><code>name</code></strong> — globally unique. Enables explicit <code>load_skill(name)</code>
+  lookup. Convention: lowercase, hyphen-separated.</li>
+<li><strong><code>keywords</code></strong> — array of strings. Case-insensitive substring match
+  against a query, OR across entries. One hit fires the skill.</li>
+<li><strong><code>projects</code></strong> — empty array = global (loadable/surfaceable from
+  anywhere); populated = only surfaces when the caller's project is
+  in the list.</li>
+<li><strong><code>always_on</code></strong> — if <code>true</code>, the memory still returns in
+  <code>boot_session</code> exactly like a legacy pinned guardrail. Defaults
+  <code>false</code> — the point of the layer.</li>
+</ul>
+<p><strong>Load paths:</strong>
+1. <strong>Boot</strong> — <code>skill_trigger IS NULL</code> OR <code>always_on = true</code> AND pinned.
+2. <strong>Search keyword auto-match</strong> — <code>skill_trigger.keywords</code> substring-match query; up to <code>OPEN_BRAIN_SKILL_TRIGGER_MAX</code> (default 5) surface at the top of the result set with <code>via_skill_trigger: "&lt;name&gt;"</code>.
+3. <strong>Explicit</strong> — <code>load_skill(name, source, project)</code> fetches one by unique name.</p>
+<p><strong>Superseded skills</strong> are excluded from both auto-match and explicit
+load (active-only default, matching v0.11.0 belief-revision).</p>
+<p><strong>Schema column:</strong>
+- <code>skill_trigger JSONB DEFAULT NULL</code> — null means "behave like pre-v0.12.0".</p>
+<p><strong>Backwards compatibility:</strong> existing pinned memories have <code>skill_trigger = NULL</code> and load at boot exactly as before. Migration of individual guardrails to skill-triggered mode is opt-in via <code>supersede</code> (the corrector carries the new <code>skill_trigger</code>).</p>
+<p>See <code>tools.md</code> for the <code>load_skill</code> MCP tool reference and the
+<code>remember</code> / <code>search</code> / <code>boot_session</code> changes. See
+<code>docs/planning/SKILLS_LAYER_DESIGN.md</code> for the full design discussion,
+alternatives considered, and Phase 4 hook-installer integration notes.</p>
 
 
 
