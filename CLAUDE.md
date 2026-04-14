@@ -66,6 +66,41 @@ inherit guardrail status, pass `inherit_pinned=True`.
 
 If you make a mistake, `unsupersede(memory_id, source)` reverses it.
 
+## 1.6. Skills Layer (v0.12.0+): Don't Pin It If a Keyword Can Find It
+
+Pinned guardrails load at every `boot_session` and eat the agent's
+instruction budget. For rules that only matter during specific kinds
+of work (e.g. "graceful shutdown for ollama" — irrelevant unless you
+touch ollama shutdown code), tag them with a `skill_trigger` so they
+load on-demand instead:
+
+```python
+remember(
+    content="Send CTRL+BREAK to ollama on Windows for graceful shutdown.",
+    source="claude",
+    project="open-brain",
+    skill_trigger={
+        "name": "ollama-shutdown-graceful",
+        "keywords": ["ollama", "shutdown", "graceful", "ctrl+break"],
+        "projects": [],
+        "always_on": False,
+    },
+)
+```
+
+- **Always-on rules** (git workflow, "never commit to main") set
+  `"always_on": true` so they still load at boot.
+- **Explicit load:** `load_skill("ollama-shutdown-graceful", "claude")`
+  before starting work on a known topic.
+- **Auto-load:** a `search("how do I shut down ollama cleanly", ...)`
+  surfaces the skill at the top of the result set with
+  `via_skill_trigger: "ollama-shutdown-graceful"`.
+
+Migrate existing over-pinned guardrails with
+`supersede(old_id, new_content, reason, source)` where the corrector
+carries the new `skill_trigger`. Pre-existing memories without a
+trigger keep current behavior — there is no forced migration.
+
 ## 2. Discover Before You Act
 
 Before writing any code, know what rules apply to this task:

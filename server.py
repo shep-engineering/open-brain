@@ -60,6 +60,7 @@ UPTIME_FLUSH_INTERVAL   = int(os.getenv("OPEN_BRAIN_UPTIME_FLUSH_INTERVAL",   "6
 COMPLIANCE_MAX_STORES   = int(os.getenv("COMPLIANCE_MAX_STORES",              "5"))     # must search again after N stores
 MERGE_LOWER_THRESHOLD   = float(os.getenv("OPEN_BRAIN_MERGE_LOWER_THRESHOLD", "0.70"))  # below this = unrelated
 CONSOLIDATION_INTERVAL  = int(os.getenv("OPEN_BRAIN_CONSOLIDATION_INTERVAL",  "0"))    # 0 = disabled
+SKILL_TRIGGER_MAX       = int(os.getenv("OPEN_BRAIN_SKILL_TRIGGER_MAX",      "5"))     # max skill auto-matches per search (v0.12.0+)
 
 # ─── Session Compliance Tracking ─────────────────────────────────────────────
 #
@@ -360,24 +361,26 @@ def _get_conn() -> psycopg2.extensions.connection:
 
 
 def db_store(content: str, embedding: list[float], metadata: dict, project: str = "",
-             valid_time: str = "", projects: list[str] | None = None) -> dict:
+             valid_time: str = "", projects: list[str] | None = None,
+             skill_trigger: dict | None = None) -> dict:
     # Build the projects array: always include the primary project + any extras
     proj_array = list(set(filter(None, (projects or []) + ([project] if project else []))))
+    st_json = json.dumps(skill_trigger) if skill_trigger else None
     conn = _get_conn()
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         if valid_time:
             cur.execute(
-                "INSERT INTO memories (content, embedding, metadata, project, projects, valid_time, transaction_time) "
-                "VALUES (%s, %s::vector, %s, %s, %s, %s::timestamptz, NOW()) "
+                "INSERT INTO memories (content, embedding, metadata, project, projects, valid_time, transaction_time, skill_trigger) "
+                "VALUES (%s, %s::vector, %s, %s, %s, %s::timestamptz, NOW(), %s::jsonb) "
                 "RETURNING id, content, metadata, created_at, project, projects, valid_time, transaction_time",
-                (content, _to_vec(embedding), json.dumps(metadata), project, proj_array, valid_time),
+                (content, _to_vec(embedding), json.dumps(metadata), project, proj_array, valid_time, st_json),
             )
         else:
             cur.execute(
-                "INSERT INTO memories (content, embedding, metadata, project, projects, valid_time, transaction_time) "
-                "VALUES (%s, %s::vector, %s, %s, %s, NOW(), NOW()) "
+                "INSERT INTO memories (content, embedding, metadata, project, projects, valid_time, transaction_time, skill_trigger) "
+                "VALUES (%s, %s::vector, %s, %s, %s, NOW(), NOW(), %s::jsonb) "
                 "RETURNING id, content, metadata, created_at, project, projects, valid_time, transaction_time",
-                (content, _to_vec(embedding), json.dumps(metadata), project, proj_array),
+                (content, _to_vec(embedding), json.dumps(metadata), project, proj_array, st_json),
             )
         return _normalize_row(dict(cur.fetchone()))  # type: ignore[arg-type]
 
@@ -499,9 +502,12 @@ def _llm_merge_content(new_content: str, existing_content: str) -> str:
 
 
 def db_store_deduped(content: str, embedding: list[float], metadata: dict, project: str = "",
-                     valid_time: str = "", projects: list[str] | None = None) -> tuple[dict, str]:
+                     valid_time: str = "", projects: list[str] | None = None,
+                     skill_trigger: dict | None = None) -> tuple[dict, str]:
     """Store a memory with dedup + smart LLM merge. Returns (memory_dict, action).
-    action is one of: 'stored', 'updated', 'merged', 'replaced', 'skipped'."""
+    action is one of: 'stored', 'updated', 'merged', 'replaced', 'skipped'.
+    If skill_trigger is supplied it is stored on the new row; not used in
+    dedup matching (dedup is by embedding, not by skill tag)."""
     # Safety net: block secrets even if caller forgot to check
     content = check_content(content)
 
@@ -532,23 +538,118 @@ def db_store_deduped(content: str, embedding: list[float], metadata: dict, proje
                 return memory, "merged"
             # decision == "ADD": fall through to store
 
-    return db_store(content, embedding, metadata, project, valid_time, projects), "stored"
+    return db_store(content, embedding, metadata, project, valid_time, projects,
+                    skill_trigger=skill_trigger), "stored"
 
 
 def db_get_pinned(project_filter: str) -> list[dict]:
-    """Fetch all pinned memories for a project. Returns [] if no project."""
+    """Fetch pinned memories for a project that should load at session boot.
+
+    A pinned memory loads at boot iff:
+      - it's pinned AND matches the project scope (project or in projects array)
+      - it's not superseded (v0.11.0 belief-revision filter)
+      - it's NOT skill-triggered, OR it IS skill-triggered but marked
+        `always_on=true` (v0.12.0 skills-layer filter — shrinks boot
+        payload by excluding conditionally-loaded skills)
+    """
     if not project_filter:
         return []
     conn = _get_conn()
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
             "SELECT id, content, metadata, created_at, project, projects, annotation, "
-            "upvotes, downvotes, access_count "
-            "FROM memories WHERE pinned = TRUE AND (project = %s OR %s = ANY(projects)) "
+            "       upvotes, downvotes, access_count, skill_trigger "
+            "FROM memories "
+            "WHERE pinned = TRUE "
+            "  AND (project = %s OR %s = ANY(projects)) "
+            "  AND superseded_by_id IS NULL "
+            "  AND (skill_trigger IS NULL "
+            "       OR (skill_trigger->>'always_on')::boolean = true) "
             "ORDER BY created_at ASC",
             (project_filter, project_filter),
         )
         return [_normalize_row(dict(r)) for r in cur.fetchall()]
+
+
+def db_get_skills_by_keywords(query: str, project_filter: str | None,
+                                limit: int = 5) -> list[dict]:
+    """Return active skill-tagged memories whose keywords substring-match
+    the query (case-insensitive, OR across keywords). Respects each
+    skill's `skill_trigger.projects` scope: if that list is empty the
+    skill is global; if populated, project_filter must be in it.
+
+    Returns up to `limit` matches, ordered by creation time (oldest
+    first — stable + surfaces long-standing rules before new ones on
+    ties). Superseded and unpinned skill-tagged memories are still
+    returned if they match — the skill layer is independent of pinning.
+    """
+    if not query:
+        return []
+    conn = _get_conn()
+    q_lower = query.lower()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        # Fetch all active skill-tagged memories; filter in Python. At
+        # realistic scale (<100 skills) this is sub-millisecond even
+        # without SQL-side keyword matching. The partial GIN index on
+        # skill_trigger keeps the fetch cheap.
+        cur.execute(
+            "SELECT id, content, metadata, created_at, project, projects, "
+            "       annotation, upvotes, downvotes, access_count, pinned, "
+            "       skill_trigger "
+            "FROM memories "
+            "WHERE skill_trigger IS NOT NULL "
+            "  AND superseded_by_id IS NULL "
+            "ORDER BY created_at ASC"
+        )
+        matches: list[dict] = []
+        for row in cur.fetchall():
+            trig = row.get("skill_trigger") or {}
+            scope = trig.get("projects") or []
+            if scope:
+                if not project_filter or project_filter not in scope:
+                    continue
+            kws = trig.get("keywords") or []
+            if not any(kw and kw.lower() in q_lower for kw in kws):
+                continue
+            matches.append(_normalize_row(dict(row)))
+            if len(matches) >= limit:
+                break
+        return matches
+
+
+def db_get_skill_by_name(name: str, project_filter: str | None) -> dict | None:
+    """Fetch a skill by its globally-unique `skill_trigger.name`.
+
+    Respects the skill's `projects` scope: if populated, project_filter
+    must be in it; if empty (global skill), returns the skill for any
+    project. Superseded skills are excluded (active-only default).
+
+    Returns None if no active skill with that name is accessible under
+    the given scope.
+    """
+    if not name:
+        return None
+    conn = _get_conn()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "SELECT id, content, metadata, created_at, project, projects, "
+            "       annotation, upvotes, downvotes, access_count, pinned, "
+            "       skill_trigger "
+            "FROM memories "
+            "WHERE skill_trigger IS NOT NULL "
+            "  AND superseded_by_id IS NULL "
+            "  AND skill_trigger->>'name' = %s "
+            "LIMIT 5",
+            (name,),
+        )
+        for row in cur.fetchall():
+            trig = row.get("skill_trigger") or {}
+            scope = trig.get("projects") or []
+            if not scope:
+                return _normalize_row(dict(row))  # global skill, anyone can load
+            if project_filter and project_filter in scope:
+                return _normalize_row(dict(row))
+        return None
 
 
 def db_get_memory(memory_id: int) -> dict | None:
@@ -559,7 +660,7 @@ def db_get_memory(memory_id: int) -> dict | None:
         cur.execute(
             "SELECT id, content, metadata, created_at, project, projects, annotation, "
             "upvotes, downvotes, access_count, pinned, "
-            "superseded_by_id, superseded_at, superseded_reason "
+            "superseded_by_id, superseded_at, superseded_reason, skill_trigger "
             "FROM memories WHERE id = %s",
             (memory_id,),
         )
@@ -1003,7 +1104,8 @@ mcp = FastMCP("open-brain")
 @mcp.tool()
 @instrument("remember")
 def remember(content: str, source: str, type_override: str = "", project: str = "",
-             valid_time: str = "", projects: list[str] | None = None) -> str:
+             valid_time: str = "", projects: list[str] | None = None,
+             skill_trigger: dict | None = None) -> str:
     """Store a thought, note, decision, or information in your brain.
 
     Auto-detects type (decision/idea/meeting/task/etc), extracts people, topics,
@@ -1026,6 +1128,14 @@ def remember(content: str, source: str, type_override: str = "", project: str = 
                     Used for bi-temporal queries (as_of in search).
         projects: Additional project tags (e.g. ['open-brain', 'archetype-orchestrator']).
                   The primary project is always included automatically.
+        skill_trigger: Optional dict tagging this memory as a skill. Shape:
+                  {"name": "<globally-unique-name>",
+                   "keywords": ["k1", "k2", ...],   # case-insensitive substring match
+                   "projects": [],                    # empty = all projects; populated = scoped
+                   "always_on": false}                # true = load at every boot
+                  When set, the memory is returned by boot_session only if
+                  `always_on` is true; otherwise it loads on keyword match in
+                  search() or via explicit load_skill(name). (v0.12.0+)
     """
     try:
         if not source:
@@ -1042,7 +1152,9 @@ def remember(content: str, source: str, type_override: str = "", project: str = 
             metadata["type"] = type_override
         if source:
             metadata["source"] = source
-        memory, action = db_store_deduped(content, embedding, metadata, project, valid_time, projects)
+        memory, action = db_store_deduped(content, embedding, metadata, project,
+                                            valid_time, projects,
+                                            skill_trigger=skill_trigger)
         _record_store(source)
 
         # Auto-pin guardrails when stored with a project
@@ -1173,14 +1285,28 @@ def search(
         pinned = db_get_pinned(project) if project else []
         pinned_ids = {m["id"] for m in pinned}
 
-        # Remove pinned from semantic results to avoid duplicates
-        memories = [m for m in memories if m["id"] not in pinned_ids]
+        # Skills auto-match (v0.12.0): any active skill-tagged memory whose
+        # keywords substring-match the query, scoped to this project (or
+        # global). Cap per-call so a broad query can't flood results with
+        # skills; cap is governed by SKILL_TRIGGER_MAX env var (default 5).
+        skill_matches = db_get_skills_by_keywords(query, project or None,
+                                                   limit=SKILL_TRIGGER_MAX)
+        skill_ids = {m["id"] for m in skill_matches if m["id"] not in pinned_ids}
+        # Drop anything from pinned or skill_matches out of the semantic list
+        memories = [m for m in memories if m["id"] not in pinned_ids
+                    and m["id"] not in skill_ids]
+        # Filter the skill_matches we'll actually surface (excludes pinned overlap)
+        skill_surface = [m for m in skill_matches if m["id"] in skill_ids]
 
-        if not memories and not pinned:
+        if not memories and not pinned and not skill_surface:
             return "No memories found matching that query."
 
-        # Build results: pinned first, then semantic
+        # Build results: pinned first, then skill-triggered, then semantic
         results = [_format_search_entry(m, pinned=True) for m in pinned]
+        for m in skill_surface:
+            entry = _format_search_entry(m, pinned=False)
+            entry["via_skill_trigger"] = (m.get("skill_trigger") or {}).get("name")
+            results.append(entry)
         results.extend(_format_search_entry(m, pinned=False) for m in memories)
 
         return json.dumps(results, indent=2)
@@ -2032,6 +2158,52 @@ def unsupersede(memory_id: int, source: str) -> str:
             "note":              "Both memories are now active. Call "
                                 f"forget({former_corrector}) to also remove "
                                 "the corrector if you want full undo.",
+        }, indent=2)
+    except Exception as exc:
+        return json.dumps({"success": False, "error": str(exc)})
+
+
+@mcp.tool()
+@instrument("load_skill")
+def load_skill(name: str, source: str, project: str = "") -> str:
+    """Load a specific skill by its trigger name.
+
+    Skills are memories with `skill_trigger.name` set. Call this when
+    you're about to start work on a topic you know has a named skill
+    (e.g. 'ollama-shutdown-graceful' before touching ollama shutdown
+    code). Returns the skill content in the same shape as `recall`.
+
+    Only active (non-superseded) skills are returned. A skill with
+    `projects` populated is only loadable from one of those projects;
+    a skill with `projects = []` is global and loadable from anywhere.
+
+    Args:
+        name:    The skill name from its skill_trigger.name field.
+        source:  REQUIRED agent identifier.
+        project: Current project scope. Required to load project-scoped
+                 skills; optional for global skills.
+    """
+    try:
+        if not source:
+            return _source_required_error("load_skill")
+        if not name:
+            return json.dumps({"success": False,
+                "error": "name is required"})
+        skill = db_get_skill_by_name(name, project or None)
+        if not skill:
+            scope = f" in scope of project '{project}'" if project else ""
+            return json.dumps({"success": False,
+                "error": f"Skill '{name}' not found{scope}."})
+        _record_search(source, project)
+        meta = skill["metadata"] if isinstance(skill["metadata"], dict) else {}
+        return json.dumps({
+            "success":       True,
+            "id":            skill["id"],
+            "name":          name,
+            "content":       skill["content"],
+            "type":          meta.get("type"),
+            "project":       skill.get("project"),
+            "skill_trigger": skill.get("skill_trigger"),
         }, indent=2)
     except Exception as exc:
         return json.dumps({"success": False, "error": str(exc)})

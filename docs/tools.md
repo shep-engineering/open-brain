@@ -1,6 +1,6 @@
 # Tools Reference
 
-Open Brain exposes 21 MCP tools: 18 user-facing tools and 3 cognitive architecture tools for agent compliance enforcement.
+Open Brain exposes 22 MCP tools: 19 user-facing tools and 3 cognitive architecture tools for agent compliance enforcement.
 
 ---
 
@@ -16,6 +16,7 @@ Store a single explicit thought, note, or decision.
 | `source` | string | **Yes** | Which agent is storing (e.g. `"claude"`, `"cursor"`). REQUIRED since v0.7.0 for per-agent session compliance. |
 | `type_override` | string | No | Force a specific memory type |
 | `project` | string | No | Tag with a project name for scoped filtering |
+| `skill_trigger` | dict | No | Tag this memory as a skill (v0.12.0+). See [Skills Layer](#skills-layer-v0120) for shape and behavior. |
 
 **Called by:** Agents (after decisions) or users directly.
 
@@ -52,7 +53,9 @@ Semantic search by meaning, not keywords. Returns previews (first 200 chars) to 
 | `as_of` | string | No | ISO 8601 timestamp. Only return memories whose `valid_time` ≤ this date (bi-temporal query). E.g. `'2025-03-01'` |
 | `include_superseded` | bool | No | If `true`, also include memories that have been superseded by a corrected newer one (audit/historical view). Default `false` — normal search only returns current truth. *(Added v0.11.0.)* |
 
-Results are ranked by a hybrid score: vector similarity (70%) + full-text rank (30%), multiplied by an uptime-based recency decay factor. Pinned memories for the project always appear first.
+Results are ranked by a hybrid score: vector similarity (70%) + full-text rank (30%), multiplied by an uptime-based recency decay factor. Pinned memories for the project always appear first, followed by skill-triggered auto-matches (see [Skills Layer](#skills-layer-v0120)), then semantic matches.
+
+**Skill auto-match** *(added v0.12.0):* if any memory has `skill_trigger.keywords` that substring-match the query, up to `OPEN_BRAIN_SKILL_TRIGGER_MAX` (default 5) are inserted at the top of the result set with a `via_skill_trigger: "<name>"` flag.
 
 **Called by:** Agents automatically before starting tasks.
 
@@ -245,6 +248,41 @@ Reverse a supersession by clearing the supersession metadata. Both memories end 
 
 ---
 
+## Skills Layer (v0.12.0+)
+
+Memories tagged with a `skill_trigger` JSONB payload become **conditionally-loaded** — they don't ship on every `boot_session`, and instead surface when a keyword matches a query or when explicitly loaded by name. This shrinks the instruction budget spent on always-on guardrails.
+
+`skill_trigger` shape:
+```json
+{
+  "name": "ollama-shutdown-graceful",
+  "keywords": ["ollama", "shutdown", "graceful"],
+  "projects": [],
+  "always_on": false
+}
+```
+
+- `name` — globally unique identifier for `load_skill()` lookup.
+- `keywords` — case-insensitive substring match against the query (OR across keywords).
+- `projects` — empty array = global skill, loadable from any project. Populated = only loadable/surfaced inside those projects.
+- `always_on` — if `true`, the memory still loads at boot (for the narrow set of rules that must fire every session). Default `false`.
+
+Memories with `skill_trigger = NULL` behave exactly as before (backwards-compatible).
+
+### `load_skill`
+
+Load a specific skill by its trigger name. Use when you're about to start work on a topic you know has a named skill (e.g. `ollama-shutdown-graceful` before touching ollama shutdown code). Returns `success`, `content`, `id`, `type`, `project`, and `skill_trigger` metadata.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `name` | string | **Yes** | The `skill_trigger.name` of the skill. |
+| `source` | string | **Yes** | Agent identifier. |
+| `project` | string | No | Current project scope. Required to load project-scoped skills. |
+
+Only active (non-superseded) skills are returned.
+
+---
+
 ## Pinning Tools
 
 ### `pin`
@@ -309,6 +347,8 @@ Initialize your brain for a new session. Loads full project context before the A
 | `source` | string | No | Which agent is booting (e.g. "claude", "windsurf") |
 
 **Returns:** Pinned guardrails (full content), project architecture context, recent session history (7 days), known issues/corrections, and repeated correction warnings. All stored in the session scratchpad.
+
+*(v0.12.0)* The pinned-guardrails set returned at boot now excludes skill-tagged memories unless `skill_trigger.always_on` is `true`. Skill-triggered memories instead surface via `search` keyword auto-match or explicit `load_skill(name)`. See [Skills Layer](#skills-layer-v0120).
 
 **Enforcement:** Server blocks `remember()` and `capture_context()` until `boot_session` has been called. Claude Code's PreToolUse hook blocks ALL non-brain tools until boot appears in the transcript.
 
