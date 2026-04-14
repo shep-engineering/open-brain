@@ -383,7 +383,13 @@ def db_store(content: str, embedding: list[float], metadata: dict, project: str 
 
 
 def db_find_duplicate(embedding: list[float], threshold: float = DEDUP_THRESHOLD) -> dict | None:
-    """Return the closest existing memory if similarity >= threshold, else None."""
+    """Return the closest active (non-superseded) memory if similarity >=
+    threshold, else None.
+
+    Superseded memories are deliberately excluded — re-storing content
+    similar to a memory that's already been corrected should NOT
+    false-match against the stale version (would skip the write).
+    """
     conn = _get_conn()
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
@@ -391,6 +397,7 @@ def db_find_duplicate(embedding: list[float], threshold: float = DEDUP_THRESHOLD
             SELECT id, content, metadata, created_at,
                    round((1 - (embedding <=> %s::vector))::numeric, 4) AS similarity
             FROM memories
+            WHERE superseded_by_id IS NULL
             ORDER BY embedding <=> %s::vector
             LIMIT 1
             """,
@@ -403,7 +410,9 @@ def db_find_duplicate(embedding: list[float], threshold: float = DEDUP_THRESHOLD
 
 
 def db_find_related(embedding: list[float], lower: float = MERGE_LOWER_THRESHOLD, upper: float = DEDUP_THRESHOLD) -> dict | None:
-    """Return the closest memory in the gray zone (lower <= sim < upper). Used for smart merge."""
+    """Return the closest active (non-superseded) memory in the gray zone
+    (lower <= sim < upper). Used for smart merge. Superseded memories
+    are excluded — see db_find_duplicate for rationale."""
     conn = _get_conn()
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
@@ -411,6 +420,7 @@ def db_find_related(embedding: list[float], lower: float = MERGE_LOWER_THRESHOLD
             SELECT id, content, metadata, created_at,
                    round((1 - (embedding <=> %s::vector))::numeric, 4) AS similarity
             FROM memories
+            WHERE superseded_by_id IS NULL
             ORDER BY embedding <=> %s::vector
             LIMIT 1
             """,
@@ -541,6 +551,53 @@ def db_get_pinned(project_filter: str) -> list[dict]:
         return [_normalize_row(dict(r)) for r in cur.fetchall()]
 
 
+def db_get_memory(memory_id: int) -> dict | None:
+    """Fetch a single memory by id (any status). Returns None if missing.
+    Used by the supersede/unsupersede paths and the recall banner logic."""
+    conn = _get_conn()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "SELECT id, content, metadata, created_at, project, projects, annotation, "
+            "upvotes, downvotes, access_count, pinned, "
+            "superseded_by_id, superseded_at, superseded_reason "
+            "FROM memories WHERE id = %s",
+            (memory_id,),
+        )
+        row = cur.fetchone()
+        return _normalize_row(dict(row)) if row else None
+
+
+def db_supersede(old_id: int, new_id: int, reason: str) -> None:
+    """Mark old_id as superseded by new_id. Caller must have already
+    created the new memory and validated old_id is not already
+    superseded (use db_get_memory for the precondition check)."""
+    conn = _get_conn()
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE memories SET superseded_by_id = %s, "
+            "superseded_at = NOW(), superseded_reason = %s WHERE id = %s",
+            (new_id, reason, old_id),
+        )
+
+
+def db_unsupersede(memory_id: int) -> dict | None:
+    """Reverse a supersession by clearing the three columns on the
+    given memory. The replacement memory created during the original
+    supersede() call is NOT touched — caller can forget() it separately
+    if they want a full undo. Returns the updated row or None."""
+    conn = _get_conn()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "UPDATE memories SET superseded_by_id = NULL, "
+            "superseded_at = NULL, superseded_reason = NULL "
+            "WHERE id = %s "
+            "RETURNING id, content, metadata, created_at, project",
+            (memory_id,),
+        )
+        row = cur.fetchone()
+        return _normalize_row(dict(row)) if row else None
+
+
 def db_set_pinned(memory_id: int, pinned: bool) -> dict | None:
     """Set or clear the pinned flag on a memory. Returns updated row or None."""
     conn = _get_conn()
@@ -574,10 +631,18 @@ def db_search(
     since_days: int = 0,
     until_days: int = 0,
     as_of: str = "",
+    include_superseded: bool = False,
 ) -> list[dict]:
     conn = _get_conn()
     conditions: list[str] = []
     filter_params: list = []
+
+    # Belief revision: by default search returns only ACTIVE (non-
+    # superseded) memories so an agent never sees a corrected fact
+    # alongside its replacement. Pass include_superseded=True for
+    # audit/historical queries.
+    if not include_superseded:
+        conditions.append("superseded_by_id IS NULL")
 
     if type_filter:
         filter_params.append(type_filter)
@@ -677,19 +742,22 @@ def db_search(
         return [_normalize_row(dict(r)) for r in cur.fetchall()]
 
 
-def db_list_recent(limit: int, days: int | None) -> list[dict]:
+def db_list_recent(limit: int, days: int | None, include_superseded: bool = False) -> list[dict]:
     conn = _get_conn()
     params: list = []
-    date_filter = ""
+    conditions: list[str] = []
+    if not include_superseded:
+        conditions.append("superseded_by_id IS NULL")
     if days:
         params.append(days)
-        date_filter = "WHERE created_at > NOW() - INTERVAL '1 day' * %s"
+        conditions.append("created_at > NOW() - INTERVAL '1 day' * %s")
+    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     params.append(limit)
 
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
             f"SELECT id, content, metadata, created_at, updated_at, pinned FROM memories "
-            f"{date_filter} ORDER BY GREATEST(created_at, COALESCE(updated_at, created_at)) DESC LIMIT %s",
+            f"{where} ORDER BY GREATEST(created_at, COALESCE(updated_at, created_at)) DESC LIMIT %s",
             params,
         )
         return [_normalize_row(dict(r)) for r in cur.fetchall()]
@@ -1051,6 +1119,7 @@ def search(
     since_days: int = 0,
     until_days: int = 0,
     as_of: str = "",
+    include_superseded: bool = False,
 ) -> str:
     """Semantically search your brain by meaning -- not just keywords.
 
@@ -1082,6 +1151,10 @@ def search(
         as_of: ISO 8601 timestamp. Only return memories whose valid_time is on or before
                this date (bi-temporal query). E.g. '2025-03-01' to see what was known
                as of March 1st. Empty string = no filter.
+        include_superseded: If True, also include memories that have been superseded
+               by a corrected newer one (audit/historical view). Default False —
+               normal search returns only the current truth, never the stale fact
+               alongside its replacement.
     """
     try:
         if not source:
@@ -1090,6 +1163,7 @@ def search(
         memories  = db_search(
             embedding, query, min(limit, 50), type_filter or None,
             people_filter, project or None, since_days, until_days, as_of,
+            include_superseded=include_superseded,
         )
 
         # Record search for compliance tracking
@@ -1116,7 +1190,7 @@ def search(
 
 @mcp.tool()
 @instrument("list_recent")
-def list_recent(limit: int = 20, days: int = 0) -> str:
+def list_recent(limit: int = 20, days: int = 0, include_superseded: bool = False) -> str:
     """Browse your most recent captures.
 
     Useful for reviewing what you've been thinking about lately.
@@ -1124,9 +1198,12 @@ def list_recent(limit: int = 20, days: int = 0) -> str:
     Args:
         limit: Max memories to return (default 20, max 100).
         days:  Only show memories from the last N days (0 = all time).
+        include_superseded: If True, include memories that have been superseded
+               by a corrected newer one. Default False — only current truth.
     """
     try:
-        memories = db_list_recent(min(limit, 100), days if days > 0 else None)
+        memories = db_list_recent(min(limit, 100), days if days > 0 else None,
+                                   include_superseded=include_superseded)
         if not memories:
             return "No memories yet. Use `remember` to start building your brain."
         meta = lambda m: m["metadata"] if isinstance(m["metadata"], dict) else {}  # noqa: E731
@@ -1624,6 +1701,22 @@ def recall(memory_id: int) -> str:
             result["pinned"] = True
         if memory.get("updated_at"):
             result["updated_at"] = str(memory["updated_at"])
+        # Belief revision: surface a banner when a superseded memory is
+        # recalled directly by ID. The original content is returned as
+        # normal (audit semantics — "show me what we used to believe")
+        # but the agent is told it has been corrected and where to look
+        # for the current truth.
+        full = db_get_memory(memory_id)
+        if full and full.get("superseded_by_id"):
+            result["superseded_by_id"] = full["superseded_by_id"]
+            result["superseded_at"] = str(full["superseded_at"]) if full.get("superseded_at") else None
+            result["superseded_reason"] = full.get("superseded_reason")
+            result["banner"] = (
+                f"This memory was superseded by #{full['superseded_by_id']} "
+                f"on {full['superseded_at']}. "
+                f"Reason: {full.get('superseded_reason')}. "
+                f"Use recall({full['superseded_by_id']}) for current truth."
+            )
         return json.dumps(result, indent=2)
     except Exception as exc:
         return json.dumps({"success": False, "error": str(exc)})
@@ -1790,6 +1883,156 @@ def forget_many(memory_ids: list[int]) -> str:
     try:
         result = db_delete_many(memory_ids)
         return json.dumps({"success": True, **result})
+    except Exception as exc:
+        return json.dumps({"success": False, "error": str(exc)})
+
+
+@mcp.tool()
+@instrument("supersede")
+def supersede(
+    old_memory_id: int,
+    new_content: str,
+    reason: str,
+    source: str,
+    type_override: str = "",
+    project: str = "",
+    inherit_pinned: bool = False,
+) -> str:
+    """Mark an existing memory as superseded by a new corrected memory.
+
+    The old memory is preserved (audit trail intact) but excluded from
+    default search/recall results so agents see only current truth.
+    The new memory is created with all standard processing (embedding,
+    metadata extraction, secrets-filter) and its ID is written to
+    `old.superseded_by_id`.
+
+    Use this instead of `forget()` when knowledge has been REVISED rather
+    than ABANDONED — preserves the audit trail of past beliefs.
+
+    Args:
+        old_memory_id: ID of the memory being corrected. Must exist and
+                       not already be superseded (chains form a tree, not
+                       a DAG; correct the LATEST in the chain, not the
+                       original). Get IDs from search or recall output.
+        new_content:   The corrected/replacement content.
+        reason:        Why the old memory is wrong or outdated. Required —
+                       no silent overwrites. Stored on the old memory's
+                       `superseded_reason` column.
+        source:        REQUIRED. Which agent is supersedeing.
+        type_override: Optional type for the new memory.
+        project:       Project tag for the new memory. Defaults to the
+                       old memory's project.
+        inherit_pinned: If True AND the old memory is pinned, the new
+                       memory is also pinned. Default False — explicit
+                       opt-in to avoid accidentally promoting a non-
+                       guardrail to guardrail status.
+
+    Returns JSON with both memory IDs:
+        {"success": True, "old_id": <int>, "new_id": <int>,
+         "superseded_at": "<iso>", "old_pinned": <bool>}
+    """
+    try:
+        if not source:
+            return _source_required_error("supersede")
+        if not reason or not reason.strip():
+            return json.dumps({"success": False,
+                "error": "reason is required (no silent overwrites)"})
+        if not new_content or not new_content.strip():
+            return json.dumps({"success": False,
+                "error": "new_content is required"})
+
+        compliance_error = _check_compliance(source, project)
+        if compliance_error:
+            return json.dumps(compliance_error, indent=2)
+
+        old = db_get_memory(old_memory_id)
+        if not old:
+            return json.dumps({"success": False,
+                "error": f"Memory {old_memory_id} not found"})
+        if old.get("superseded_by_id"):
+            return json.dumps({"success": False,
+                "error": f"Memory {old_memory_id} is already superseded by "
+                         f"#{old['superseded_by_id']}. Supersede THAT one "
+                         f"instead (chains form a tree, not a DAG)."})
+
+        # Default project to the old memory's project
+        target_project = project or old.get("project", "") or ""
+
+        # Create the new memory through the standard pipeline (so it gets
+        # embedding, metadata extraction, secrets-filter, dedup against
+        # OTHER active memories — but db_find_duplicate now excludes
+        # superseded, so it won't false-match against `old`).
+        new_content = check_content(new_content)
+        embedding   = get_embedding(new_content)
+        metadata    = extract_metadata(new_content)
+        if type_override:
+            metadata["type"] = type_override
+        metadata["source"] = source
+        metadata["supersedes"] = old_memory_id
+        new_memory, action = db_store_deduped(new_content, embedding, metadata, target_project)
+        _record_store(source)
+
+        # Apply pinning inheritance if requested
+        was_pinned = bool(old.get("pinned"))
+        if inherit_pinned and was_pinned and not new_memory.get("pinned"):
+            try:
+                db_set_pinned(new_memory["id"], True)
+            except Exception:
+                pass
+
+        # Mark the old memory superseded
+        db_supersede(old_memory_id, new_memory["id"], reason.strip())
+
+        return json.dumps({
+            "success":         True,
+            "old_id":          old_memory_id,
+            "new_id":          new_memory["id"],
+            "new_action":      action,
+            "old_pinned":      was_pinned,
+            "new_pinned":      bool(inherit_pinned and was_pinned),
+            "type":            metadata["type"],
+            "project":         target_project,
+        }, indent=2)
+    except SecretDetectedError as exc:
+        return json.dumps({"success": False, "error": str(exc),
+                           "blocked_by": "secrets_filter"})
+    except Exception as exc:
+        return json.dumps({"success": False, "error": str(exc)})
+
+
+@mcp.tool()
+@instrument("unsupersede")
+def unsupersede(memory_id: int, source: str) -> str:
+    """Reverse a supersession by clearing the supersession metadata on
+    the given memory. Both the original (now-active-again) memory AND
+    the corrector (created during the original supersede() call) end
+    up active. If you want to undo the supersession entirely, also
+    call forget() on the corrector memory after this.
+
+    Args:
+        memory_id: ID of the memory whose supersession you want to clear.
+        source:    REQUIRED. Which agent is unsupersedeing.
+    """
+    try:
+        if not source:
+            return _source_required_error("unsupersede")
+        target = db_get_memory(memory_id)
+        if not target:
+            return json.dumps({"success": False,
+                "error": f"Memory {memory_id} not found"})
+        if not target.get("superseded_by_id"):
+            return json.dumps({"success": False,
+                "error": f"Memory {memory_id} was not superseded; nothing to undo."})
+        former_corrector = target["superseded_by_id"]
+        updated = db_unsupersede(memory_id)
+        return json.dumps({
+            "success":           True,
+            "id":                memory_id,
+            "former_corrector":  former_corrector,
+            "note":              "Both memories are now active. Call "
+                                f"forget({former_corrector}) to also remove "
+                                "the corrector if you want full undo.",
+        }, indent=2)
     except Exception as exc:
         return json.dumps({"success": False, "error": str(exc)})
 

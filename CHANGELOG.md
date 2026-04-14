@@ -5,6 +5,80 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-04-14
+
+### Added — Belief revision (memory supersession)
+
+Open Brain now treats memories as **revisable beliefs** rather than
+immutable facts. Two new MCP tools — `supersede` and `unsupersede` —
+let an agent (or user) mark an existing memory as corrected by a
+newer one. The old memory is preserved (audit trail intact) but
+filtered out of default `search` / `recall` / `list_recent` results
+so agents only see current truth.
+
+**Why:** memory `#3663` had asserted two contradicting facts about
+whether the Open Brain ON script starts the MCP server. Future agents
+recalling `#3663` got mixed signals and acted on whichever fragment
+matched their query surface. Same class of failure — at coarser
+granularity — produced the 2026-04-14 roadmap-drift incident
+(memory `#1126`). The fix is structural: explicit supersession via
+the schema, not memory-and-discipline.
+
+**Schema additions** (`scripts/migrate_v4_belief_revision.py` —
+idempotent, reversible):
+  * `superseded_by_id INTEGER REFERENCES memories(id) ON DELETE SET NULL`
+  * `superseded_at TIMESTAMPTZ`
+  * `superseded_reason TEXT` (required on every `supersede` call —
+    no silent overwrites)
+  * `idx_memories_active` partial index on `id WHERE superseded_by_id IS NULL`
+  * `idx_memories_superseded_by` partial index on `superseded_by_id`
+
+**New MCP tools:**
+  * `supersede(old_memory_id, new_content, reason, source, type_override?,
+    project?, inherit_pinned?)` — creates the new memory through the
+    full pipeline (embedding, metadata, secrets-filter, dedup) and
+    writes its ID to `old.superseded_by_id`. Refuses to chain — if
+    you try to supersede an already-superseded memory, the error
+    points you at the latest in the chain.
+  * `unsupersede(memory_id, source)` — clears the supersession
+    metadata. The corrector memory survives; call `forget()` on it
+    separately for full undo.
+
+**Modified MCP tools (backwards-compatible — all default to current
+behavior, opt-in to history via new flag):**
+  * `search(..., include_superseded=False)`
+  * `list_recent(..., include_superseded=False)`
+  * `recall(memory_id)` — when called on a superseded memory by ID,
+    now returns its content AS RECORDED plus a `banner` field +
+    `superseded_by_id` / `superseded_at` / `superseded_reason`
+    metadata pointing at the corrector. Audit semantics intact —
+    you can still see what you used to believe.
+
+**Dedup correctness fix:** `db_find_duplicate` and `db_find_related`
+now exclude superseded memories from their similarity search.
+Otherwise re-storing content similar to a corrected (now-superseded)
+memory would false-match against the stale version and skip the
+write — defeating the whole point.
+
+**Pinning inheritance** is opt-in via `inherit_pinned=True` on
+`supersede()`. By default, supersedeing a pinned guardrail does NOT
+auto-promote the new memory to pinned status — explicit opt-in
+prevents accidental promotion of a non-guardrail.
+
+**Schema safety** (per guardrail #827):
+  * Backup taken before any schema change: `backups/brain-pre-belief-revision-20260414-102607.sql` (3326 memories baseline)
+  * Worked on isolated branch (`feat/brain-belief-revision`)
+  * Migration verified idempotent (re-run is no-op) and reversible
+    (drop columns, no orphaned data) on the test database before
+    touching production
+  * 18/18 belief-revision tests pass; full test suite still green
+  * Production migration applied only after Shep's design review +
+    explicit approval (5 product decisions: tool naming, recall
+    behavior, pinning inheritance, auto-supersession, dashboard
+    surfacing — see `docs/planning/BELIEF_REVISION_DESIGN.md`)
+
+**Tool count:** 19 → 21.
+
 ## [0.10.0] - 2026-04-14
 
 ### Added — Dashboard single-instance guard

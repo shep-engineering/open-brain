@@ -1,6 +1,6 @@
 # Tools Reference
 
-Open Brain exposes 19 MCP tools: 16 user-facing tools and 3 cognitive architecture tools for agent compliance enforcement.
+Open Brain exposes 21 MCP tools: 18 user-facing tools and 3 cognitive architecture tools for agent compliance enforcement.
 
 ---
 
@@ -50,6 +50,7 @@ Semantic search by meaning, not keywords. Returns previews (first 200 chars) to 
 | `since_days` | int | No | Only return memories created in the last N days (0 = no limit) |
 | `until_days` | int | No | Only return memories older than N days (0 = no limit) |
 | `as_of` | string | No | ISO 8601 timestamp. Only return memories whose `valid_time` ≤ this date (bi-temporal query). E.g. `'2025-03-01'` |
+| `include_superseded` | bool | No | If `true`, also include memories that have been superseded by a corrected newer one (audit/historical view). Default `false` — normal search only returns current truth. *(Added v0.11.0.)* |
 
 Results are ranked by a hybrid score: vector similarity (70%) + full-text rank (30%), multiplied by an uptime-based recency decay factor. Pinned memories for the project always appear first.
 
@@ -68,6 +69,8 @@ Fetch the full content of a memory by ID. Use after `search` to get complete tex
 | `memory_id` | int | Yes | The memory ID from search results |
 
 **Side effects:** Bumps `access_count`, updates `last_accessed`, and records `last_accessed_uptime` (used for decay scoring).
+
+**Superseded-memory behavior** *(added v0.11.0):* if you `recall` a memory whose `superseded_by_id` is set, the response includes the original content (audit semantics — "show me what we used to believe") plus a `banner` field, `superseded_by_id`, `superseded_at`, and `superseded_reason` pointing at the corrector. Use `recall(superseded_by_id)` to read the current truth.
 
 ---
 
@@ -120,6 +123,7 @@ Browse the most recent captures.
 |-----------|------|----------|-------------|
 | `limit` | int | No | Max results (default 20, max 100) |
 | `days` | int | No | Only show memories from the last N days |
+| `include_superseded` | bool | No | If `true`, include memories that have been superseded. Default `false`. *(Added v0.11.0.)* |
 
 ---
 
@@ -195,6 +199,49 @@ Returns `{"key": ..., "value": ..., "found": true/false}`.
 ### `scratch_list`
 
 List all keys and values currently in working memory. No parameters.
+
+---
+
+## Belief-Revision Tools (added v0.11.0)
+
+### `supersede`
+
+Mark an existing memory as superseded by a corrected newer one. The old memory is preserved (audit trail intact) but excluded from default `search` / `recall` / `list_recent` results so agents see only current truth. Use this **instead of `forget()`** when knowledge has been REVISED rather than ABANDONED.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `old_memory_id` | int | **Yes** | ID of the memory being corrected. Must exist and not already be superseded (chains form a tree, not a DAG — supersede the LATEST in the chain, not the original). |
+| `new_content` | string | **Yes** | The corrected/replacement content. Runs through the standard pipeline (embedding, metadata extraction, secrets-filter, dedup against active memories). |
+| `reason` | string | **Yes** | Why the old memory is wrong or outdated. Required — no silent overwrites. Stored on the old memory's `superseded_reason` column for audit. |
+| `source` | string | **Yes** | Agent identifier (e.g. `"claude"`, `"cursor"`). Required, same compliance gating as `remember`. |
+| `type_override` | string | No | Override auto-detected type for the new memory. |
+| `project` | string | No | Project tag for the new memory. Defaults to the old memory's project. |
+| `inherit_pinned` | bool | No | If `true` AND the old memory was pinned, the new memory is auto-pinned. Default `false` — explicit opt-in to avoid accidentally promoting a non-guardrail to guardrail status. |
+
+**Returns** JSON with both IDs:
+```json
+{
+  "success": true,
+  "old_id": 3663,
+  "new_id": 5072,
+  "new_action": "stored",
+  "old_pinned": true,
+  "new_pinned": false,
+  "type": "decision",
+  "project": "open-brain"
+}
+```
+
+---
+
+### `unsupersede`
+
+Reverse a supersession by clearing the supersession metadata. Both memories end up active. To fully undo, also call `forget()` on the corrector.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `memory_id` | int | **Yes** | ID of the memory whose supersession to clear. |
+| `source` | string | **Yes** | Agent identifier. |
 
 ---
 

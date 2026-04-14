@@ -35,7 +35,7 @@ Your thought
     (+ annotations, ratings, access tracking)
               |
               v
-    MCP Server (stdio / HTTP)  <--  server.py  (19 tools)
+    MCP Server (stdio / HTTP)  <--  server.py  (21 tools)
               |
     +---------+-----------+
     v         v           v
@@ -89,5 +89,5 @@ Your thought
 - [Installation](getting-started/installation.md): Get up and running in ~15 minutes
 - [Wiring Agents](getting-started/wiring-agents.md): Connect your AI tools to the brain
 - [Dashboard](guides/dashboard.md): Monitor your brain in real time
-- [Tools Reference](tools.md): All 19 MCP tools explained
+- [Tools Reference](tools.md): All 21 MCP tools explained
 - [Architecture](architecture/overview.md): How it all fits together
