@@ -5,6 +5,73 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-04-14
+
+### Added — Skills layer (conditional-load guardrails)
+
+Pinned memories no longer have to load at every session boot. Memories
+can now carry a `skill_trigger` JSONB payload that makes them load
+*only* when a keyword matches a query, or when explicitly requested via
+`load_skill(name)`. Always-on rules (workflow rules, "never commit to
+main") can opt back in via `always_on: true`.
+
+**Why:** `boot_session` returned all 26 pinned guardrails for
+open-brain on every call — ~15–20 KB of instructions injected
+regardless of the task. Per the HumanLayer/Chroma harness-engineering
+research, heavy always-on prompt steering competes with the agent's
+"instruction budget" and causes forgetting under pressure. The skills
+layer shrinks the boot payload to just the always-on set and surfaces
+the rest on demand.
+
+**New tool — `load_skill(name, source, project="")`.** Explicit lookup
+of a skill by its unique `skill_trigger.name`. Active-only by default.
+Respects `skill_trigger.projects` scope (empty = global, populated =
+scoped).
+
+**Modified tools:**
+- `remember(..., skill_trigger=None)` — optional tag turning the new
+  memory into a skill.
+- `search` — a new layer bumps skill-triggered memories to the top of
+  the result set when any keyword substring-matches the query,
+  flagged via `via_skill_trigger: "<name>"`. Capped by
+  `OPEN_BRAIN_SKILL_TRIGGER_MAX` (default 5).
+- `boot_session` (via `db_get_pinned`) — now excludes skill-tagged
+  memories unless `skill_trigger.always_on` is true. Also filters
+  superseded memories (belief-revision follow-through fix).
+
+**Schema additions** (`scripts/migrate_v5_skills_layer.py` —
+idempotent, reversible):
+  * `skill_trigger JSONB DEFAULT NULL` on `memories`
+  * `idx_memories_skill_trigger` — partial GIN index on rows where
+    `skill_trigger IS NOT NULL`
+
+**Shape:**
+```json
+{
+  "name": "ollama-shutdown-graceful",
+  "keywords": ["ollama", "shutdown", "graceful"],
+  "projects": [],
+  "always_on": false
+}
+```
+
+**Backwards compatibility:** Existing memories (`skill_trigger = NULL`)
+behave exactly as before. No data migration required for pre-existing
+pinned guardrails; opt-in via `supersede` with a new `skill_trigger`
+on the corrector.
+
+**Test coverage:** 13 tests in `tests/test_skills_layer.py` — schema
+sanity, round-trip, boot filter (3 scenarios), search auto-match (3
+scenarios), `load_skill` (4 scenarios), belief-revision interaction.
+
+**Tool count:** 21 → 22.
+
+**Lineage:** Phase 1 of the 6-phase Brain Harness Plan. Unblocks
+Phase 4 (hook installer) to read `skill_trigger` and fire skills on
+tool-name triggers.
+
+---
+
 ## [0.11.0] - 2026-04-14
 
 ### Added — Belief revision (memory supersession)

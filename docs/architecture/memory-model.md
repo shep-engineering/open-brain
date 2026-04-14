@@ -99,6 +99,7 @@ This prevents the same decision or fact from being stored dozens of times across
 | B-tree | `last_accessed` | Identify stale memories for pruning |
 | Partial B-tree | `id WHERE superseded_by_id IS NULL` | Fast active-only scans (added v0.11.0) |
 | Partial B-tree | `superseded_by_id WHERE NOT NULL` | Reverse-lookup superseded chain (added v0.11.0) |
+| Partial GIN | `skill_trigger WHERE skill_trigger IS NOT NULL` | Skill-layer keyword scans (added v0.12.0) |
 
 ---
 
@@ -155,3 +156,53 @@ status when correcting a pinned memory.
 See `tools.md` for the `supersede` and `unsupersede` MCP tool
 reference. See `docs/planning/BELIEF_REVISION_DESIGN.md` (internal)
 for the full design discussion + alternatives considered.
+
+---
+
+## Skills Layer (added v0.12.0)
+
+Pinning meant "load this memory at every session boot". That worked
+until the pinned set grew to ~26 guardrails on a single project and
+started competing with actual task reasoning for the agent's
+instruction budget. The skills layer decouples *priority* (pinned)
+from *load behavior* (always-on vs. triggered).
+
+A memory can now carry a `skill_trigger JSONB` payload:
+
+```json
+{
+  "name": "ollama-shutdown-graceful",
+  "keywords": ["ollama", "shutdown", "graceful"],
+  "projects": [],
+  "always_on": false
+}
+```
+
+- **`name`** — globally unique. Enables explicit `load_skill(name)`
+  lookup. Convention: lowercase, hyphen-separated.
+- **`keywords`** — array of strings. Case-insensitive substring match
+  against a query, OR across entries. One hit fires the skill.
+- **`projects`** — empty array = global (loadable/surfaceable from
+  anywhere); populated = only surfaces when the caller's project is
+  in the list.
+- **`always_on`** — if `true`, the memory still returns in
+  `boot_session` exactly like a legacy pinned guardrail. Defaults
+  `false` — the point of the layer.
+
+**Load paths:**
+1. **Boot** — `skill_trigger IS NULL` OR `always_on = true` AND pinned.
+2. **Search keyword auto-match** — `skill_trigger.keywords` substring-match query; up to `OPEN_BRAIN_SKILL_TRIGGER_MAX` (default 5) surface at the top of the result set with `via_skill_trigger: "<name>"`.
+3. **Explicit** — `load_skill(name, source, project)` fetches one by unique name.
+
+**Superseded skills** are excluded from both auto-match and explicit
+load (active-only default, matching v0.11.0 belief-revision).
+
+**Schema column:**
+- `skill_trigger JSONB DEFAULT NULL` — null means "behave like pre-v0.12.0".
+
+**Backwards compatibility:** existing pinned memories have `skill_trigger = NULL` and load at boot exactly as before. Migration of individual guardrails to skill-triggered mode is opt-in via `supersede` (the corrector carries the new `skill_trigger`).
+
+See `tools.md` for the `load_skill` MCP tool reference and the
+`remember` / `search` / `boot_session` changes. See
+`docs/planning/SKILLS_LAYER_DESIGN.md` for the full design discussion,
+alternatives considered, and Phase 4 hook-installer integration notes.
