@@ -15,7 +15,7 @@ are removed from tracked, non-planning files. Behaviorally identical for the
 author's current installation; portable for anyone else cloning the repo.
 
 - **Path relativization** — launcher scripts now resolve the repo root from
-  their own location rather than hardcoding `F:\open-brain`:
+  their own location rather than hardcoding a hardcoded absolute path:
   `start.ps1`, `stop.ps1` via `$MyInvocation.MyCommand.Path`;
   `scripts/windows/open-brain-{on,off,dashboard,sse-proxy}.cmd` and
   `backup-brain.cmd` via `%~dp0..\..`;
@@ -24,10 +24,10 @@ author's current installation; portable for anyone else cloning the repo.
   `scripts/ensure-stack.sh` replace hardcoded install paths with the
   `<OPEN_BRAIN_ROOT>` placeholder.
 - **Cross-project leak fixes**:
-  - `telemetry.py` — docstring no longer names `F:\my-archetypes\observability`
+  - `telemetry.py` — docstring no longer names a sibling project directory
   - `scripts/make_icon.py` — rewritten to parameterize the source PNG via
     `sys.argv[1]` (default `assets/brain-source.png`) + resolve the output
-    path relative to the repo root; previously hardcoded `F:\comfyui\output\...`
+    path relative to the repo root; previously hardcoded a path in a separate unrelated tool's output directory
   - `.windsurf/workflows/scaffold-AI.md` — generic `<your-archetypes-dir>/AI/...`
 - **`scripts/windows/open-brain-off.cmd` rewritten** to delegate to the v0.9.0
   `infrastructure.bring_down()` instead of its previous taskkill-heavy flow —
@@ -38,7 +38,7 @@ author's current installation; portable for anyone else cloning the repo.
 - **`scripts/windows/open-brain-on.cmd` version banner** — was stuck at
   `v0.4.1 / 12 tools` (5 releases stale), now `v0.9.0 / 19 tools`.
 - **`.task-markers/` added to `.gitignore`** + 6 March-2026 tracked markers
-  untracked via `git rm --cached`. One of them leaked an `F:/open-brain/...`
+  untracked via `git rm --cached`. One of them leaked an a personal dev path
   path in its test-note field.
 
 ### Added — `scripts/deploy-docs.ps1` + `scripts/deploy-docs.sh`
