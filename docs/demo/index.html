@@ -233,21 +233,36 @@
     .subtitle { font-size: 0.5em; }
     .reveal .controls { display: none; }
     .reveal .progress { height: 3px; }
+  }
 
-    /* Custom mobile navigation: large tap zones with clear chevrons.
-       Native reveal controls are too small + fiddly on a phone. */
+  /* Mobile / touch-device navigation: gated on (pointer: coarse) — works
+     in both portrait AND landscape regardless of viewport width, unlike
+     a `max-width` query which misses landscape phones. */
+  @media (pointer: coarse) {
+    /* Lock vertical scroll so a swipe-up gesture is unambiguously a
+       reveal navigation event, not a page-scroll event. overflow:hidden
+       on body prevents the page from scrolling at all; overscroll-
+       behavior:none stops bounce/refresh on iOS Safari + Chrome Android.
+       touch-action:none would block ALL native gestures and break
+       Reveal's swipe handler — leave it unset so Reveal sees TouchEvents. */
+    html, body {
+      overflow: hidden;
+      overscroll-behavior: none;
+      height: 100%;
+    }
+
     .mobile-nav {
       position: fixed;
       top: 50%;
       transform: translateY(-50%);
-      width: 44px;
-      height: 72px;
+      width: 52px;
+      height: 84px;
       display: flex;
       align-items: center;
       justify-content: center;
-      background: rgba(167, 139, 250, 0.18);
-      color: #c4b5fd;
-      font-size: 38px;
+      background: rgba(167, 139, 250, 0.22);
+      color: #ddd6fe;
+      font-size: 44px;
       font-weight: 300;
       line-height: 1;
       border-radius: 10px;
@@ -259,15 +274,38 @@
       -webkit-backdrop-filter: blur(6px);
       transition: background 0.15s, opacity 0.25s;
     }
-    .mobile-nav-left { left: 6px; }
-    .mobile-nav-right { right: 6px; }
-    .mobile-nav:active { background: rgba(167, 139, 250, 0.45); }
-    .mobile-nav.disabled { opacity: 0.2; pointer-events: none; }
+    /* Safe-area-inset for notched devices */
+    .mobile-nav-left  { left:  max(6px, env(safe-area-inset-left)); }
+    .mobile-nav-right { right: max(6px, env(safe-area-inset-right)); }
+    .mobile-nav:active { background: rgba(167, 139, 250, 0.5); }
+    /* Edge state: visually dim, but still tappable (Reveal.prev/next are
+       no-ops at the bounds anyway — keeping pointer-events live avoids the
+       "tap does nothing because pointer-events:none" trap) */
+    .mobile-nav.at-edge { opacity: 0.25; }
 
-    /* One-shot swipe hint on first load */
+    /* Always-on slide counter so the user knows where they are */
+    .mobile-counter {
+      position: fixed;
+      bottom: max(10px, env(safe-area-inset-bottom));
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(20, 20, 30, 0.7);
+      color: #c4b5fd;
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      font-weight: 600;
+      z-index: 99;
+      pointer-events: none;
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+    }
+
+    /* One-shot swipe hint on first load (sessionStorage gated by JS) */
     .swipe-hint {
       position: fixed;
-      bottom: 22px;
+      bottom: 44px;
       left: 50%;
       transform: translateX(-50%);
       background: rgba(167, 139, 250, 0.95);
@@ -290,9 +328,11 @@
     }
   }
 
-  /* Desktop: hide the mobile-only chrome so nothing overlaps the normal controls */
-  @media (min-width: 769px) {
-    .mobile-nav, .swipe-hint { display: none !important; }
+  /* Desktop / non-touch: hide the mobile-only chrome so nothing overlaps
+     the normal Reveal controls. Tested via `hover: hover` (true mouse
+     pointer) which is more reliable than viewport-width gating. */
+  @media (hover: hover) and (pointer: fine) {
+    .mobile-nav, .swipe-hint, .mobile-counter { display: none !important; }
   }
 
   @media (max-width: 480px) {
@@ -639,60 +679,81 @@
 
 <script src="vendor/reveal.js"></script>
 <script>
-var isMobile = window.matchMedia('(max-width: 768px)').matches;
+// Single Reveal init for all viewports. We deliberately do NOT key any
+// config on a `const isMobile = matchMedia(...)` because that snapshot
+// is taken once at page load and never updates on orientationchange —
+// which broke navigation in landscape after rotating from portrait.
+// Instead, all mobile-vs-desktop differentiation happens in CSS via
+// (pointer: coarse) / (hover: hover) media queries that live-update.
 Reveal.initialize({
   hash: true,
-  transition: isMobile ? 'fade' : 'slide',
+  transition: 'slide',
   transitionSpeed: 'default',
   backgroundTransition: 'fade',
   center: false,
   width: 1200,
   height: 700,
-  margin: isMobile ? 0.04 : 0.02,
+  margin: 0.04,
   minScale: 0.1,
   maxScale: 2.0,
-  controls: !isMobile,
+  controls: true,
   controlsTutorial: false,
   progress: true,
-  slideNumber: !isMobile,
+  slideNumber: true,
   touch: true,
   hideInactiveCursor: true,
   autoAnimateEasing: 'ease-in-out',
   autoAnimateDuration: 0.8,
 });
 
-// Mobile-only: inject large tap arrows + a one-shot swipe hint.
-// Reveal handles the actual touch gestures natively (touch: true above);
-// this layer just surfaces the affordance so a first-time visitor knows
-// swiping works and has a tap fallback.
-if (isMobile) {
-  var leftBtn = document.createElement('div');
-  leftBtn.className = 'mobile-nav mobile-nav-left';
-  leftBtn.setAttribute('role', 'button');
-  leftBtn.setAttribute('aria-label', 'Previous slide');
-  leftBtn.innerHTML = '\u2039';  // single left-pointing chevron
+// Always inject the mobile-nav chrome. CSS decides visibility via
+// @media (pointer: coarse). No JS gate -> no orientation-change bug.
+(function () {
+  function makeNav(side, action) {
+    var btn = document.createElement('div');
+    btn.className = 'mobile-nav mobile-nav-' + side;
+    btn.setAttribute('role', 'button');
+    btn.setAttribute('aria-label', side === 'left' ? 'Previous slide' : 'Next slide');
+    btn.innerHTML = side === 'left' ? '\u2039' : '\u203A';
 
-  var rightBtn = document.createElement('div');
-  rightBtn.className = 'mobile-nav mobile-nav-right';
-  rightBtn.setAttribute('role', 'button');
-  rightBtn.setAttribute('aria-label', 'Next slide');
-  rightBtn.innerHTML = '\u203A';  // single right-pointing chevron
+    // Bind both touchstart and click. On real touch devices, touchstart
+    // fires first; we preventDefault to stop the same touch from also
+    // being processed by Reveal's gesture handler as a swipe-start.
+    // The click handler is the fallback for keyboard / non-touch paths
+    // and for browser environments where touchstart isn't synthesized.
+    function fire(e) {
+      if (e) { e.preventDefault(); e.stopPropagation(); }
+      action();
+    }
+    btn.addEventListener('touchstart', fire, { passive: false });
+    btn.addEventListener('click', fire);
+    return btn;
+  }
 
+  var leftBtn  = makeNav('left',  function () { Reveal.prev(); });
+  var rightBtn = makeNav('right', function () { Reveal.next(); });
   document.body.appendChild(leftBtn);
   document.body.appendChild(rightBtn);
 
-  leftBtn.addEventListener('click',  function () { Reveal.prev(); });
-  rightBtn.addEventListener('click', function () { Reveal.next(); });
+  // Slide counter ("3 / 12") fixed bottom-center as a permanent affordance
+  var counter = document.createElement('div');
+  counter.className = 'mobile-counter';
+  document.body.appendChild(counter);
 
-  // Update disabled-state styling at each slide boundary.
-  function updateMobileNav() {
-    leftBtn.classList.toggle('disabled',  Reveal.isFirstSlide());
-    rightBtn.classList.toggle('disabled', Reveal.isLastSlide());
+  // Visual edge state via getIndices() math — Reveal.isFirstSlide /
+  // isLastSlide are unreliable here (return true on slide 0 of a 12-slide
+  // deck in this Reveal build). Use the actual horizontal index instead.
+  function updateNavState() {
+    var idx = Reveal.getIndices();
+    var total = Reveal.getTotalSlides();
+    leftBtn.classList.toggle('at-edge',  idx.h <= 0);
+    rightBtn.classList.toggle('at-edge', idx.h >= total - 1);
+    counter.textContent = (idx.h + 1) + ' / ' + total;
   }
-  Reveal.on('ready', updateMobileNav);
-  Reveal.on('slidechanged', updateMobileNav);
+  Reveal.on('ready', updateNavState);
+  Reveal.on('slidechanged', updateNavState);
 
-  // Swipe hint: fades in, holds ~3s, fades out — appears once per session.
+  // One-shot swipe hint — first time per session, gated on sessionStorage
   if (!sessionStorage.getItem('obSwipeHintShown')) {
     var hint = document.createElement('div');
     hint.className = 'swipe-hint';
@@ -703,7 +764,7 @@ if (isMobile) {
       if (hint && hint.parentNode) hint.parentNode.removeChild(hint);
     }, 5200);
   }
-}
+})();
 </script>
 </body>
 </html>
