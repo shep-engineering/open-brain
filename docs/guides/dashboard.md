@@ -31,7 +31,7 @@ This eliminates the "strobe" effect that timer-based polling causes.
 
 ## Launching
 
-The dashboard detects whether Open Brain is already running. If services are up, it opens directly. If not, it shows a startup splash that streams the output of `open-brain-on` and waits for the database to become reachable.
+The dashboard detects whether Open Brain is already running. If services are up, it opens directly. If not, it shows a startup splash that drives `scripts/infrastructure.py`'s `bring_up()` in a worker thread — bringing up Docker, the `open-brain-db` container, and `ollama serve` in sequence while streaming structured progress to the splash and to `logs/startup.log`. Since v0.8.0 this is a pure-Python flow (no `.cmd` chain, no pipe inheritance); since v0.9.0 shutdown uses a real Win32 Ctrl+Break graceful signal for ollama instead of `taskkill /F`.
 
 === "Desktop Shortcut (Windows)"
 
