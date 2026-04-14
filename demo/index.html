@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Open Brain: Demo</title>
+<link rel="stylesheet" href="vendor/reveal.css">
+<link rel="stylesheet" href="vendor/black.css">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;900&family=JetBrains+Mono:wght@400;700&display=swap');
+
+  :root {
+    --brain-purple: #b388ff;
+    --brain-cyan: #18ffff;
+    --brain-pink: #ff80ab;
+    --brain-dark: #0a0a1a;
+    --brain-card: #13132b;
+  }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    overflow-x: hidden;
+    -webkit-text-size-adjust: 100%;
+  }
+  .reveal pre { overflow-x: auto; max-width: 100%; box-sizing: border-box; }
+  .reveal table { max-width: 100%; box-sizing: border-box; }
+  .reveal .slides section { box-sizing: border-box; }
+
+  .reveal {
+    font-family: 'Inter', sans-serif;
+    color: #e0e0e0;
+  }
+  .reveal h1, .reveal h2, .reveal h3 {
+    font-family: 'Inter', sans-serif;
+    font-weight: 700;
+    text-transform: none;
+    color: #fff;
+  }
+  .reveal h1 { font-size: 2.0em; font-weight: 900; }
+  .reveal h2 { font-size: 1.5em; }
+  .reveal h3 { font-size: 1.3em; color: var(--brain-cyan); }
+  .reveal code, .reveal pre {
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .reveal pre {
+    background: var(--brain-card);
+    border: 1px solid rgba(179, 136, 255, 0.2);
+    border-radius: 12px;
+    padding: 20px;
+    font-size: 0.55em;
+    box-shadow: 0 4px 30px rgba(0,0,0,0.4);
+    width: 90%;
+    margin: 0 auto;
+  }
+  .reveal .slides { text-align: left; }
+  .reveal .slides section { padding: 5px 30px; }
+  .reveal .slides section.center-slide { display: flex; flex-direction: column; justify-content: center; align-items: center; }
+  .reveal .center-slide { text-align: center; }
+  .reveal .center-slide h1,
+  .reveal .center-slide h2,
+  .reveal .center-slide p { text-align: center; }
+
+  .gradient-text {
+    background: linear-gradient(135deg, var(--brain-purple), var(--brain-cyan));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .accent { color: var(--brain-cyan); }
+  .purple { color: var(--brain-purple); }
+  .pink { color: var(--brain-pink); }
+
+  .tool-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    margin-top: 10px;
+  }
+  .tool-card {
+    background: var(--brain-card);
+    border: 1px solid rgba(179, 136, 255, 0.15);
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-size: 0.5em;
+  }
+  .tool-card .tool-name {
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--brain-cyan);
+    font-weight: 700;
+    font-size: 1.1em;
+  }
+  .tool-card .tool-desc {
+    color: #999;
+    margin-top: 2px;
+  }
+
+  .agent-row {
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+    margin: 30px 0;
+    flex-wrap: wrap;
+  }
+  .agent-badge {
+    background: var(--brain-card);
+    border: 2px solid var(--brain-purple);
+    border-radius: 50px;
+    padding: 12px 24px;
+    font-size: 0.7em;
+    font-weight: 600;
+    color: var(--brain-purple);
+    transition: all 0.3s;
+  }
+  .agent-badge.active {
+    border-color: var(--brain-cyan);
+    color: var(--brain-cyan);
+    box-shadow: 0 0 20px rgba(24, 255, 255, 0.2);
+  }
+
+  .flow-step {
+    background: var(--brain-card);
+    border-left: 3px solid var(--brain-purple);
+    border-radius: 0 10px 10px 0;
+    padding: 12px 18px;
+    margin: 8px 0;
+    font-size: 0.6em;
+  }
+  .flow-step .step-num {
+    color: var(--brain-purple);
+    font-weight: 700;
+    font-size: 1.2em;
+    margin-right: 8px;
+  }
+  .flow-step.cyan { border-left-color: var(--brain-cyan); }
+  .flow-step.cyan .step-num { color: var(--brain-cyan); }
+  .flow-step.pink { border-left-color: var(--brain-pink); }
+  .flow-step.pink .step-num { color: var(--brain-pink); }
+
+  .stat-row {
+    display: flex;
+    justify-content: center;
+    gap: 40px;
+    margin: 30px 0;
+  }
+  .stat-box {
+    text-align: center;
+  }
+  .stat-num {
+    font-size: 2.5em;
+    font-weight: 900;
+    line-height: 1;
+  }
+  .stat-label {
+    font-size: 0.6em;
+    color: #888;
+    margin-top: 6px;
+  }
+
+  .reveal .slide-background { background: var(--brain-dark); }
+  .reveal blockquote {
+    background: var(--brain-card);
+    border-left: 4px solid var(--brain-purple);
+    border-radius: 0 10px 10px 0;
+    padding: 12px 18px;
+    font-style: italic;
+    color: #ccc;
+    width: 85%;
+    margin: 10px auto;
+    font-size: 0.7em;
+  }
+
+  .wire-demo {
+    background: var(--brain-card);
+    border-radius: 12px;
+    padding: 14px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.45em;
+    line-height: 1.6;
+    border: 1px solid rgba(179, 136, 255, 0.2);
+  }
+  .wire-demo .prompt { color: var(--brain-cyan); }
+  .wire-demo .output { color: #888; }
+  .wire-demo .success { color: #69f0ae; }
+  .wire-demo .status { color: var(--brain-purple); }
+
+  .comparison-table {
+    width: 90%;
+    margin: 20px auto;
+    border-collapse: collapse;
+    font-size: 0.6em;
+  }
+  .comparison-table th {
+    color: var(--brain-cyan);
+    text-align: left;
+    padding: 10px 16px;
+    border-bottom: 2px solid rgba(24, 255, 255, 0.3);
+  }
+  .comparison-table td {
+    padding: 10px 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    color: #bbb;
+  }
+  .comparison-table .yes { color: #69f0ae; font-weight: 600; }
+  .comparison-table .no { color: #ff5252; }
+
+  .subtitle {
+    font-size: 0.6em;
+    color: #888;
+    margin-top: -10px;
+  }
+
+  @media (max-width: 768px) {
+    .reveal .slides section { padding: 5px 10px; }
+    .reveal h1 { font-size: 1.2em; }
+    .reveal h2 { font-size: 1.0em; }
+    .reveal h3 { font-size: 0.9em; }
+    .reveal .slides section img { max-width: 90% !important; }
+    .tool-grid { grid-template-columns: 1fr; gap: 4px; }
+    .tool-card { padding: 6px 10px; font-size: 0.45em; }
+    .flow-step { padding: 6px 10px; font-size: 0.5em; margin: 4px 0; }
+    .agent-row { gap: 6px; margin: 12px 0; }
+    .agent-badge { padding: 5px 10px; font-size: 0.45em; }
+    .stat-row { gap: 14px; flex-wrap: wrap; margin: 14px 0; }
+    .stat-box { flex: 0 0 45%; }
+    .stat-num { font-size: 1.6em; }
+    .stat-label { font-size: 0.45em; }
+    .wire-demo { font-size: 0.4em; padding: 10px; }
+    .reveal pre { font-size: 0.4em; padding: 10px; width: 100%; }
+    .reveal blockquote { font-size: 0.55em; padding: 8px 12px; margin: 8px auto; width: 92%; }
+    .comparison-table { font-size: 0.45em; width: 100%; }
+    .comparison-table th, .comparison-table td { padding: 6px 8px; }
+    .subtitle { font-size: 0.5em; }
+    .reveal .controls { display: none; }
+    .reveal .progress { height: 3px; }
+  }
+
+  @media (max-width: 480px) {
+    .reveal h1 { font-size: 1.0em; }
+    .reveal h2 { font-size: 0.9em; }
+    .tool-grid { grid-template-columns: 1fr; }
+    .tool-card { font-size: 0.5em; }
+    .flow-step { font-size: 0.55em; }
+    .stat-num { font-size: 1.4em; }
+    .reveal pre { font-size: 0.35em; }
+    .wire-demo { font-size: 0.35em; }
+    .agent-row { gap: 4px; }
+    .agent-badge { font-size: 0.5em; padding: 4px 8px; }
+  }
+
+  @media (orientation: portrait) and (max-width: 768px) {
+    .comparison-table { display: block; overflow-x: auto; white-space: nowrap; }
+  }
+</style>
+</head>
+<body>
+<div class="reveal">
+<div class="slides">
+
+<!-- SLIDE 1: Title -->
+<section class="center-slide" data-background-color="#0a0a1a">
+  <img src="../assets/images/open-brain-wide.png" alt="Open Brain" style="max-width:70%; border-radius:12px; margin-bottom:10px;">
+  <p style="font-size:0.9em; color:#ccc; margin-top:-10px;">
+    A shared persistent memory for <em>every</em> AI tool you use
+  </p>
+  <div class="agent-row" style="margin-top:40px;">
+    <div class="agent-badge active">Claude Code</div>
+    <div class="agent-badge active">Cursor</div>
+    <div class="agent-badge active">Windsurf</div>
+    <div class="agent-badge active">VS Code Copilot</div>
+    <div class="agent-badge active">ChatGPT</div>
+  </div>
+  <p style="font-size:0.5em; color:#666; margin-top:30px;">
+    MCP Server &bull; pgvector &bull; Local LLMs &bull; 100% Local &bull; ~$0/month
+  </p>
+</section>
+
+<!-- SLIDE 2: The Problem -->
+<section data-background-color="#0a0a1a">
+  <h2>The <span class="pink">Problem</span></h2>
+  <div class="flow-step pink fragment">
+    <span class="step-num">1</span>
+    Every AI tool has <strong>amnesia</strong>. Close the chat, lose the context.
+  </div>
+  <div class="flow-step pink fragment">
+    <span class="step-num">2</span>
+    Switch from Cursor to Claude Code? <strong>Start from scratch.</strong>
+  </div>
+  <div class="flow-step pink fragment">
+    <span class="step-num">3</span>
+    That architecture decision you made last Tuesday? <strong>Gone.</strong>
+  </div>
+  <div class="flow-step pink fragment">
+    <span class="step-num">4</span>
+    Bugs you already fixed? Your AI will <strong>suggest the same broken approach again.</strong>
+  </div>
+  <blockquote class="fragment" style="margin-top:30px;">
+    You're the only one remembering anything. Your AI tools should be doing that for you.
+  </blockquote>
+</section>
+
+<!-- SLIDE 3: The Solution -->
+<section class="center-slide" data-background-color="#0a0a1a">
+  <h2>The <span class="gradient-text">Solution</span></h2>
+  <p style="font-size:0.85em; color:#ccc; max-width:700px; margin:20px auto;">
+    One shared brain that <strong>every agent reads and writes to</strong>,
+    automatically, silently, without you lifting a finger.
+  </p>
+  <div style="margin-top:30px;">
+    <div class="flow-step fragment">
+      <span class="step-num">&#x1f9e0;</span>
+      <strong>Capture</strong> in Claude Code at 2am
+    </div>
+    <div class="flow-step cyan fragment">
+      <span class="step-num">&#x1f50d;</span>
+      <strong>Recall</strong> in Cursor the next morning
+    </div>
+    <div class="flow-step fragment">
+      <span class="step-num">&#x2728;</span>
+      Your AI already <strong>knows the context</strong>
+    </div>
+  </div>
+</section>
+
+<!-- SLIDE 4: How It Works (Architecture) -->
+<section data-background-color="#0a0a1a">
+  <h2>How It <span class="accent">Works</span></h2>
+  <pre style="font-size:0.45em; line-height:1.5;">
+<span style="color:#b388ff;">Your thought / conversation</span>
+         |
+         v
+  [remember / capture_context]
+         |
+         +---> <span style="color:#18ffff;">Ollama</span>        -->  vector embedding (768 dims)
+         +---> <span style="color:#ff80ab;">LLM / heuristic</span> -->  metadata (type, people, topics)
+         +---> <span style="color:#b388ff;">project scope</span>   -->  filter by project
+                  |
+                  v
+       <span style="color:#69f0ae;">PostgreSQL + pgvector</span>
+       (annotations, ratings, access tracking)
+                  |
+                  v
+       <span style="color:#18ffff;">MCP Server</span> (stdio / HTTP)  --  19 tools
+                  |
+         +-------+--------+--------+--------+
+         v       v        v        v        v
+      Claude  Cursor  Windsurf  Copilot  ChatGPT</pre>
+</section>
+
+<!-- SLIDE 5: Auto-Capture -->
+<section data-background-color="#0a0a1a">
+  <h2>Silent <span class="accent">Auto-Capture</span></h2>
+  <p class="subtitle">Agents capture without being asked. You never say "remember this."</p>
+  <div class="flow-step fragment" style="margin-top:20px;">
+    <span class="step-num">1</span>
+    You fix a bug in Claude Code. The agent silently calls <code style="color:var(--brain-cyan);">capture_context</code>
+  </div>
+  <div class="flow-step cyan fragment">
+    <span class="step-num">2</span>
+    The brain decomposes it into atomic memories: <em>root cause</em>, <em>fix applied</em>, <em>decision made</em>
+  </div>
+  <div class="flow-step fragment">
+    <span class="step-num">3</span>
+    Each gets a vector embedding + metadata (type, people, topics, action items)
+  </div>
+  <div class="flow-step cyan fragment">
+    <span class="step-num">4</span>
+    Dedup check: near-identical memories are skipped automatically
+  </div>
+  <div class="flow-step fragment">
+    <span class="step-num">5</span>
+    Stored in PostgreSQL. Searchable by meaning across <em>every</em> future session.
+  </div>
+</section>
+
+<!-- SLIDE 6: Auto-Recall -->
+<section data-background-color="#0a0a1a">
+  <h2>Proactive <span class="purple">Auto-Recall</span></h2>
+  <p class="subtitle">Agents search the brain before starting tasks. Prior context surfaces automatically.</p>
+  <div style="margin-top:20px;">
+    <div class="flow-step fragment">
+      <span class="step-num">1</span>
+      Next morning, open <strong>Cursor</strong> and start working on the same feature
+    </div>
+    <div class="flow-step cyan fragment">
+      <span class="step-num">2</span>
+      Cursor silently calls <code style="color:var(--brain-cyan);">search("authentication token validation")</code>
+    </div>
+    <div class="flow-step fragment">
+      <span class="step-num">3</span>
+      Finds the bug fix from last night's Claude Code session, <em>by meaning, not keywords</em>
+    </div>
+    <div class="flow-step cyan fragment">
+      <span class="step-num">4</span>
+      Cursor already knows: the root cause, the fix, and the decision to use integration tests
+    </div>
+  </div>
+  <blockquote class="fragment" style="margin-top:20px;">
+    "Why does my AI suddenly remember my project?" Because the brain captured it automatically.
+  </blockquote>
+</section>
+
+<!-- SLIDE 7: Wire CLI -->
+<section data-background-color="#0a0a1a">
+  <h2>One-Command <span class="accent">Setup</span></h2>
+  <div class="wire-demo" style="margin-top:20px;">
+    <span class="prompt">$</span> python server.py wire --check<br><br>
+    <span class="output">Scanning for AI tools...</span><br>
+    <span class="status">  Claude Desktop</span> &nbsp; <span class="success">up-to-date</span><br>
+    <span class="status">  Claude Code CLI</span> &nbsp; <span class="success">up-to-date</span><br>
+    <span class="status">  Cursor</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span style="color:#ffab40;">needs-config</span><br>
+    <span class="status">  Windsurf</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="success">up-to-date</span><br>
+    <span class="status">  VS Code Copilot</span> &nbsp; <span style="color:#ffab40;">needs-config</span><br>
+    <span class="status">  ChatGPT Desktop</span> &nbsp; <span class="output">not-installed</span><br><br>
+    <span class="prompt">$</span> python server.py wire<br><br>
+    <span class="success">  Cursor &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; wired &#10003;</span><br>
+    <span class="success">  VS Code Copilot &nbsp; wired &#10003;</span><br><br>
+    <span class="output">Done. All agents connected to Open Brain.</span>
+  </div>
+</section>
+
+<!-- SLIDE 8: 19 Tools -->
+<section data-background-color="#0a0a1a">
+  <h2><span class="gradient-text">19</span> MCP Tools</h2>
+  <div class="tool-grid">
+    <div class="tool-card fragment">
+      <div class="tool-name">capture_context</div>
+      <div class="tool-desc">Auto-ingest session text, decompose into atomic memories</div>
+    </div>
+    <div class="tool-card fragment">
+      <div class="tool-name">search</div>
+      <div class="tool-desc">Semantic search by meaning. Returns 200-char previews.</div>
+    </div>
+    <div class="tool-card fragment">
+      <div class="tool-name">recall</div>
+      <div class="tool-desc">Get full memory content by ID, tracks access</div>
+    </div>
+    <div class="tool-card fragment">
+      <div class="tool-name">remember</div>
+      <div class="tool-desc">Store a single explicit thought or decision</div>
+    </div>
+    <div class="tool-card fragment">
+      <div class="tool-name">boot_session</div>
+      <div class="tool-desc">Load full project context at session start. Mandatory.</div>
+    </div>
+    <div class="tool-card fragment">
+      <div class="tool-name">brain_checkpoint</div>
+      <div class="tool-desc">Check brain before risky actions. Blocks until called.</div>
+    </div>
+    <div class="tool-card fragment">
+      <div class="tool-name">pin / unpin</div>
+      <div class="tool-desc">Pin guardrails so they surface in every boot sequence</div>
+    </div>
+    <div class="tool-card fragment">
+      <div class="tool-name">+ 8 more</div>
+      <div class="tool-desc">rate, annotate, prune, forget, list_recent, stats, scratch_set/get/list</div>
+    </div>
+  </div>
+</section>
+
+<!-- SLIDE 9: Smart Batching -->
+<section data-background-color="#0a0a1a">
+  <h2>Smart <span class="accent">Batching</span></h2>
+  <p class="subtitle">GPU-aware processing that avoids model thrashing on local hardware</p>
+  <table class="comparison-table fragment" style="margin-top:20px;">
+    <tr>
+      <th>Scenario</th>
+      <th>Naive Approach</th>
+      <th>Open Brain</th>
+    </tr>
+    <tr>
+      <td>5 memories, dual model</td>
+      <td class="no">~200s (constant GPU swaps)</td>
+      <td class="yes">~15s (batched)</td>
+    </tr>
+    <tr>
+      <td>Model loads per capture</td>
+      <td class="no">2 &times; N memories</td>
+      <td class="yes">2 total</td>
+    </tr>
+    <tr>
+      <td>Embedding + metadata</td>
+      <td class="no">Interleaved (thrashing)</td>
+      <td class="yes">Phased (embed all, then extract all)</td>
+    </tr>
+  </table>
+  <div class="flow-step fragment" style="margin-top:20px; font-size:0.6em;">
+    Phase 1: LLM decomposes text into atomic memories &rarr;
+    Phase 2: Batch all embeddings &rarr;
+    Phase 3: Batch all metadata &rarr;
+    Phase 4: Store with dedup
+  </div>
+</section>
+
+<!-- SLIDE 10: Dashboard -->
+<section data-background-color="#0a0a1a">
+  <h2>Live <span class="accent">Dashboard</span></h2>
+  <p class="subtitle">Real-time monitoring without polling. Event-driven via PostgreSQL LISTEN/NOTIFY.</p>
+  <div class="tool-grid" style="margin-top:20px;">
+    <div class="tool-card fragment">
+      <div class="tool-name">Memory Stats</div>
+      <div class="tool-desc">Total, hourly, daily counts. Type and project breakdowns with bar charts.</div>
+    </div>
+    <div class="tool-card fragment">
+      <div class="tool-name">Service Health</div>
+      <div class="tool-desc">PostgreSQL, Ollama, MCP Server. Green/red/yellow dots. One-click restart.</div>
+    </div>
+    <div class="tool-card fragment">
+      <div class="tool-name">OTel Observability</div>
+      <div class="tool-desc">Tool call counts, error rates, top tools, latency. Powered by OpenTelemetry traces.</div>
+    </div>
+    <div class="tool-card fragment">
+      <div class="tool-name">Instant Refresh</div>
+      <div class="tool-desc">DB trigger fires on every write. No timer. No strobe. Data appears when it changes.</div>
+    </div>
+  </div>
+  <blockquote class="fragment" style="margin-top:20px;">
+    Double-click the Desktop shortcut. Everything auto-starts if needed.
+  </blockquote>
+</section>
+
+<!-- SLIDE 11: The Numbers -->
+<section class="center-slide" data-background-color="#0a0a1a">
+  <h2>By The <span class="gradient-text">Numbers</span></h2>
+  <div class="stat-row">
+    <div class="stat-box fragment">
+      <div class="stat-num gradient-text">19</div>
+      <div class="stat-label">MCP Tools</div>
+    </div>
+    <div class="stat-box fragment">
+      <div class="stat-num" style="color:var(--brain-cyan);">~100ms</div>
+      <div class="stat-label">Search Latency</div>
+    </div>
+    <div class="stat-box fragment">
+      <div class="stat-num" style="color:var(--brain-pink);">8+</div>
+      <div class="stat-label">Supported Clients</div>
+    </div>
+    <div class="stat-box fragment">
+      <div class="stat-num" style="color:var(--brain-purple);">$0</div>
+      <div class="stat-label">Monthly Cost (local)</div>
+    </div>
+  </div>
+  <div class="stat-row" style="margin-top:10px;">
+    <div class="stat-box fragment">
+      <div class="stat-num" style="color:#69f0ae;">1</div>
+      <div class="stat-label">Command to Wire All Agents</div>
+    </div>
+    <div class="stat-box fragment">
+      <div class="stat-num" style="color:var(--brain-cyan);">0</div>
+      <div class="stat-label">Cloud Dependencies</div>
+    </div>
+    <div class="stat-box fragment">
+      <div class="stat-num" style="color:var(--brain-pink);">100%</div>
+      <div class="stat-label">Your Data Stays Local</div>
+    </div>
+  </div>
+</section>
+
+<!-- SLIDE 11: CTA / Closing -->
+<section class="center-slide" data-background-color="#0a0a1a">
+  <h1><span class="gradient-text">Open Brain</span></h1>
+  <p style="font-size:0.85em; color:#ccc; max-width:600px; margin:20px auto;">
+    Your AI tools should never forget.
+  </p>
+  <div style="margin-top:40px;">
+    <p style="font-size:0.6em;">
+      <span class="accent">Docs:</span> shep-engineering.github.io/open-brain<br>
+      <span class="purple">GitHub:</span> github.com/shep-engineering/open-brain<br>
+      <span class="pink">Stack:</span> Python &bull; MCP &bull; pgvector &bull; Ollama &bull; Docker
+    </p>
+  </div>
+  <blockquote style="margin-top:30px;">
+    The user's only job is to work.<br>The brain's job is to remember everything.
+  </blockquote>
+</section>
+
+</div>
+</div>
+
+<script src="vendor/reveal.js"></script>
+<script>
+var isMobile = window.matchMedia('(max-width: 768px)').matches;
+Reveal.initialize({
+  hash: true,
+  transition: isMobile ? 'fade' : 'slide',
+  transitionSpeed: 'default',
+  backgroundTransition: 'fade',
+  center: false,
+  width: 1200,
+  height: 700,
+  margin: isMobile ? 0.04 : 0.02,
+  minScale: 0.1,
+  maxScale: 2.0,
+  controls: !isMobile,
+  controlsTutorial: false,
+  progress: true,
+  slideNumber: !isMobile,
+  touch: true,
+  hideInactiveCursor: true,
+  autoAnimateEasing: 'ease-in-out',
+  autoAnimateDuration: 0.8,
+});
+</script>
+</body>
+</html>
