@@ -1358,21 +1358,47 @@ def _find_other_dashboard_pid() -> int | None:
         psutil = None  # type: ignore
 
     if psutil is not None:
+        try:
+            our_dashboard = (Path(__file__).resolve()).as_posix().lower()
+        except Exception:
+            our_dashboard = ""
+        # Build the set of "self" PIDs we must not match against: our own
+        # PID plus every ancestor. This is critical on Windows because
+        # `.venv\Scripts\python.exe` is a launcher that re-execs as the
+        # base Python interpreter; both processes carry `dashboard.py`
+        # in argv and both stay alive during our startup. Without the
+        # ancestor skip, the guard would falsely detect its own
+        # launcher parent as another running instance.
+        selfset = {me}
+        try:
+            p = psutil.Process(me)
+            while True:
+                ppid = p.ppid()
+                if ppid in (0, me) or ppid in selfset:
+                    break
+                selfset.add(ppid)
+                p = psutil.Process(ppid)
+        except Exception:
+            pass
         for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
             try:
-                if proc.info['pid'] == me:
+                if proc.info['pid'] in selfset:
                     continue
                 name = (proc.info.get('name') or '').lower()
                 if 'python' not in name:
                     continue
                 cmd = proc.info.get('cmdline') or []
-                # Match only if an argv entry is the dashboard.py path
-                # itself (not a free-form string that merely contains
-                # the literal "dashboard.py" — e.g. a `-c` payload).
                 for arg in cmd:
+                    arg_str = str(arg)
                     try:
-                        if Path(str(arg)).name == 'dashboard.py':
-                            return proc.info['pid']
+                        p = Path(arg_str)
+                        if p.name.lower() != 'dashboard.py':
+                            continue
+                        if not p.is_file():
+                            continue
+                        if p.resolve().as_posix().lower() != our_dashboard:
+                            continue
+                        return proc.info['pid']
                     except (OSError, ValueError):
                         continue
             except Exception:
