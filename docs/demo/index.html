@@ -233,6 +233,66 @@
     .subtitle { font-size: 0.5em; }
     .reveal .controls { display: none; }
     .reveal .progress { height: 3px; }
+
+    /* Custom mobile navigation: large tap zones with clear chevrons.
+       Native reveal controls are too small + fiddly on a phone. */
+    .mobile-nav {
+      position: fixed;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 44px;
+      height: 72px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(167, 139, 250, 0.18);
+      color: #c4b5fd;
+      font-size: 38px;
+      font-weight: 300;
+      line-height: 1;
+      border-radius: 10px;
+      z-index: 100;
+      cursor: pointer;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      transition: background 0.15s, opacity 0.25s;
+    }
+    .mobile-nav-left { left: 6px; }
+    .mobile-nav-right { right: 6px; }
+    .mobile-nav:active { background: rgba(167, 139, 250, 0.45); }
+    .mobile-nav.disabled { opacity: 0.2; pointer-events: none; }
+
+    /* One-shot swipe hint on first load */
+    .swipe-hint {
+      position: fixed;
+      bottom: 22px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(167, 139, 250, 0.95);
+      color: #0a0a1e;
+      padding: 10px 18px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      z-index: 101;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      pointer-events: none;
+      animation: swipeHintFade 5s ease-in-out forwards;
+    }
+    @keyframes swipeHintFade {
+      0%   { opacity: 0; transform: translateX(-50%) translateY(12px); }
+      12%  { opacity: 1; transform: translateX(-50%) translateY(0); }
+      80%  { opacity: 1; }
+      100% { opacity: 0; }
+    }
+  }
+
+  /* Desktop: hide the mobile-only chrome so nothing overlaps the normal controls */
+  @media (min-width: 769px) {
+    .mobile-nav, .swipe-hint { display: none !important; }
   }
 
   @media (max-width: 480px) {
@@ -600,6 +660,50 @@ Reveal.initialize({
   autoAnimateEasing: 'ease-in-out',
   autoAnimateDuration: 0.8,
 });
+
+// Mobile-only: inject large tap arrows + a one-shot swipe hint.
+// Reveal handles the actual touch gestures natively (touch: true above);
+// this layer just surfaces the affordance so a first-time visitor knows
+// swiping works and has a tap fallback.
+if (isMobile) {
+  var leftBtn = document.createElement('div');
+  leftBtn.className = 'mobile-nav mobile-nav-left';
+  leftBtn.setAttribute('role', 'button');
+  leftBtn.setAttribute('aria-label', 'Previous slide');
+  leftBtn.innerHTML = '\u2039';  // single left-pointing chevron
+
+  var rightBtn = document.createElement('div');
+  rightBtn.className = 'mobile-nav mobile-nav-right';
+  rightBtn.setAttribute('role', 'button');
+  rightBtn.setAttribute('aria-label', 'Next slide');
+  rightBtn.innerHTML = '\u203A';  // single right-pointing chevron
+
+  document.body.appendChild(leftBtn);
+  document.body.appendChild(rightBtn);
+
+  leftBtn.addEventListener('click',  function () { Reveal.prev(); });
+  rightBtn.addEventListener('click', function () { Reveal.next(); });
+
+  // Update disabled-state styling at each slide boundary.
+  function updateMobileNav() {
+    leftBtn.classList.toggle('disabled',  Reveal.isFirstSlide());
+    rightBtn.classList.toggle('disabled', Reveal.isLastSlide());
+  }
+  Reveal.on('ready', updateMobileNav);
+  Reveal.on('slidechanged', updateMobileNav);
+
+  // Swipe hint: fades in, holds ~3s, fades out — appears once per session.
+  if (!sessionStorage.getItem('obSwipeHintShown')) {
+    var hint = document.createElement('div');
+    hint.className = 'swipe-hint';
+    hint.textContent = '\u2039  Swipe or tap arrows to navigate  \u203A';
+    document.body.appendChild(hint);
+    sessionStorage.setItem('obSwipeHintShown', '1');
+    setTimeout(function () {
+      if (hint && hint.parentNode) hint.parentNode.removeChild(hint);
+    }, 5200);
+  }
+}
 </script>
 </body>
 </html>
