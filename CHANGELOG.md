@@ -5,6 +5,63 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] - 2026-04-13
+
+### Fixed — Scrub hardcoded personal paths from tracked tree
+
+Pre-flight remediation for shep-engineering publication. All Category A (~18)
+and Category B (3) hardcoded-path leaks identified in `docs/planning/SCRUB.md`
+are removed from tracked, non-planning files. Behaviorally identical for the
+author's current installation; portable for anyone else cloning the repo.
+
+- **Path relativization** — launcher scripts now resolve the repo root from
+  their own location rather than hardcoding `F:\open-brain`:
+  `start.ps1`, `stop.ps1` via `$MyInvocation.MyCommand.Path`;
+  `scripts/windows/open-brain-{on,off,dashboard,sse-proxy}.cmd` and
+  `backup-brain.cmd` via `%~dp0..\..`;
+  `scripts/windows/create-desktop-shortcuts.ps1` via `$PSScriptRoot`.
+- **Docstring / comment scrubs** — `server.py`, `dashboard.py`, `AGENTS.md`,
+  `scripts/ensure-stack.sh` replace hardcoded install paths with the
+  `<OPEN_BRAIN_ROOT>` placeholder.
+- **Cross-project leak fixes**:
+  - `telemetry.py` — docstring no longer names `F:\my-archetypes\observability`
+  - `scripts/make_icon.py` — rewritten to parameterize the source PNG via
+    `sys.argv[1]` (default `assets/brain-source.png`) + resolve the output
+    path relative to the repo root; previously hardcoded `F:\comfyui\output\...`
+  - `.windsurf/workflows/scaffold-AI.md` — generic `<your-archetypes-dir>/AI/...`
+- **`scripts/windows/open-brain-off.cmd` rewritten** to delegate to the v0.9.0
+  `infrastructure.bring_down()` instead of its previous taskkill-heavy flow —
+  now behaviorally identical to clicking "Close + Stop Open Brain" from the
+  dashboard. Also fixes pre-v0.9.0 overreach: no longer kills Docker Desktop
+  (respects other containers) and no longer calls the dead-code `ollama stop`
+  with no arg.
+- **`scripts/windows/open-brain-on.cmd` version banner** — was stuck at
+  `v0.4.1 / 12 tools` (5 releases stale), now `v0.9.0 / 19 tools`.
+- **`.task-markers/` added to `.gitignore`** + 6 March-2026 tracked markers
+  untracked via `git rm --cached`. One of them leaked an `F:/open-brain/...`
+  path in its test-note field.
+
+### Added — `scripts/deploy-docs.ps1` + `scripts/deploy-docs.sh`
+
+Wrapper around `mkdocs gh-deploy` that forces the committer identity to
+`David Sheppard <davidasheppard@outlook.com>` for the deploy commit.
+Without this, `mkdocs gh-deploy` silently publishes the gh-pages commit
+under whatever `git config user.email` is active locally — which would
+be `degailen@gmail.com` for anyone working on `degailen/main` and result
+in a committer-identity leak on the public shep-engineering repo.
+
+Supports `--orphan` / `-Orphan` to force a clean-history orphan push
+when history needs to be wiped (e.g., after a prior identity leak).
+
+### Fixed — Committer-identity leak on `shep-engineering/open-brain` gh-pages
+
+Prior `mkdocs gh-deploy` invocations this session (commits `1e9bd23`,
+`e2b8748`, and 2 prior degailen-authored commits going back to 2026-03-25)
+were published with the `degailen <degailen@gmail.com>` identity. Force-
+pushed a single clean orphan commit authored as David Sheppard. The leak
+exposure happened (public record at time of push) but the current remote
+history is clean.
+
 ## [0.9.0] - 2026-04-13
 
 ### Added — Genuine graceful ollama shutdown (Ctrl+Break via Win32)
