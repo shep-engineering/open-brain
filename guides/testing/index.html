@@ -865,6 +865,67 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#mobile-ux-evaluator-harness" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mobile UX evaluator harness
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Mobile UX evaluator harness">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-it-asserts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What it asserts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#harness-fidelity-disclaimers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Harness-fidelity disclaimers
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#when-to-add-this-to-ci" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When to add this to CI
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#cleanup" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1106,6 +1167,67 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#mobile-ux-evaluator-harness" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mobile UX evaluator harness
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Mobile UX evaluator harness">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-it-asserts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What it asserts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#harness-fidelity-disclaimers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Harness-fidelity disclaimers
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#when-to-add-this-to-ci" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When to add this to CI
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#cleanup" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1267,24 +1389,70 @@
 <td>Secret detection patterns and false positives</td>
 <td>No</td>
 </tr>
+<tr>
+<td><code>tests/test_infrastructure.py</code></td>
+<td>Pure-Python launcher (<code>bring_up</code>/<code>bring_down</code>, graceful Ctrl+Break, ownership model). Mocked subprocess + urllib.</td>
+<td>No</td>
+</tr>
+<tr>
+<td><code>tests/mobile/test_demo_nav.py</code></td>
+<td>Reveal.js demo deck on mobile — Pixel 5 emulation, portrait + landscape, chevron taps + swipes + rotation.</td>
+<td>No (uses Playwright's bundled Chromium)</td>
+</tr>
 </tbody>
 </table>
 <p>All test files that touch the database use project-scoped cleanup fixtures (<code>__test_pinned__</code>, <code>__test_compliance__</code>) for additional isolation.</p>
 <hr />
+<h2 id="mobile-ux-evaluator-harness">Mobile UX evaluator harness</h2>
+<p><code>tests/mobile/test_demo_nav.py</code> is a self-contained Playwright harness
+that builds the docs site (<code>mkdocs build</code>), serves it on a local port,
+opens it in Chromium with Pixel 5 device emulation, and drives the
+reveal.js demo deck through real touch + pointer events. Catches mobile
+UX regressions that desktop browser checks miss entirely.</p>
+<h3 id="run">Run</h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>.venv<span class="se">\S</span>cripts<span class="se">\p</span>ython.exe<span class="w"> </span>tests/mobile/test_demo_nav.py
+</code></pre></div>
+<p>Exit code is 0 iff all 20 assertions pass. Failures drop screenshots in
+<code>logs/mobile-test-shots/</code> for visual evidence.</p>
+<h3 id="what-it-asserts">What it asserts</h3>
+<p>For both <code>portrait (393x851)</code> and <code>landscape (851x393)</code>:</p>
+<ol>
+<li>Page loads on slide 0</li>
+<li>Right + left chevrons render and are visible</li>
+<li>Tap right chevron → slide advances; tap left → goes back</li>
+<li>Horizontal swipe R→L advances; L→R goes back</li>
+<li><strong>Vertical swipe (swipe-up) does NOT navigate</strong> — locks navigation to horizontal gestures + chevrons</li>
+</ol>
+<p>Plus a portrait→landscape rotation assertion that the mobile chrome
+(chevrons + slide counter) survives the viewport change without <code>at-edge</code>
+disabling pointer events.</p>
+<h3 id="harness-fidelity-disclaimers">Harness-fidelity disclaimers</h3>
+<p>Documented in the test file. Briefly: Playwright's <code>set_viewport_size</code>
+doesn't fire the full layout-recompute chain Reveal needs after rotation,
+so post-rotation <code>Reveal.next()</code> silently no-ops in this harness even
+though it works on a real phone (where the OS-level rotation fires
+<code>orientationchange</code> properly). The rotation test therefore asserts
+<strong>chrome survival</strong> but not <strong>post-rotation navigation</strong> — that's
+deferred to the planned Tier-2 AVD/adb harness.</p>
+<h3 id="when-to-add-this-to-ci">When to add this to CI</h3>
+<p>Currently runs locally before any <code>docs/demo/index.html</code> change is
+deployed. Add to CI when an <code>mkdocs gh-deploy</code> workflow is wired up —
+the harness should gate the deploy on green.</p>
+<hr />
 <h2 id="cleanup">Cleanup</h2>
 <p>After the test session, <code>conftest.py</code> truncates all tables in the test database. To fully remove the test container:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>docker<span class="w"> </span>compose<span class="w"> </span>-f<span class="w"> </span>docker-compose.test.yml<span class="w"> </span>down
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>docker<span class="w"> </span>compose<span class="w"> </span>-f<span class="w"> </span>docker-compose.test.yml<span class="w"> </span>down
 </code></pre></div>
 <p>Since there's no volume, all data is gone.</p>
 <hr />
 <h2 id="troubleshooting">Troubleshooting</h2>
 <h3 id="tests-skip-with-test-database-not-running">Tests skip with "Test database not running"</h3>
 <p>Start the container:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>docker<span class="w"> </span>compose<span class="w"> </span>-f<span class="w"> </span>docker-compose.test.yml<span class="w"> </span>up<span class="w"> </span>-d
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>docker<span class="w"> </span>compose<span class="w"> </span>-f<span class="w"> </span>docker-compose.test.yml<span class="w"> </span>up<span class="w"> </span>-d
 </code></pre></div>
 <h3 id="port-5434-is-in-use">Port 5434 is in use</h3>
 <p>Check what's using it:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>docker<span class="w"> </span>ps<span class="w"> </span>--format<span class="w"> </span><span class="s2">&quot;table {{.Names}}\t{{.Ports}}&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span><span class="m">5434</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>docker<span class="w"> </span>ps<span class="w"> </span>--format<span class="w"> </span><span class="s2">&quot;table {{.Names}}\t{{.Ports}}&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span><span class="m">5434</span>
 </code></pre></div>
 <h3 id="tests-accidentally-hit-production">Tests accidentally hit production</h3>
 <p>This should be impossible with the three safety layers. If you see it, check that <code>conftest.py</code> is at the project root (not inside <code>tests/</code>). pytest must discover it before any test module imports <code>server</code>.</p>

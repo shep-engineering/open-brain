@@ -1096,6 +1096,10 @@
 <td>Per-service colored dots at a glance</td>
 </tr>
 <tr>
+<td><strong>GPU Selector</strong> <em>(v0.10.0+)</em></td>
+<td>Dropdown auto-populated from <code>nvidia-smi -L</code> showing the available CUDA devices ("RTX 5090", "RTX 3080 Ti", "Auto"). Hidden if <code>nvidia-smi</code> reports no GPUs. Apply button does a graceful Ollama restart so the new selection takes effect.</td>
+</tr>
+<tr>
 <td><strong>By Type / By Project</strong></td>
 <td>Bar charts showing memory distribution</td>
 </tr>
@@ -1124,7 +1128,7 @@
 <p>This eliminates the "strobe" effect that timer-based polling causes.</p>
 <hr />
 <h2 id="launching">Launching</h2>
-<p>The dashboard detects whether Open Brain is already running. If services are up, it opens directly. If not, it shows a startup splash that drives <code>scripts/infrastructure.py</code>'s <code>bring_up()</code> in a worker thread — bringing up Docker, the <code>open-brain-db</code> container, and <code>ollama serve</code> in sequence while streaming structured progress to the splash and to <code>logs/startup.log</code>. Since v0.8.0 this is a pure-Python flow (no <code>.cmd</code> chain, no pipe inheritance); since v0.9.0 shutdown uses a real Win32 Ctrl+Break graceful signal for ollama instead of <code>taskkill /F</code>.</p>
+<p>The dashboard detects whether Open Brain is already running. If services are up, it opens directly. If not, it shows a startup splash that drives <code>scripts/infrastructure.py</code>'s <code>bring_up()</code> in a worker thread — bringing up Docker, the <code>open-brain-db</code> container, and <code>ollama serve</code> in sequence while streaming structured progress to the splash and to <code>logs/startup.log</code>. Since v0.8.0 this is a pure-Python flow (no <code>.cmd</code> chain, no pipe inheritance); since v0.9.0 shutdown uses a real Win32 Ctrl+Break graceful signal for ollama instead of <code>taskkill /F</code>; since v0.10.0 a single-instance guard inside <code>dashboard.py</code> itself prevents a duplicate window when the desktop shortcut is double-clicked twice — it focuses the existing window instead of spawning a second one.</p>
 <div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Desktop Shortcut (Windows)</label><label for="__tabbed_1_2">Command Line</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
