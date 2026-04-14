@@ -1344,10 +1344,119 @@ class StartupSplash(ctk.CTkToplevel):
         self._on_ready()
 
 
+def _find_other_dashboard_pid() -> int | None:
+    """Return PID of another running dashboard.py process, or None.
+
+    Covers both the splash ("Open Brain - Starting") and main ("Open Brain
+    Dashboard") windows since both are pythonw.exe running dashboard.py.
+    Uses psutil if available, tasklist+wmic fallback otherwise.
+    """
+    me = os.getpid()
+    try:
+        import psutil  # type: ignore
+    except ImportError:
+        psutil = None  # type: ignore
+
+    if psutil is not None:
+        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+            try:
+                if proc.info['pid'] == me:
+                    continue
+                name = (proc.info.get('name') or '').lower()
+                if 'python' not in name:
+                    continue
+                cmd = proc.info.get('cmdline') or []
+                # Match only if an argv entry is the dashboard.py path
+                # itself (not a free-form string that merely contains
+                # the literal "dashboard.py" — e.g. a `-c` payload).
+                for arg in cmd:
+                    try:
+                        if Path(str(arg)).name == 'dashboard.py':
+                            return proc.info['pid']
+                    except (OSError, ValueError):
+                        continue
+            except Exception:
+                continue
+        return None
+
+    # Fallback: WMIC on Windows
+    if IS_WINDOWS:
+        try:
+            r = subprocess.run(
+                ["wmic", "process", "where",
+                 "commandline like '%dashboard.py%' and not commandline like '%wmic%'",
+                 "get", "processid", "/format:list"],
+                capture_output=True, text=True, timeout=5,
+            )
+            for line in (r.stdout or "").splitlines():
+                if line.startswith("ProcessId="):
+                    pid = int(line.split("=", 1)[1].strip())
+                    if pid != me:
+                        return pid
+        except Exception:
+            pass
+    return None
+
+
+def _focus_existing_dashboard() -> bool:
+    """Bring the existing Open Brain window (splash or main) to front.
+    Returns True if a window was found and focus call issued."""
+    if not IS_WINDOWS:
+        return False
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.windll.user32
+        EnumWindows = user32.EnumWindowsW if hasattr(user32, "EnumWindowsW") else user32.EnumWindows
+        GetWindowText = user32.GetWindowTextW
+        GetWindowTextLength = user32.GetWindowTextLengthW
+        IsWindowVisible = user32.IsWindowVisible
+        SetForegroundWindow = user32.SetForegroundWindow
+        ShowWindow = user32.ShowWindow
+        SW_RESTORE = 9
+
+        found = {"hwnd": None}
+
+        @ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
+        def cb(hwnd, lparam):
+            if not IsWindowVisible(hwnd):
+                return True
+            length = GetWindowTextLength(hwnd)
+            if length == 0:
+                return True
+            buf = ctypes.create_unicode_buffer(length + 1)
+            GetWindowText(hwnd, buf, length + 1)
+            title = buf.value or ""
+            if title.startswith("Open Brain"):
+                found["hwnd"] = hwnd
+                return False  # stop enumeration
+            return True
+
+        EnumWindows(cb, 0)
+        hwnd = found["hwnd"]
+        if hwnd:
+            ShowWindow(hwnd, SW_RESTORE)
+            SetForegroundWindow(hwnd)
+            return True
+    except Exception:
+        pass
+    return False
+
+
 if __name__ == "__main__":
     import traceback
     log_path = BASE_DIR / "dashboard-crash.log"
     try:
+        # Single-instance guard: if another dashboard.py is already
+        # running, focus its window and exit. Covers every launch path
+        # (desktop shortcut, .cmd wrapper, CLI, repeat double-clicks) —
+        # the check is intrinsic to the Python process, not layered on
+        # top via an external .cmd the shortcut might bypass.
+        other_pid = _find_other_dashboard_pid()
+        if other_pid is not None:
+            _focus_existing_dashboard()
+            sys.exit(0)
+
         if IS_WINDOWS:
             import ctypes
             # DPI-aware: render at native resolution so icon + text are crisp
