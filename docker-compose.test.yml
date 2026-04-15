@@ -1,0 +1,16 @@
+services:
+  postgres-test:
+    image: pgvector/pgvector:pg16
+    container_name: open-brain-test-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: testpassword
+      POSTGRES_DB: openbrain_test
+    ports:
+      - "5434:5432"
+    # No volume — ephemeral. Test data is wiped on container removal.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d openbrain_test"]
+      interval: 5s
+      timeout: 3s
+      retries: 5

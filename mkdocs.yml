@@ -1,0 +1,75 @@
+site_name: Open Brain
+site_description: A shared persistent memory for every AI coding tool — powered by MCP, pgvector, and local LLMs
+site_author: shep-engineering
+site_url: https://shep-engineering.github.io/open-brain/
+
+dev_addr: 127.0.0.1:8201
+
+theme:
+  name: material
+  palette:
+    - scheme: slate
+      primary: deep purple
+      accent: cyan
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    - scheme: default
+      primary: deep purple
+      accent: cyan
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+  features:
+    - navigation.sections
+    - navigation.expand
+    - content.code.copy
+    - search.highlight
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Installation: getting-started/installation.md
+    - Configuration: getting-started/configuration.md
+    - Wiring Agents: getting-started/wiring-agents.md
+  - Architecture:
+    - Overview: architecture/overview.md
+    - Memory Model: architecture/memory-model.md
+    - Smart Batching: architecture/smart-batching.md
+  - Tools Reference: tools.md
+  - Guides:
+    - Dashboard: guides/dashboard.md
+    - Auto-Capture Rules: guides/auto-capture.md
+    - ChatGPT Desktop: guides/chatgpt-desktop.md
+    - Testing: guides/testing.md
+    - Migration: guides/migration.md
+  - Further Reading: references.md
+
+exclude_docs: |
+  planning/
+  # Internal working notes — COGNITIVE_ARCHITECTURE, CONTEXT_CHECKPOINTS,
+  # DECISIONS_LOG, RALPH_LOOP, SPRINT_BACKLOG, etc. Proprietary content
+  # that must NOT ship to shep-engineering.github.io/open-brain/.
+  # See brain memory #1055 / this file's git blame for rationale.
+
+  # Third-party reference PDFs kept locally for convenience but never
+  # published (provenance/licensing not audited for redistribution).
+  *.pdf
+
+extra_css:
+  - stylesheets/extra.css
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - admonition
+  - tables
+  - attr_list
+  - def_list

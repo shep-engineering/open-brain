@@ -1,0 +1,58 @@
+# Virtual environment — never commit this
+.venv/
+venv/
+env/
+
+# Environment secrets — never commit this
+.env
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Local scratch / dead code
+_dead_code/
+
+# TypeScript build output
+src/dist/
+
+# MkDocs build output
+site/
+
+# Test artifacts
+test_slides.py
+slide7_check.png
+check_schema.py
+test_mcp_start.sh
+
+# Runtime logs
+logs/
+*.log
+server-crash.log
+dashboard-crash.log
+dashboard-error.log
+
+# Database backups
+backups/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+.archetypes/task-state/
+.open-brain.pid
+
+# Task workflow markers (WIP timestamps, not meaningful for distribution)
+.task-markers/
+
+# Third-party reference PDFs — kept locally in docs/ for reading,
+# but NOT tracked in git and NOT published to shep-engineering.
+# Provenance/licensing not audited for public redistribution.
+*.pdf
+!docs/assets/**/*.pdf

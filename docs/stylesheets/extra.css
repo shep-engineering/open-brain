@@ -1,0 +1,33 @@
+/* Open Brain docs — mobile polish on top of MkDocs Material defaults */
+
+/* Keep the hero video from dominating small screens */
+.md-content video {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+@media (max-width: 600px) {
+  .md-content video {
+    max-height: 42vh;
+    margin: 12px 0 !important;
+  }
+  /* Tables with many columns get their own scroll context on narrow screens */
+  .md-typeset table:not([class]) {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  /* ASCII diagrams in fenced code blocks need to scroll rather than wrap */
+  .md-typeset pre > code {
+    white-space: pre;
+  }
+  .md-typeset pre {
+    overflow-x: auto;
+  }
+  /* Trim the huge top-level h1 on phones */
+  .md-typeset h1 {
+    font-size: 1.7rem;
+    line-height: 1.2;
+  }
+}

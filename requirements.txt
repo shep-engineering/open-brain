@@ -1,0 +1,20 @@
+mcp>=1.0.0
+psycopg2-binary>=2.9.9
+python-dotenv>=1.0.0
+uvicorn>=0.27.0
+customtkinter>=5.2.0
+pillow>=10.0.0
+psutil>=5.9.0
+plyer>=2.1.0
+opentelemetry-api>=1.24.0
+opentelemetry-sdk>=1.24.0
+opentelemetry-exporter-otlp-proto-grpc>=1.24.0
+opentelemetry-instrumentation-psycopg2>=0.45b0
+opentelemetry-instrumentation-requests>=0.45b0
+opentelemetry-instrumentation-logging>=0.45b0
+
+# --- mobile-UX evaluator harness (tests/mobile/) ---
+# Drives Chromium with mobile device emulation to verify the reveal.js
+# demo deck's mobile chrome (chevrons, swipes, rotation) before deploy.
+# Run: .venv/Scripts/python.exe tests/mobile/test_demo_nav.py
+playwright>=1.58

@@ -1,0 +1,34 @@
+{
+  "default": true,
+
+  "MD013": false,
+
+  "MD033": false,
+
+  "MD034": false,
+
+  "MD041": false,
+
+  "MD024": {
+    "siblings_only": true
+  },
+
+  "MD040": {
+    "allowed_languages": [
+      "bash",
+      "powershell",
+      "python",
+      "json",
+      "yaml",
+      "text",
+      "markdown",
+      "javascript",
+      "jsonc"
+    ],
+    "language_only": false
+  },
+
+  "MD055": {
+    "style": "leading_and_trailing"
+  }
+}

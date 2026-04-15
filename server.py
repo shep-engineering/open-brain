@@ -1,0 +1,3194 @@
+#!/usr/bin/env python3
+"""
+Open Brain — Agent-readable second brain MCP server.
+
+One PostgreSQL database. One MCP server. Every AI you use.
+
+Usage:
+    python server.py
+    python server.py --transport http
+    python server.py --transport both
+    python server.py wire
+    python server.py wire --check
+
+MCP client config:
+    {
+      "command": "<OPEN_BRAIN_ROOT>\\.venv\\Scripts\\python.exe",
+      "args": ["<OPEN_BRAIN_ROOT>\\server.py"]
+    }
+"""
+from __future__ import annotations
+
+import argparse
+import atexit
+import json
+import os
+import re
+import signal
+import socket
+import sys
+import threading
+import time
+import urllib.error
+import urllib.request
+from datetime import datetime, timezone
+from decimal import Decimal
+from typing import Optional
+
+import psycopg2
+import psycopg2.extras
+from dotenv import load_dotenv
+from mcp.server.fastmcp import FastMCP
+
+from secrets_filter import check_content, SecretDetectedError
+import telemetry
+from telemetry import instrument
+
+# ─── Config ───────────────────────────────────────────────────────────────────
+
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+
+DATABASE_URL       = os.getenv("DATABASE_URL",           "postgresql://postgres:password@127.0.0.1:5432/openbrain")
+EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER",     "ollama")
+EMBEDDING_DIMS     = int(os.getenv("EMBEDDING_DIMENSIONS", "768"))
+OLLAMA_BASE_URL    = os.getenv("OLLAMA_BASE_URL",        "http://127.0.0.1:11434")
+OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")
+OPENAI_API_KEY     = os.getenv("OPENAI_API_KEY",         "")
+OPENAI_EMBED_MODEL = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
+METADATA_LLM_MODEL = os.getenv("METADATA_LLM_MODEL",    "")
+DEDUP_THRESHOLD    = float(os.getenv("DEDUP_THRESHOLD",  "0.92"))
+DECAY_LAMBDA            = float(os.getenv("OPEN_BRAIN_DECAY_LAMBDA",          "0.005"))
+HYBRID_WEIGHT           = float(os.getenv("OPEN_BRAIN_HYBRID_WEIGHT",         "0.3"))
+UPTIME_FLUSH_INTERVAL   = int(os.getenv("OPEN_BRAIN_UPTIME_FLUSH_INTERVAL",   "60"))
+COMPLIANCE_MAX_STORES   = int(os.getenv("COMPLIANCE_MAX_STORES",              "5"))     # must search again after N stores
+MERGE_LOWER_THRESHOLD   = float(os.getenv("OPEN_BRAIN_MERGE_LOWER_THRESHOLD", "0.70"))  # below this = unrelated
+CONSOLIDATION_INTERVAL  = int(os.getenv("OPEN_BRAIN_CONSOLIDATION_INTERVAL",  "0"))    # 0 = disabled
+SKILL_TRIGGER_MAX       = int(os.getenv("OPEN_BRAIN_SKILL_TRIGGER_MAX",      "5"))     # max skill auto-matches per search (v0.12.0+)
+HEARTBEAT_AGENT_INTERVAL = int(os.getenv("OPEN_BRAIN_HEARTBEAT_INTERVAL",    "60"))    # heartbeat-agent pid-probe interval, seconds (v0.14.0+)
+ACTION_ITEM_GATE_MAX    = int(os.getenv("OPEN_BRAIN_ACTION_ITEM_GATE_MAX",   "10"))    # max pending action_items per source (v0.14.0+)
+
+# ─── Session Compliance Tracking ─────────────────────────────────────────────
+#
+# Polling-based enforcement: agents must search the brain proportional to
+# how much they store. After COMPLIANCE_MAX_STORES stores without a search,
+# storage is BLOCKED until the agent searches again. This ensures agents
+# continuously USE the brain as working memory, not just check a box at start.
+#
+# Per-source tracking: {source: {"searches": N, "stores_since_search": N}}
+
+_session_tracker: dict[str, dict] = {}
+
+# Per-source boot tracking: which sources have completed the boot sequence
+_booted_sources: set[str] = set()
+
+# Per-source checkpoint tracking: {source: {topic: timestamp}}
+# Prevents redundant re-checks on the same topic within CHECKPOINT_COOLDOWN seconds
+_checkpoint_tracker: dict[str, dict[str, float]] = {}
+CHECKPOINT_COOLDOWN = 300  # 5 minutes
+
+# Correction tracking: count corrections per session for escalation
+_correction_count: int = 0
+
+# ─── Working Memory (Session Scratchpad) ──────────────────────────────────────
+#
+# Ephemeral key-value store cleared on every server restart.
+# Agents use this for in-session context: current task, active file, goal, etc.
+# Nothing is persisted to the database.
+
+_scratch: dict[str, str] = {}
+
+# ─── Active-Session Tracking (v0.13.0+) ──────────────────────────────────────
+#
+# Per-source cache of the active_sessions row id for the currently-booted
+# session. Populated on boot_session, consumed by the implicit-heartbeat path
+# so every tool call from the same source refreshes heartbeat_at cheaply.
+# Cleared on end_session.
+
+_active_session_ids: dict[str, int] = {}
+
+# ─── Session Signoff Hooks (v0.14.0+) ────────────────────────────────────────
+#
+# When this server.py process exits (normal shutdown, SIGTERM, stdio close),
+# mark every cached session_id 'ended'. This is the primary liveness signal:
+# a session is alive iff its owning server.py process is running. The
+# heartbeat agent catches SIGKILL / power-loss cases by pid-probing active
+# rows externally. Rationale: memory #4929 / #3719 — timer-based expiry is
+# wrong; process lifecycle is the authoritative signal.
+
+def _signoff_all_sessions() -> None:
+    """End every session cached in _active_session_ids. Called on atexit
+    and from signal handlers. Swallow all exceptions — shutdown must not
+    raise."""
+    try:
+        for source, sid in list(_active_session_ids.items()):
+            try:
+                db_end_session(sid)
+            except Exception:
+                pass
+        _active_session_ids.clear()
+    except Exception:
+        pass
+
+
+def _install_session_signoff_hooks() -> None:
+    """Wire atexit + SIGTERM/SIGINT handlers for session signoff.
+
+    SIGKILL can't be caught (POSIX guarantee; Windows TerminateProcess
+    equivalent). Those cases are the heartbeat agent's domain.
+    """
+    atexit.register(_signoff_all_sessions)
+    # SIGINT and SIGTERM chain through to the normal atexit path.
+    def _handler(signum, frame):
+        _signoff_all_sessions()
+        # Restore default handler and re-raise so the process actually exits
+        # with the expected signal-derived code.
+        try:
+            signal.signal(signum, signal.SIG_DFL)
+            os.kill(os.getpid(), signum)
+        except Exception:
+            sys.exit(128 + signum)
+    try:
+        signal.signal(signal.SIGTERM, _handler)
+    except Exception:
+        pass
+    try:
+        signal.signal(signal.SIGINT, _handler)
+    except Exception:
+        pass
+
+
+_install_session_signoff_hooks()
+
+
+# ─── Action-Item Compliance Gate (v0.14.0+) ──────────────────────────────────
+#
+# boot_session extracts action_items from memories in RECENT HISTORY and
+# KNOWN ISSUES sections and populates this map. Write-set MCP tools are
+# blocked until the session acknowledges each item via
+# acknowledge_action_item. Ephemeral — re-ack required on reboot.
+# Shape: {source: [{"memory_id": int, "index": int, "text": str, "origin": str}]}
+
+_pending_action_items: dict[str, list[dict]] = {}
+
+# Tools that are BLOCKED when _pending_action_items[source] is non-empty.
+# Reads + registry maintenance stay open so the session can investigate and
+# acknowledge before writing.
+ACTION_ITEM_GATE_WRITE_SET = frozenset({
+    "remember", "capture_context", "brain_checkpoint", "supersede",
+    "pin", "unpin", "forget", "forget_many", "prune",
+    "load_skill", "annotate", "rate",
+})
+
+ACTION_ITEM_AUDIT_LOG_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "logs", "action_item_acks.jsonl",
+)
+
+# ─── Uptime Tracking ──────────────────────────────────────────────────────────
+#
+# Decay is based on cumulative server uptime, not wall-clock time.
+# A month-long gap where the server is off counts for nothing.
+# _uptime_offset: total seconds accumulated in prior sessions (loaded from DB)
+# _session_start:  monotonic clock at startup (never goes backward)
+# current_uptime() returns total lifetime uptime seconds for this brain.
+
+_uptime_offset = 0.0
+_session_start = time.monotonic()
+
+
+def current_uptime() -> float:
+    """Total cumulative uptime seconds across all server sessions."""
+    return _uptime_offset + (time.monotonic() - _session_start)
+
+
+def _init_uptime(prior_total: float) -> None:
+    """Set the uptime offset and reset the session clock. Called once at startup."""
+    global _uptime_offset, _session_start
+    _uptime_offset = prior_total
+    _session_start = time.monotonic()
+
+
+
+def _record_search(source: str, project: str) -> None:
+    """Record that a source performed a search. Resets the per-source
+    store counter.
+
+    Per-agent tracking is authoritative. Source is required at the MCP
+    tool layer, so empty source here only happens via direct Python
+    callers (tests, CLI scripts). Those fall through to the "_global"
+    bucket for backward-compatibility with pre-existing direct callers.
+    """
+    if not source:
+        source = "_global"
+    if source not in _session_tracker:
+        _session_tracker[source] = {"searches": 0, "stores_since_search": 0}
+    _session_tracker[source]["searches"] += 1
+    _session_tracker[source]["stores_since_search"] = 0
+
+
+def _record_store(source: str) -> None:
+    """Increment the store counter for a source. Called after each successful store."""
+    if not source:
+        source = "_global"
+    if source in _session_tracker:
+        _session_tracker[source]["stores_since_search"] += 1
+
+
+def _source_required_error(tool: str) -> str:
+    """Return a canonical error when an MCP tool is called with an empty or
+    missing `source`. Per-agent session compliance requires attribution;
+    an empty source is as lazy as omitting the parameter entirely and
+    is rejected outright so agents cannot game the counter by passing
+    empty values."""
+    return json.dumps({
+        "success": False,
+        "error": f"source is required on {tool}() — pass source='<agent-name>' (e.g. 'claude', 'cursor', 'windsurf').",
+        "blocked_by": "source_required",
+        "details": "Per-agent session compliance requires attribution. A search from one source does NOT reset another source's counter. Use the same source string for boot_session, search, remember, and capture_context in your session."
+    }, indent=2)
+
+
+def _extract_action_items_from_memory(mem: dict, origin: str) -> list[dict]:
+    """Pull action_items from a memory's metadata into gate-entry shape.
+
+    Returns a list of {memory_id, index, text, origin} dicts — one per
+    non-empty action_item in the memory. Swallows malformed metadata
+    silently; this runs in a boot path that must never fail.
+    """
+    try:
+        meta = mem.get("metadata")
+        if isinstance(meta, str):
+            meta = json.loads(meta) if meta else {}
+        if not isinstance(meta, dict):
+            return []
+        items = meta.get("action_items") or []
+        if not isinstance(items, list):
+            return []
+        out: list[dict] = []
+        for i, text in enumerate(items):
+            if not isinstance(text, str) or not text.strip():
+                continue
+            out.append({
+                "memory_id": mem.get("id"),
+                "index":     i,
+                "text":      text.strip(),
+                "origin":    origin,
+            })
+        return out
+    except Exception:
+        return []
+
+
+def _populate_pending_action_items(source: str, memories_by_origin: dict) -> list[dict]:
+    """Populate _pending_action_items[source] from boot_session's surfaced
+    memories. Dedupes by action_item text across origins. Caps at
+    ACTION_ITEM_GATE_MAX (keeping the most recent by memory_id).
+
+    memories_by_origin: {"recent_history": [...], "known_issues": [...]}
+
+    Returns the pending list for this source (what was actually written).
+    """
+    if not source:
+        return []
+    extracted: list[dict] = []
+    for origin, mems in memories_by_origin.items():
+        for mem in mems or []:
+            extracted.extend(_extract_action_items_from_memory(mem, origin))
+    # Dedupe by text (keep the first occurrence — recent_history comes
+    # before known_issues in extraction order, so recent wins ties).
+    seen: set[str] = set()
+    deduped: list[dict] = []
+    for entry in extracted:
+        if entry["text"] in seen:
+            continue
+        seen.add(entry["text"])
+        deduped.append(entry)
+    # Cap at MAX. Keep most-recent-surfaced by memory_id DESC (memory_id
+    # monotonically increases with creation time on this brain).
+    if len(deduped) > ACTION_ITEM_GATE_MAX:
+        deduped.sort(key=lambda e: e.get("memory_id") or 0, reverse=True)
+        deduped = deduped[:ACTION_ITEM_GATE_MAX]
+    _pending_action_items[source] = deduped
+    return deduped
+
+
+def _check_action_item_gate(source: str, tool_name: str) -> dict | None:
+    """Block write-set tools when `source` has un-acknowledged action_items.
+
+    Returns a blocked_by='action_items_pending' error dict or None if
+    the tool is not in the write set or the session has no pending items.
+    """
+    if not source or tool_name not in ACTION_ITEM_GATE_WRITE_SET:
+        return None
+    pending = _pending_action_items.get(source) or []
+    if not pending:
+        return None
+    return {
+        "success":    False,
+        "blocked_by": "action_items_pending",
+        "error":      f"BLOCKED: {len(pending)} action_item(s) from boot_session must be "
+                       "acknowledged before write tools unlock.",
+        "pending":    [{"memory_id": p["memory_id"], "text": p["text"], "origin": p["origin"]}
+                       for p in pending],
+        "hint":       "Call acknowledge_action_item(source, memory_id, text, decision, reason) "
+                       "for each. decision ∈ {'will_execute', 'already_done', 'not_relevant'}. "
+                       "reason is required for already_done and not_relevant.",
+    }
+
+
+def _audit_ack(entry: dict) -> None:
+    """Append an ack record to logs/action_item_acks.jsonl. Swallow errors —
+    audit failures must not break the ack path."""
+    try:
+        os.makedirs(os.path.dirname(ACTION_ITEM_AUDIT_LOG_PATH), exist_ok=True)
+        with open(ACTION_ITEM_AUDIT_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")
+    except Exception:
+        pass
+
+
+def _check_compliance(source: str, project: str, tool_name: str = "") -> dict | None:
+    """Polling-based compliance: block storage if agent hasn't booted and searched.
+
+    Rules:
+    - Must call boot_session() before ANY other tool (loads full project context)
+    - Must search at least once before ANY store (no grace period)
+    - After COMPLIANCE_MAX_STORES stores, must search again
+    - Searching resets the store counter
+    - This enforces continuous brain polling, not a one-time checkbox
+    - v0.14.0: action-item gate — tools in ACTION_ITEM_GATE_WRITE_SET are
+      additionally blocked until _pending_action_items[source] is empty.
+
+    Returns error dict if blocked, None if compliant.
+    """
+    if not source:
+        return None  # Can't track anonymous calls
+
+    # v0.14.0 action-item gate runs BEFORE search-first gate. Rationale:
+    # unacknowledged action_items are a higher-order failure than polling
+    # discipline; even if the session searched, if it hasn't engaged with
+    # the action_items surfaced at boot, we want the error message to be
+    # specifically about that.
+    ai_err = _check_action_item_gate(source, tool_name)
+    if ai_err:
+        return ai_err
+
+    # Must boot before storing
+    if source not in _booted_sources:
+        return {
+            "success": False,
+            "error": "BLOCKED: Must call boot_session(project) first to load project context",
+            "blocked_by": "boot_required",
+            "details": f"'{source}' has not booted this session. Call boot_session with your project name to load guardrails, architecture context, and recent history before proceeding."
+        }
+
+    tracker = _session_tracker.get(source)
+
+    # Never searched in this session
+    if tracker is None or tracker["searches"] == 0:
+        return {
+            "success": False,
+            "error": "BLOCKED: Must call open-brain_search first before storing memories",
+            "blocked_by": "compliance",
+            "details": f"No search() called by '{source}' in this session. The brain is your working memory — poll it before acting. Make sure you pass source='{source}' on search() — without it the search records against a different bucket and will not satisfy your per-agent compliance."
+        }
+
+    # Too many stores without searching again
+    stores = tracker["stores_since_search"]
+    if COMPLIANCE_MAX_STORES > 0 and stores >= COMPLIANCE_MAX_STORES:
+        return {
+            "success": False,
+            "error": f"BLOCKED: {stores} stores since last search. Call open-brain_search to refresh context before storing more.",
+            "blocked_by": "compliance",
+            "details": f"'{source}' has stored {stores} memories without searching. Max is {COMPLIANCE_MAX_STORES}. Call search(query='...', source='{source}') to reset the per-agent counter."
+        }
+
+    return None
+
+
+# ─── Helpers ──────────────────────────────────────────────────────────────────
+
+def _to_vec(v: list[float]) -> str:
+    return "[" + ",".join(map(str, v)) + "]"
+
+
+def _normalize_row(row: dict) -> dict:
+    """Convert psycopg2 types (datetime, Decimal) to JSON-safe equivalents."""
+    out = {}
+    for k, v in row.items():
+        if isinstance(v, datetime):
+            out[k] = v.isoformat()
+        elif isinstance(v, Decimal):
+            out[k] = float(v)
+        else:
+            out[k] = v
+    return out
+
+
+# ─── Embeddings ───────────────────────────────────────────────────────────────
+
+def _http_post(url: str, payload: dict, headers: dict | None = None) -> dict:
+    data = json.dumps(payload).encode()
+    all_headers = {"Content-Type": "application/json", **(headers or {})}
+    req = urllib.request.Request(url, data=data, headers=all_headers)
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            return json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        body = e.read().decode(errors="replace")
+        raise RuntimeError(f"HTTP {e.code} from {url}: {body}") from e
+    except urllib.error.URLError as e:
+        raise RuntimeError(f"Cannot reach {url}: {e.reason}") from e
+
+
+def _embed_ollama(text: str) -> list[float]:
+    result = _http_post(
+        f"{OLLAMA_BASE_URL}/api/embeddings",
+        {"model": OLLAMA_EMBED_MODEL, "prompt": text},
+    )
+    if "embedding" not in result:
+        raise RuntimeError(
+            f"Ollama returned no embedding. "
+            f"Pull the model first:  ollama pull {OLLAMA_EMBED_MODEL}"
+        )
+    return result["embedding"]
+
+
+def _embed_openai(text: str) -> list[float]:
+    body: dict = {"model": OPENAI_EMBED_MODEL, "input": text}
+    if EMBEDDING_DIMS:
+        body["dimensions"] = EMBEDDING_DIMS
+    result = _http_post(
+        "https://api.openai.com/v1/embeddings",
+        body,
+        {"Authorization": f"Bearer {OPENAI_API_KEY}"},
+    )
+    return result["data"][0]["embedding"]
+
+
+def get_embedding(text: str) -> list[float]:
+    if EMBEDDING_PROVIDER == "openai":
+        return _embed_openai(text)
+    return _embed_ollama(text)
+
+
+# ─── Metadata Extraction ──────────────────────────────────────────────────────
+
+VALID_TYPES = {
+    "decision", "idea", "meeting", "person", "insight",
+    "task", "journal", "reference", "note", "guardrail",
+    "procedural", "episodic",
+}
+_STOP = {
+    "The", "This", "That", "They", "There", "These", "Those",
+    "When", "Where", "What", "Which", "While", "After", "Before",
+    "And", "But", "For", "Not", "With", "From", "Into", "Also",
+}
+
+
+def _meta_heuristic(text: str) -> dict:
+    lower = text.lower()
+
+    people = list(set(re.findall(r"@([\w][\w ]{0,20}[\w]|[\w]+)", text)))
+    tags   = list(set(re.findall(r"#(\w+)", text)))
+
+    type_ = "note"
+    if   re.search(r"\b(decided|decision|going with|chose|we chose|will go with)\b", lower):   type_ = "decision"
+    elif re.search(r"\b(meeting|met with|talked with|spoke with|call with|standup|catchup)\b", lower): type_ = "meeting"
+    elif re.search(r"\b(idea|what if|could we|might work|brainstorm|thinking about building)\b", lower): type_ = "idea"
+    elif re.search(r"\b(todo|action item|need to|must|follow up|remind me)\b", lower):          type_ = "task"
+    elif re.search(r"\b(learned|realized|insight|key takeaway|noticed that|turns out)\b", lower): type_ = "insight"
+    elif re.search(r"\b(works at|currently at|her background|his background)\b", lower):        type_ = "person"
+    elif re.search(r"\b(journal|reflecting|today i|feeling|grateful)\b", lower):                type_ = "journal"
+    elif re.search(r"\b(workflow|always run|rule|convention|how to|steps to|process for|never commit|non-negotiable|standard procedure|best practice)\b", lower): type_ = "procedural"
+    elif re.search(r"\b(last time|last session|previously|that time|remember when|back in|session on|happened when|ended up)\b", lower): type_ = "episodic"
+
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if s.strip()]
+    action_items = [
+        s for s in sentences
+        if re.search(r"\b(need to|must|should|todo|follow up|action|will|remind|schedule|send|review|check)\b", s, re.I)
+    ][:5]
+
+    raw_topics = re.findall(r"\b([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})*)\b", text)
+    topics = list(set(t for t in raw_topics if t.split()[0] not in _STOP))[:8]
+
+    return {"type": type_, "people": people, "topics": topics, "action_items": action_items, "tags": tags}
+
+
+def _meta_llm(text: str) -> dict:
+    prompt = (
+        "Extract metadata from this note. Reply ONLY with valid JSON, no markdown.\n\n"
+        f'Note: "{text}"\n\n'
+        'JSON: {"type":"decision|idea|meeting|person|insight|task|journal|reference|note|procedural|episodic",'
+        '"people":[],"topics":[],"action_items":[],"tags":[]}'
+    )
+    result = _http_post(
+        f"{OLLAMA_BASE_URL}/api/generate",
+        {"model": METADATA_LLM_MODEL, "prompt": prompt, "stream": False, "format": "json"},
+    )
+    parsed = json.loads(result["response"])
+
+    def _list(v: object) -> list:
+        return v if isinstance(v, list) else []
+
+    return {
+        "type":         parsed.get("type", "note") if parsed.get("type") in VALID_TYPES else "note",
+        "people":       _list(parsed.get("people")),
+        "topics":       _list(parsed.get("topics")),
+        "action_items": _list(parsed.get("action_items")),
+        "tags":         _list(parsed.get("tags")),
+    }
+
+
+def extract_metadata(text: str) -> dict:
+    if METADATA_LLM_MODEL:
+        try:
+            return _meta_llm(text)
+        except Exception:
+            pass
+    return _meta_heuristic(text)
+
+
+# ─── Database ─────────────────────────────────────────────────────────────────
+
+_conn: psycopg2.extensions.connection | None = None
+
+
+def _get_conn() -> psycopg2.extensions.connection:
+    global _conn
+    if _conn is None or _conn.closed:
+        _conn = psycopg2.connect(DATABASE_URL)
+        _conn.autocommit = True
+    return _conn
+
+
+def db_store(content: str, embedding: list[float], metadata: dict, project: str = "",
+             valid_time: str = "", projects: list[str] | None = None,
+             skill_trigger: dict | None = None) -> dict:
+    # Build the projects array: always include the primary project + any extras
+    proj_array = list(set(filter(None, (projects or []) + ([project] if project else []))))
+    st_json = json.dumps(skill_trigger) if skill_trigger else None
+    conn = _get_conn()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        if valid_time:
+            cur.execute(
+                "INSERT INTO memories (content, embedding, metadata, project, projects, valid_time, transaction_time, skill_trigger) "
+                "VALUES (%s, %s::vector, %s, %s, %s, %s::timestamptz, NOW(), %s::jsonb) "
+                "RETURNING id, content, metadata, created_at, project, projects, valid_time, transaction_time",
+                (content, _to_vec(embedding), json.dumps(metadata), project, proj_array, valid_time, st_json),
+            )
+        else:
+            cur.execute(
+                "INSERT INTO memories (content, embedding, metadata, project, projects, valid_time, transaction_time, skill_trigger) "
+                "VALUES (%s, %s::vector, %s, %s, %s, NOW(), NOW(), %s::jsonb) "
+                "RETURNING id, content, metadata, created_at, project, projects, valid_time, transaction_time",
+                (content, _to_vec(embedding), json.dumps(metadata), project, proj_array, st_json),
+            )
+        return _normalize_row(dict(cur.fetchone()))  # type: ignore[arg-type]
+
+
+def db_find_duplicate(embedding: list[float], threshold: float = DEDUP_THRESHOLD) -> dict | None:
+    """Return the closest active (non-superseded) memory if similarity >=
+    threshold, else None.
+
+    Superseded memories are deliberately excluded — re-storing content
+    similar to a memory that's already been corrected should NOT
+    false-match against the stale version (would skip the write).
+    """
+    conn = _get_conn()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            """
+            SELECT id, content, metadata, created_at,
+                   round((1 - (embedding <=> %s::vector))::numeric, 4) AS similarity
+            FROM memories
+            WHERE superseded_by_id IS NULL
+            ORDER BY embedding <=> %s::vector
+            LIMIT 1
+            """,
+            (_to_vec(embedding), _to_vec(embedding)),
+        )
+        row = cur.fetchone()
+        if row and float(row["similarity"]) >= threshold:
+            return _normalize_row(dict(row))
+    return None
+
+
+def db_find_related(embedding: list[float], lower: float = MERGE_LOWER_THRESHOLD, upper: float = DEDUP_THRESHOLD) -> dict | None:
+    """Return the closest active (non-superseded) memory in the gray zone
+    (lower <= sim < upper). Used for smart merge. Superseded memories
+    are excluded — see db_find_duplicate for rationale."""
+    conn = _get_conn()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            """
+            SELECT id, content, metadata, created_at,
+                   round((1 - (embedding <=> %s::vector))::numeric, 4) AS similarity
+            FROM memories
+            WHERE superseded_by_id IS NULL
+            ORDER BY embedding <=> %s::vector
+            LIMIT 1
+            """,
+            (_to_vec(embedding), _to_vec(embedding)),
+        )
+        row = cur.fetchone()
+        if row:
+            sim = float(row["similarity"])
+            if lower <= sim < upper:
+                return _normalize_row(dict(row))
+    return None
+
+
+def db_update(memory_id: int, content: str, embedding: list[float], metadata: dict) -> dict:
+    """Update an existing memory's content, embedding, and metadata."""
+    conn = _get_conn()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "UPDATE memories SET content = %s, embedding = %s::vector, metadata = %s "
+            "WHERE id = %s RETURNING id, content, metadata, created_at",
+            (content, _to_vec(embedding), json.dumps(metadata), memory_id),
+        )
+        return _normalize_row(dict(cur.fetchone()))
+
+
+def _llm_merge_decision(new_content: str, existing_content: str) -> str:
+    """Ask the LLM whether to ADD, MERGE, REPLACE, or SKIP.
+    Returns one of those four strings. Falls back to 'ADD' on any error."""
+    prompt = (
+        "You are a memory manager. Decide how to handle a new memory given an existing one.\n"
+        "Reply with ONLY one word: ADD, MERGE, REPLACE, or SKIP.\n\n"
+        "Rules:\n"
+        "- ADD: new memory is distinct enough to store separately\n"
+        "- MERGE: new memory adds detail, context, or nuance to the existing one -- combine them\n"
+        "- REPLACE: new memory contradicts or supersedes the existing one\n"
+        "- SKIP: new memory is essentially a repeat of the existing one\n\n"
+        f"Existing: {existing_content[:500]}\n\n"
+        f"New: {new_content[:500]}\n\n"
+        "Decision:"
+    )
+    try:
+        result = _http_post(
+            f"{OLLAMA_BASE_URL}/api/generate",
+            {"model": METADATA_LLM_MODEL, "prompt": prompt, "stream": False},
+        )
+        decision = result.get("response", "").strip().upper().split()[0]
+        if decision in ("ADD", "MERGE", "REPLACE", "SKIP"):
+            return decision
+    except Exception:
+        pass
+    return "ADD"
+
+
+def _llm_merge_content(new_content: str, existing_content: str) -> str:
+    """Ask the LLM to write a single merged memory from two related ones."""
+    prompt = (
+        "Combine these two related memories into one concise, complete memory.\n"
+        "Preserve all unique facts from both. Write in the same style as the inputs.\n"
+        "Reply with ONLY the merged memory text, no preamble.\n\n"
+        f"Memory 1: {existing_content}\n\n"
+        f"Memory 2: {new_content}\n\n"
+        "Merged memory:"
+    )
+    try:
+        result = _http_post(
+            f"{OLLAMA_BASE_URL}/api/generate",
+            {"model": METADATA_LLM_MODEL, "prompt": prompt, "stream": False},
+        )
+        merged = result.get("response", "").strip()
+        if merged:
+            return merged
+    except Exception:
+        pass
+    # Fallback: concatenate
+    return f"{existing_content}\n\nUpdate: {new_content}"
+
+
+def db_store_deduped(content: str, embedding: list[float], metadata: dict, project: str = "",
+                     valid_time: str = "", projects: list[str] | None = None,
+                     skill_trigger: dict | None = None) -> tuple[dict, str]:
+    """Store a memory with dedup + smart LLM merge. Returns (memory_dict, action).
+    action is one of: 'stored', 'updated', 'merged', 'replaced', 'skipped'.
+    If skill_trigger is supplied it is stored on the new row; not used in
+    dedup matching (dedup is by embedding, not by skill tag)."""
+    # Safety net: block secrets even if caller forgot to check
+    content = check_content(content)
+
+    # Phase 1: exact dedup (similarity >= DEDUP_THRESHOLD)
+    existing = db_find_duplicate(embedding)
+    if existing is not None:
+        if len(content) > len(existing["content"]):
+            memory = db_update(existing["id"], content, embedding, metadata)
+            return memory, "updated"
+        return existing, "skipped"
+
+    # Phase 2: smart merge (similarity in gray zone, LLM required)
+    if METADATA_LLM_MODEL:
+        related = db_find_related(embedding)
+        if related is not None:
+            decision = _llm_merge_decision(content, related["content"])
+            if decision == "SKIP":
+                return related, "skipped"
+            elif decision == "REPLACE":
+                memory = db_update(related["id"], content, embedding, metadata)
+                return memory, "replaced"
+            elif decision == "MERGE":
+                merged_content = _llm_merge_content(content, related["content"])
+                merged_content = check_content(merged_content)
+                merged_embedding = get_embedding(merged_content)
+                merged_meta = extract_metadata(merged_content)
+                memory = db_update(related["id"], merged_content, merged_embedding, merged_meta)
+                return memory, "merged"
+            # decision == "ADD": fall through to store
+
+    return db_store(content, embedding, metadata, project, valid_time, projects,
+                    skill_trigger=skill_trigger), "stored"
+
+
+def db_get_pinned(project_filter: str) -> list[dict]:
+    """Fetch pinned memories for a project that should load at session boot.
+
+    A pinned memory loads at boot iff:
+      - it's pinned AND matches the project scope (project or in projects array)
+      - it's not superseded (v0.11.0 belief-revision filter)
+      - it's NOT skill-triggered, OR it IS skill-triggered but marked
+        `always_on=true` (v0.12.0 skills-layer filter — shrinks boot
+        payload by excluding conditionally-loaded skills)
+    """
+    if not project_filter:
+        return []
+    conn = _get_conn()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "SELECT id, content, metadata, created_at, project, projects, annotation, "
+            "       upvotes, downvotes, access_count, skill_trigger "
+            "FROM memories "
+            "WHERE pinned = TRUE "
+            "  AND (project = %s OR %s = ANY(projects)) "
+            "  AND superseded_by_id IS NULL "
+            "  AND (skill_trigger IS NULL "
+            "       OR (skill_trigger->>'always_on')::boolean = true) "
+            "ORDER BY created_at ASC",
+            (project_filter, project_filter),
+        )
+        return [_normalize_row(dict(r)) for r in cur.fetchall()]
+
+
+def db_get_skills_by_keywords(query: str, project_filter: str | None,
+                                limit: int = 5) -> list[dict]:
+    """Return active skill-tagged memories whose keywords substring-match
+    the query (case-insensitive, OR across keywords). Respects each
+    skill's `skill_trigger.projects` scope: if that list is empty the
+    skill is global; if populated, project_filter must be in it.
+
+    Returns up to `limit` matches, ordered by creation time (oldest
+    first — stable + surfaces long-standing rules before new ones on
+    ties). Superseded and unpinned skill-tagged memories are still
+    returned if they match — the skill layer is independent of pinning.
+    """
+    if not query:
+        return []
+    conn = _get_conn()
+    q_lower = query.lower()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        # Fetch all active skill-tagged memories; filter in Python. At
+        # realistic scale (<100 skills) this is sub-millisecond even
+        # without SQL-side keyword matching. The partial GIN index on
+        # skill_trigger keeps the fetch cheap.
+        cur.execute(
+            "SELECT id, content, metadata, created_at, project, projects, "
+            "       annotation, upvotes, downvotes, access_count, pinned, "
+            "       skill_trigger "
+            "FROM memories "
+            "WHERE skill_trigger IS NOT NULL "
+            "  AND superseded_by_id IS NULL "
+            "ORDER BY created_at ASC"
+        )
+        matches: list[dict] = []
+        for row in cur.fetchall():
+            trig = row.get("skill_trigger") or {}
+            scope = trig.get("projects") or []
+            if scope:
+                if not project_filter or project_filter not in scope:
+                    continue
+            kws = trig.get("keywords") or []
+            if not any(kw and kw.lower() in q_lower for kw in kws):
+                continue
+            matches.append(_normalize_row(dict(row)))
+            if len(matches) >= limit:
+                break
+        return matches
+
+
+def db_get_skill_by_name(name: str, project_filter: str | None) -> dict | None:
+    """Fetch a skill by its globally-unique `skill_trigger.name`.
+
+    Respects the skill's `projects` scope: if populated, project_filter
+    must be in it; if empty (global skill), returns the skill for any
+    project. Superseded skills are excluded (active-only default).
+
+    Returns None if no active skill with that name is accessible under
+    the given scope.
+    """
+    if not name:
+        return None
+    conn = _get_conn()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "SELECT id, content, metadata, created_at, project, projects, "
+            "       annotation, upvotes, downvotes, access_count, pinned, "
+            "       skill_trigger "
+            "FROM memories "
+            "WHERE skill_trigger IS NOT NULL "
+            "  AND superseded_by_id IS NULL "
+            "  AND skill_trigger->>'name' = %s "
+            "LIMIT 5",
+            (name,),
+        )
+        for row in cur.fetchall():
+            trig = row.get("skill_trigger") or {}
+            scope = trig.get("projects") or []
+            if not scope:
+                return _normalize_row(dict(row))  # global skill, anyone can load
+            if project_filter and project_filter in scope:
+                return _normalize_row(dict(row))
+        return None
+
+
+# ─── Session Registry (v0.13.0, reworked v0.14.0) ───────────────────────────
+#
+# Tracks live MCP-client sessions so booting sessions can SEE other sessions
+# working in the same project / cwd. Closes the parallel-session blind spot
+# that caused the Netflix prep mix-up (memory #3719).
+#
+# v0.14.0 architectural rework: REMOVED time-based TTL sweep (memory #4929
+# — timer-based expiry is wrong; a session doing long non-brain work was
+# silently aged out and vanished from the registry). Liveness is now
+# maintained by:
+#   1. Explicit signoff — server.py's atexit + signal handlers call
+#      db_end_session for every cached session_id on clean shutdown.
+#   2. External heartbeat agent (scripts/heartbeat_agent.py) — probes each
+#      active row's pid via psutil and marks ended when the process is gone.
+#   3. Supersede-on-reboot — a new boot from the same (source, cwd, pid)
+#      marks the prior row ended before inserting the new one.
+#
+# Design doc: docs/planning/SESSION_REGISTRY_DESIGN.md
+# v0.14.0 rework notes in CHANGELOG.md under [0.14.0].
+
+
+def db_supersede_previous_session(source: str, cwd: str, pid: int) -> int:
+    """Mark any still-'active' row from the same client process as 'ended'
+    before registering a new one. Same (source, cwd, pid) tuple means the
+    client process restarted or reconnected; the prior row is stale.
+
+    Returns number of rows superseded. Safe no-op if no match.
+    """
+    if not source or not pid:
+        return 0
+    conn = _get_conn()
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE active_sessions "
+            "SET status = 'ended' "
+            "WHERE status = 'active' "
+            "  AND source = %s "
+            "  AND (cwd = %s OR (cwd IS NULL AND %s IS NULL)) "
+            "  AND pid = %s",
+            (source, cwd or None, cwd or None, pid),
+        )
+        return cur.rowcount or 0
+
+
+def db_register_session(source: str, project: str, cwd: str, pid: int | None,
+                          host: str, current_task: str,
+                          metadata: dict | None = None) -> dict:
+    """Insert a new active_sessions row for this boot. Returns the row dict.
+
+    A new row is created every boot (even for the same source + cwd) so the
+    TTL sweep can age out crashed sessions cleanly. Callers should cache the
+    returned `id` in `_active_session_ids[source]` for fast heartbeat updates.
+    """
+    meta_json = json.dumps(metadata) if metadata else None
+    conn = _get_conn()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "INSERT INTO active_sessions "
+            "    (source, project, cwd, pid, host, current_task, metadata) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb) "
+            "RETURNING id, source, project, cwd, pid, host, current_task, "
+            "          started_at, heartbeat_at, status, metadata",
+            (source, project or None, cwd or None, pid, host or None,
+             current_task or None, meta_json),
+        )
+        return dict(cur.fetchone())
+
+
+def db_heartbeat_session(session_id: int) -> None:
+    """Bump heartbeat_at on a specific session row. Cheap single-row update.
+    Called from the implicit-heartbeat path on every tool use. Silent no-op if
+    the row doesn't exist (session was swept or ended)."""
+    if not session_id:
+        return
+    conn = _get_conn()
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE active_sessions SET heartbeat_at = now() "
+            "WHERE id = %s AND status = 'active'",
+            (session_id,),
+        )
+
+
+def db_update_active_task(session_id: int, task: str) -> bool:
+    """Update current_task on a session row and bump heartbeat_at.
+    Returns True if the row existed and was active."""
+    if not session_id:
+        return False
+    conn = _get_conn()
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE active_sessions "
+            "SET current_task = %s, heartbeat_at = now() "
+            "WHERE id = %s AND status = 'active'",
+            (task or None, session_id),
+        )
+        return (cur.rowcount or 0) > 0
+
+
+def db_end_session(session_id: int) -> bool:
+    """Mark a session ended. Clean-shutdown path. Returns True if the row
+    existed and was updated (idempotent: already-ended rows return False)."""
+    if not session_id:
+        return False
+    conn = _get_conn()
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE active_sessions SET status = 'ended' "
+            "WHERE id = %s AND status = 'active'",
+            (session_id,),
+        )
+        return (cur.rowcount or 0) > 0
+
+
+def db_list_active_sessions(project_filter: str | None = None,
+                              exclude_session_id: int | None = None) -> list[dict]:
+    """Return all live sessions, optionally filtered by project and
+    excluding one session id (usually the caller's own). Ordered by
+    started_at ASC so the oldest session appears first — closest to
+    "who was here before me?" reading order."""
+    conn = _get_conn()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        clauses = ["status = 'active'"]
+        params: list = []
+        if project_filter:
+            clauses.append("(project = %s OR project IS NULL)")
+            params.append(project_filter)
+        if exclude_session_id:
+            clauses.append("id <> %s")
+            params.append(exclude_session_id)
+        cur.execute(
+            "SELECT id, source, project, cwd, pid, host, current_task, "
+            "       started_at, heartbeat_at, status, metadata "
+            "FROM active_sessions "
+            f"WHERE {' AND '.join(clauses)} "
+            "ORDER BY started_at ASC",
+            params,
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
+def _serialize_session(s: dict) -> dict:
+    """Convert DB row timestamps to ISO strings for JSON serialization."""
+    out = dict(s)
+    for k in ("started_at", "heartbeat_at"):
+        v = out.get(k)
+        if isinstance(v, datetime):
+            out[k] = v.astimezone(timezone.utc).isoformat()
+    return out
+
+
+def db_get_memory(memory_id: int) -> dict | None:
+    """Fetch a single memory by id (any status). Returns None if missing.
+    Used by the supersede/unsupersede paths and the recall banner logic."""
+    conn = _get_conn()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "SELECT id, content, metadata, created_at, project, projects, annotation, "
+            "upvotes, downvotes, access_count, pinned, "
+            "superseded_by_id, superseded_at, superseded_reason, skill_trigger "
+            "FROM memories WHERE id = %s",
+            (memory_id,),
+        )
+        row = cur.fetchone()
+        return _normalize_row(dict(row)) if row else None
+
+
+def db_supersede(old_id: int, new_id: int, reason: str) -> None:
+    """Mark old_id as superseded by new_id. Caller must have already
+    created the new memory and validated old_id is not already
+    superseded (use db_get_memory for the precondition check)."""
+    conn = _get_conn()
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE memories SET superseded_by_id = %s, "
+            "superseded_at = NOW(), superseded_reason = %s WHERE id = %s",
+            (new_id, reason, old_id),
+        )
+
+
+def db_unsupersede(memory_id: int) -> dict | None:
+    """Reverse a supersession by clearing the three columns on the
+    given memory. The replacement memory created during the original
+    supersede() call is NOT touched — caller can forget() it separately
+    if they want a full undo. Returns the updated row or None."""
+    conn = _get_conn()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "UPDATE memories SET superseded_by_id = NULL, "
+            "superseded_at = NULL, superseded_reason = NULL "
+            "WHERE id = %s "
+            "RETURNING id, content, metadata, created_at, project",
+            (memory_id,),
+        )
+        row = cur.fetchone()
+        return _normalize_row(dict(row)) if row else None
+
+
+def db_set_pinned(memory_id: int, pinned: bool) -> dict | None:
+    """Set or clear the pinned flag on a memory. Returns updated row or None."""
+    conn = _get_conn()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "UPDATE memories SET pinned = %s WHERE id = %s "
+            "RETURNING id, content, pinned, project, metadata",
+            (pinned, memory_id),
+        )
+        row = cur.fetchone()
+        return _normalize_row(dict(row)) if row else None
+
+
+def _has_fts_column(conn) -> bool:
+    """Check whether the fts tsvector column exists (added by hybrid migration)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_name='memories' AND column_name='fts' LIMIT 1"
+        )
+        return cur.fetchone() is not None
+
+
+def db_search(
+    query_vec: list[float],
+    query_text: str,
+    limit: int,
+    type_filter: str | None,
+    people_filter: list[str] | None,
+    project_filter: str | None = None,
+    since_days: int = 0,
+    until_days: int = 0,
+    as_of: str = "",
+    include_superseded: bool = False,
+) -> list[dict]:
+    conn = _get_conn()
+    conditions: list[str] = []
+    filter_params: list = []
+
+    # Belief revision: by default search returns only ACTIVE (non-
+    # superseded) memories so an agent never sees a corrected fact
+    # alongside its replacement. Pass include_superseded=True for
+    # audit/historical queries.
+    if not include_superseded:
+        conditions.append("superseded_by_id IS NULL")
+
+    if type_filter:
+        filter_params.append(type_filter)
+        conditions.append("metadata->>'type' = %s")
+
+    if people_filter:
+        person_conds = []
+        for person in people_filter:
+            filter_params.append(person)
+            person_conds.append("metadata->'people' ? %s")
+        conditions.append(f"({' OR '.join(person_conds)})")
+
+    if project_filter:
+        filter_params.append(project_filter)
+        filter_params.append(project_filter)
+        conditions.append("(project = %s OR %s = ANY(projects))")
+
+    if since_days > 0:
+        filter_params.append(since_days)
+        conditions.append("created_at >= NOW() - INTERVAL '1 day' * %s")
+
+    if until_days > 0:
+        filter_params.append(until_days)
+        conditions.append("created_at <= NOW() - INTERVAL '1 day' * %s")
+
+    if as_of:
+        filter_params.append(as_of)
+        conditions.append("valid_time <= %s::timestamptz")
+
+    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+
+    use_hybrid = HYBRID_WEIGHT > 0 and _has_fts_column(conn)
+    use_decay  = DECAY_LAMBDA > 0
+
+    # Uptime-based decay: age = current_uptime_days - last_accessed_uptime_days.
+    # Memories never accessed during an uptime session have last_accessed_uptime=NULL,
+    # which falls back to 0 (max age relative to current uptime -- correct behaviour).
+    if use_decay:
+        now_uptime_days = current_uptime() / 86400.0
+        decay_expr = f"* EXP(-{DECAY_LAMBDA} * ({now_uptime_days} - COALESCE(last_accessed_uptime, 0) / 86400.0))"
+    else:
+        decay_expr = ""
+
+    if use_hybrid:
+        vec_weight = round(1.0 - HYBRID_WEIGHT, 4)
+        fts_weight = round(HYBRID_WEIGHT, 4)
+        # params order: vec, filter_params (for vec_q), fts_text, filter_params (for fts_q), limit
+        params = [_to_vec(query_vec)] + filter_params + [query_text] + filter_params + [limit]
+        sql = f"""
+            WITH vec_q AS (
+                SELECT id, content, metadata, created_at, project, annotation,
+                       upvotes, downvotes, access_count, last_accessed,
+                       last_accessed_uptime,
+                       (1.0 - (embedding <=> %s::vector)) AS vec_score
+                FROM memories
+                {where}
+            ),
+            fts_q AS (
+                SELECT id,
+                       ts_rank(fts, plainto_tsquery('english', %s)) AS fts_score
+                FROM memories
+                {where}
+            )
+            SELECT v.id, v.content, v.metadata, v.created_at, v.project,
+                   v.annotation, v.upvotes, v.downvotes, v.access_count,
+                   round(
+                       (({vec_weight} * v.vec_score + {fts_weight} * COALESCE(f.fts_score, 0))
+                       {decay_expr})::numeric
+                   , 4) AS similarity
+            FROM vec_q v
+            LEFT JOIN fts_q f ON v.id = f.id
+            ORDER BY similarity DESC
+            LIMIT %s
+        """
+    else:
+        # Pure vector with optional decay
+        params = [_to_vec(query_vec)] + filter_params + [limit]
+        sql = f"""
+            WITH q AS (
+                SELECT id, content, metadata, created_at, project, annotation,
+                       upvotes, downvotes, access_count, last_accessed,
+                       last_accessed_uptime,
+                       (embedding <=> %s::vector) AS dist
+                FROM memories
+                {where}
+            )
+            SELECT id, content, metadata, created_at, project, annotation,
+                   upvotes, downvotes, access_count,
+                   round((1 - dist)::numeric {decay_expr}, 4) AS similarity
+            FROM q
+            ORDER BY similarity DESC
+            LIMIT %s
+        """
+
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(sql, params)
+        return [_normalize_row(dict(r)) for r in cur.fetchall()]
+
+
+def db_list_recent(limit: int, days: int | None, include_superseded: bool = False) -> list[dict]:
+    conn = _get_conn()
+    params: list = []
+    conditions: list[str] = []
+    if not include_superseded:
+        conditions.append("superseded_by_id IS NULL")
+    if days:
+        params.append(days)
+        conditions.append("created_at > NOW() - INTERVAL '1 day' * %s")
+    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+    params.append(limit)
+
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            f"SELECT id, content, metadata, created_at, updated_at, pinned FROM memories "
+            f"{where} ORDER BY GREATEST(created_at, COALESCE(updated_at, created_at)) DESC LIMIT %s",
+            params,
+        )
+        return [_normalize_row(dict(r)) for r in cur.fetchall()]
+
+
+def db_stats() -> dict:
+    conn = _get_conn()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("SELECT COUNT(*) AS cnt FROM memories")
+        total = cur.fetchone()["cnt"]  # type: ignore[index]
+
+        cur.execute(
+            "SELECT COALESCE(metadata->>'type', 'note') AS type, COUNT(*) AS cnt "
+            "FROM memories GROUP BY metadata->>'type' ORDER BY cnt DESC"
+        )
+        by_type = {r["type"]: r["cnt"] for r in cur.fetchall()}
+
+        cur.execute("SELECT COUNT(*) AS cnt FROM memories WHERE created_at > NOW() - INTERVAL '7 days'")
+        r7 = cur.fetchone()["cnt"]  # type: ignore[index]
+
+        cur.execute("SELECT COUNT(*) AS cnt FROM memories WHERE created_at > NOW() - INTERVAL '30 days'")
+        r30 = cur.fetchone()["cnt"]  # type: ignore[index]
+
+    return {"total": total, "by_type": by_type, "recent_7_days": r7, "recent_30_days": r30}
+
+
+def db_find_repeated_corrections() -> list[dict]:
+    """Find guardrail memories that are semantically similar to each other.
+    Returns groups of corrections about the same topic (the AI was corrected
+    on the same thing multiple times)."""
+    conn = _get_conn()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        # Find guardrails with high cosine similarity to other guardrails
+        cur.execute("""
+            SELECT a.id AS id_a, b.id AS id_b,
+                   a.content AS content_a, b.content AS content_b,
+                   round((1 - (a.embedding <=> b.embedding))::numeric, 4) AS similarity
+            FROM memories a
+            JOIN memories b ON a.id < b.id
+            WHERE a.metadata->>'type' = 'guardrail'
+              AND b.metadata->>'type' = 'guardrail'
+              AND (1 - (a.embedding <=> b.embedding)) > 0.70
+            ORDER BY similarity DESC
+            LIMIT 20
+        """)
+        return [_normalize_row(dict(r)) for r in cur.fetchall()]
+
+
+def db_migrate_hybrid() -> None:
+    """Idempotent migration: add fts tsvector column and GIN index for hybrid search.
+    Safe to call on every startup -- skips silently if already present."""
+    if HYBRID_WEIGHT <= 0:
+        return
+    conn = _get_conn()
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_name='memories' AND column_name='fts' LIMIT 1"
+        )
+        if cur.fetchone() is not None:
+            return  # already migrated
+        cur.execute(
+            "ALTER TABLE memories ADD COLUMN fts tsvector "
+            "GENERATED ALWAYS AS (to_tsvector('english', content)) STORED"
+        )
+        cur.execute(
+            "CREATE INDEX idx_memories_fts ON memories USING GIN(fts)"
+        )
+    print("[open-brain] hybrid search migration applied (fts column + GIN index)", file=sys.stderr)
+
+
+def db_migrate_bitemporal() -> None:
+    """Idempotent migration: add valid_time and transaction_time columns.
+    valid_time  = when the event actually happened (user-supplied, defaults to created_at)
+    transaction_time = when we learned about it (always set to NOW() on insert, never changes)
+    Safe to call on every startup."""
+    conn = _get_conn()
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_name='memories' AND column_name='valid_time' LIMIT 1"
+        )
+        if cur.fetchone() is not None:
+            return  # already migrated
+        cur.execute(
+            "ALTER TABLE memories "
+            "ADD COLUMN valid_time TIMESTAMPTZ, "
+            "ADD COLUMN transaction_time TIMESTAMPTZ NOT NULL DEFAULT NOW()"
+        )
+        # Back-fill: set both to created_at for existing rows
+        cur.execute(
+            "UPDATE memories SET valid_time = created_at, transaction_time = created_at "
+            "WHERE valid_time IS NULL"
+        )
+        cur.execute(
+            "CREATE INDEX idx_memories_valid_time ON memories (valid_time)"
+        )
+        cur.execute(
+            "CREATE INDEX idx_memories_transaction_time ON memories (transaction_time)"
+        )
+    print("[open-brain] bi-temporal migration applied (valid_time + transaction_time)", file=sys.stderr)
+
+
+def db_migrate_uptime() -> None:
+    """Idempotent migration: create server_uptime table and add last_accessed_uptime column."""
+    conn = _get_conn()
+    with conn.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE IF NOT EXISTS server_uptime ("
+            "  id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),"
+            "  total_seconds FLOAT NOT NULL DEFAULT 0.0,"
+            "  last_heartbeat TIMESTAMPTZ DEFAULT NOW()"
+            ")"
+        )
+        cur.execute("INSERT INTO server_uptime (id, total_seconds) VALUES (1, 0.0) ON CONFLICT DO NOTHING")
+        cur.execute(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_name='memories' AND column_name='last_accessed_uptime' LIMIT 1"
+        )
+        if cur.fetchone() is None:
+            cur.execute("ALTER TABLE memories ADD COLUMN last_accessed_uptime FLOAT")
+    print("[open-brain] uptime migration applied", file=sys.stderr)
+
+
+def db_load_uptime() -> float:
+    """Load the accumulated uptime total from the previous sessions."""
+    conn = _get_conn()
+    with conn.cursor() as cur:
+        cur.execute("SELECT total_seconds FROM server_uptime WHERE id = 1")
+        row = cur.fetchone()
+        return float(row[0]) if row else 0.0
+
+
+def db_flush_uptime(total_seconds: float) -> None:
+    """Write current cumulative uptime to the DB."""
+    conn = _get_conn()
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE server_uptime SET total_seconds = %s, last_heartbeat = NOW() WHERE id = 1",
+            (total_seconds,),
+        )
+
+
+def db_delete(memory_id: int) -> bool:
+    conn = _get_conn()
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM memories WHERE id = %s", (memory_id,))
+        return (cur.rowcount or 0) > 0
+
+
+def db_delete_many(memory_ids: list[int]) -> dict:
+    if not memory_ids:
+        return {"deleted": 0, "not_found": []}
+    conn = _get_conn()
+    with conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM memories WHERE id = ANY(%s) RETURNING id",
+            (memory_ids,),
+        )
+        deleted_ids = {row[0] for row in cur.fetchall()}
+    not_found = [i for i in memory_ids if i not in deleted_ids]
+    return {"deleted": len(deleted_ids), "not_found": not_found}
+
+
+def db_get_by_id(memory_id: int) -> dict | None:
+    """Fetch a single memory by ID and bump its access counter."""
+    conn = _get_conn()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "UPDATE memories SET access_count = access_count + 1, last_accessed = NOW(), "
+            "last_accessed_uptime = %s "
+            "WHERE id = %s "
+            "RETURNING id, content, metadata, created_at, updated_at, project, annotation, "
+            "access_count, last_accessed, upvotes, downvotes, pinned",
+            (current_uptime(), memory_id),
+        )
+        row = cur.fetchone()
+        return _normalize_row(dict(row)) if row else None
+
+
+def db_annotate(memory_id: int, note: str) -> dict | None:
+    """Set or clear the annotation on a memory."""
+    conn = _get_conn()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "UPDATE memories SET annotation = %s WHERE id = %s "
+            "RETURNING id, content, annotation, metadata, created_at",
+            (note, memory_id),
+        )
+        row = cur.fetchone()
+        return _normalize_row(dict(row)) if row else None
+
+
+def db_rate(memory_id: int, direction: str) -> dict | None:
+    """Increment upvotes or downvotes on a memory."""
+    col = "upvotes" if direction == "up" else "downvotes"
+    conn = _get_conn()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            f"UPDATE memories SET {col} = {col} + 1 WHERE id = %s "
+            "RETURNING id, upvotes, downvotes",
+            (memory_id,),
+        )
+        row = cur.fetchone()
+        return _normalize_row(dict(row)) if row else None
+
+
+PRUNE_MIN_DAYS = 30     # hard floor: never prune anything newer than 30 days
+PRUNE_MAX_DELETE = 50   # hard cap: never delete more than 50 rows per call
+
+
+def db_prune(days: int, min_access: int = 0) -> int:
+    """Delete memories older than N days that have been accessed fewer than min_access times.
+    Returns the number of deleted memories. Pinned memories are never pruned.
+    Hard limits: days >= PRUNE_MIN_DAYS (30), max PRUNE_MAX_DELETE (50) rows per call."""
+    if days < PRUNE_MIN_DAYS:
+        raise ValueError(
+            f"Refusing to prune: days={days} is below the hard minimum of {PRUNE_MIN_DAYS}. "
+            f"This safeguard prevents accidental mass deletion."
+        )
+    conn = _get_conn()
+    with conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM memories "
+            "WHERE id IN ("
+            "  SELECT id FROM memories "
+            "  WHERE created_at < NOW() - INTERVAL '1 day' * %s "
+            "  AND access_count <= %s "
+            "  AND pinned = FALSE "
+            "  ORDER BY created_at ASC "
+            "  LIMIT %s"
+            ") RETURNING id",
+            (days, min_access, PRUNE_MAX_DELETE),
+        )
+        return cur.rowcount or 0
+
+
+# ─── MCP Server ───────────────────────────────────────────────────────────────
+
+mcp = FastMCP("open-brain")
+
+
+@mcp.tool()
+@instrument("remember")
+def remember(content: str, source: str, type_override: str = "", project: str = "",
+             valid_time: str = "", projects: list[str] | None = None,
+             skill_trigger: dict | None = None) -> str:
+    """Store a thought, note, decision, or information in your brain.
+
+    Auto-detects type (decision/idea/meeting/task/etc), extracts people, topics,
+    and action items. Creates a semantic embedding so it can be retrieved by
+    meaning from any AI tool connected via MCP — Claude, Cursor, ChatGPT, etc.
+
+    Args:
+        content: The thought, note, or information to remember.
+        source: REQUIRED. Which agent is storing (e.g. 'cursor', 'claude', 'slack').
+                Session-compliance is tracked per-source; this field is how
+                the brain knows which agent polled it and which agent is
+                storing. Pass the same source to search() and remember() so
+                your per-agent compliance counter is consistent.
+        type_override: Override auto-detected type:
+            decision | idea | meeting | person | insight | task | journal | reference | note
+        project: Primary project this memory belongs to (e.g. 'open-brain', 'my-app').
+                 Empty string means global (not project-scoped).
+        valid_time: ISO 8601 timestamp of when this event actually happened
+                    (e.g. '2025-03-01' or '2025-03-01T14:30:00'). Defaults to now.
+                    Used for bi-temporal queries (as_of in search).
+        projects: Additional project tags (e.g. ['open-brain', 'archetype-orchestrator']).
+                  The primary project is always included automatically.
+        skill_trigger: Optional dict tagging this memory as a skill. Shape:
+                  {"name": "<globally-unique-name>",
+                   "keywords": ["k1", "k2", ...],   # case-insensitive substring match
+                   "projects": [],                    # empty = all projects; populated = scoped
+                   "always_on": false}                # true = load at every boot
+                  When set, the memory is returned by boot_session only if
+                  `always_on` is true; otherwise it loads on keyword match in
+                  search() or via explicit load_skill(name). (v0.12.0+)
+    """
+    try:
+        if not source:
+            return _source_required_error("remember")
+        # BLOCKING ENFORCEMENT: Check compliance + action-item gate before storing
+        compliance_error = _check_compliance(source, project, tool_name="remember")
+        if compliance_error:
+            return json.dumps(compliance_error, indent=2)
+
+        content = check_content(content)
+        embedding = get_embedding(content)
+        metadata  = extract_metadata(content)
+        if type_override:
+            metadata["type"] = type_override
+        if source:
+            metadata["source"] = source
+        memory, action = db_store_deduped(content, embedding, metadata, project,
+                                            valid_time, projects,
+                                            skill_trigger=skill_trigger)
+        _record_store(source)
+
+        # Auto-pin guardrails when stored with a project
+        auto_pinned = False
+        if metadata.get("type") == "guardrail" and project and not memory.get("pinned"):
+            try:
+                db_set_pinned(memory["id"], True)
+                auto_pinned = True
+            except Exception:
+                pass
+
+        # Track corrections for escalation
+        global _correction_count
+        if metadata.get("type") == "guardrail":
+            _correction_count += 1
+
+        response = {
+            "success":      True,
+            "action":       action,
+            "id":           memory["id"],
+            "type":         metadata["type"],
+            "people":       metadata.get("people", []),
+            "topics":       metadata.get("topics", []),
+            "action_items": metadata.get("action_items", []),
+            "stored_at":    memory["created_at"],
+        }
+        if auto_pinned:
+            response["auto_pinned"] = True
+        if _correction_count > 1:
+            response["session_corrections"] = _correction_count
+        return json.dumps(response, indent=2)
+    except SecretDetectedError as exc:
+        return json.dumps({"success": False, "error": str(exc), "blocked_by": "secrets_filter"})
+    except Exception as exc:
+        return json.dumps({"success": False, "error": str(exc)})
+
+
+def _format_search_entry(m: dict, pinned: bool = False) -> dict:
+    """Format a memory row into a search result entry."""
+    meta = m["metadata"] if isinstance(m["metadata"], dict) else {}
+    content = m["content"]
+    preview = (content[:200] + "...") if len(content) > 200 else content
+    entry: dict = {
+        "id":           m["id"],
+        "preview":      preview,
+        "similarity":   1.0 if pinned else float(m.get("similarity") or 0),
+        "type":         meta.get("type"),
+        "people":       meta.get("people", []),
+        "topics":       meta.get("topics", []),
+        "action_items": meta.get("action_items", []),
+        "created_at":   str(m["created_at"]),
+    }
+    if pinned:
+        entry["pinned"] = True
+    if m.get("project"):
+        entry["project"] = m["project"]
+    if m.get("annotation"):
+        entry["annotation"] = m["annotation"]
+    score = m.get("upvotes", 0) - m.get("downvotes", 0)
+    if score != 0:
+        entry["score"] = score
+    return entry
+
+
+@mcp.tool()
+@instrument("search")
+def search(
+    query: str,
+    source: str,
+    limit: int = 10,
+    type_filter: str = "",
+    people_filter: Optional[list[str]] = None,
+    project: str = "",
+    since_days: int = 0,
+    until_days: int = 0,
+    as_of: str = "",
+    include_superseded: bool = False,
+) -> str:
+    """Semantically search your brain by meaning -- not just keywords.
+
+    Finds thoughts, decisions, and notes even without exact words.
+    Works across everything ever captured, from any AI tool.
+
+    Returns previews (first 200 chars) by default to save tokens.
+    Use the `recall` tool with a memory ID to get the full content.
+
+    Pinned memories (guardrails, workflow rules) for the project are always
+    included at the top of results, regardless of query similarity.
+
+    Args:
+        query: What to search for -- describe by meaning, not exact keywords.
+        limit: Max results to return (default 10, max 50).
+        type_filter: Filter by type:
+            decision | idea | meeting | person | insight | task | journal | reference | note | guardrail
+            | procedural | episodic
+        people_filter: Filter to memories mentioning specific people.
+        project: Filter to memories from a specific project (e.g. 'open-brain', 'my-app').
+        source: REQUIRED. Which agent is searching (e.g. 'cursor', 'claude').
+                Session-compliance is tracked per-source; this field is how
+                the brain knows which agent polled it. Pass the same source
+                to search() and remember() so your per-agent counter stays
+                consistent. A search with a different source (or none) does
+                NOT reset your source's compliance counter.
+        since_days: Only return memories created in the last N days (0 = no lower bound).
+        until_days: Only return memories older than N days (0 = no upper bound).
+        as_of: ISO 8601 timestamp. Only return memories whose valid_time is on or before
+               this date (bi-temporal query). E.g. '2025-03-01' to see what was known
+               as of March 1st. Empty string = no filter.
+        include_superseded: If True, also include memories that have been superseded
+               by a corrected newer one (audit/historical view). Default False —
+               normal search returns only the current truth, never the stale fact
+               alongside its replacement.
+    """
+    try:
+        if not source:
+            return _source_required_error("search")
+        embedding = get_embedding(query)
+        memories  = db_search(
+            embedding, query, min(limit, 50), type_filter or None,
+            people_filter, project or None, since_days, until_days, as_of,
+            include_superseded=include_superseded,
+        )
+
+        # Record search for compliance tracking
+        _record_search(source, project)
+
+        # Fetch pinned memories for the project (always included, regardless of query)
+        pinned = db_get_pinned(project) if project else []
+        pinned_ids = {m["id"] for m in pinned}
+
+        # Skills auto-match (v0.12.0): any active skill-tagged memory whose
+        # keywords substring-match the query, scoped to this project (or
+        # global). Cap per-call so a broad query can't flood results with
+        # skills; cap is governed by SKILL_TRIGGER_MAX env var (default 5).
+        skill_matches = db_get_skills_by_keywords(query, project or None,
+                                                   limit=SKILL_TRIGGER_MAX)
+        skill_ids = {m["id"] for m in skill_matches if m["id"] not in pinned_ids}
+        # Drop anything from pinned or skill_matches out of the semantic list
+        memories = [m for m in memories if m["id"] not in pinned_ids
+                    and m["id"] not in skill_ids]
+        # Filter the skill_matches we'll actually surface (excludes pinned overlap)
+        skill_surface = [m for m in skill_matches if m["id"] in skill_ids]
+
+        if not memories and not pinned and not skill_surface:
+            return "No memories found matching that query."
+
+        # Build results: pinned first, then skill-triggered, then semantic
+        results = [_format_search_entry(m, pinned=True) for m in pinned]
+        for m in skill_surface:
+            entry = _format_search_entry(m, pinned=False)
+            entry["via_skill_trigger"] = (m.get("skill_trigger") or {}).get("name")
+            results.append(entry)
+        results.extend(_format_search_entry(m, pinned=False) for m in memories)
+
+        return json.dumps(results, indent=2)
+    except Exception as exc:
+        return json.dumps({"error": str(exc)})
+
+
+@mcp.tool()
+@instrument("list_recent")
+def list_recent(limit: int = 20, days: int = 0, include_superseded: bool = False) -> str:
+    """Browse your most recent captures.
+
+    Useful for reviewing what you've been thinking about lately.
+
+    Args:
+        limit: Max memories to return (default 20, max 100).
+        days:  Only show memories from the last N days (0 = all time).
+        include_superseded: If True, include memories that have been superseded
+               by a corrected newer one. Default False — only current truth.
+    """
+    try:
+        memories = db_list_recent(min(limit, 100), days if days > 0 else None,
+                                   include_superseded=include_superseded)
+        if not memories:
+            return "No memories yet. Use `remember` to start building your brain."
+        meta = lambda m: m["metadata"] if isinstance(m["metadata"], dict) else {}  # noqa: E731
+        entries = []
+        for m in memories:
+            entry = {
+                "id":         m["id"],
+                "preview":    (m["content"][:150] + "…") if len(m["content"]) > 150 else m["content"],
+                "type":       meta(m).get("type"),
+                "people":     meta(m).get("people", [])[:3],
+                "created_at": str(m["created_at"]),
+            }
+            if m.get("updated_at"):
+                entry["updated_at"] = str(m["updated_at"])
+            if m.get("pinned"):
+                entry["pinned"] = True
+            entries.append(entry)
+        return json.dumps(entries, indent=2)
+    except Exception as exc:
+        return json.dumps({"error": str(exc)})
+
+
+@mcp.tool()
+@instrument("stats")
+def stats() -> str:
+    """Get statistics about your brain: total memories, by type, recent activity, correction health."""
+    try:
+        s = db_stats()
+        repeated = db_find_repeated_corrections()
+        result = {
+            "total_memories": s["total"],
+            "by_type":        s["by_type"],
+            "last_7_days":    s["recent_7_days"],
+            "last_30_days":   s["recent_30_days"],
+            "correction_repeat_rate": len(repeated),
+        }
+        if repeated:
+            result["repeated_corrections"] = [
+                {
+                    "ids": [r["id_a"], r["id_b"]],
+                    "similarity": r["similarity"],
+                    "preview_a": r["content_a"][:100],
+                    "preview_b": r["content_b"][:100],
+                }
+                for r in repeated[:5]
+            ]
+            result["correction_warning"] = (
+                f"WARNING: {len(repeated)} correction pair(s) detected. "
+                f"The same mistakes are being corrected repeatedly. "
+                f"Review these and ensure the lessons are being applied."
+            )
+        return json.dumps(result, indent=2)
+    except Exception as exc:
+        return json.dumps({"error": str(exc)})
+
+
+@mcp.tool()
+def brain_startup_reminder() -> str:
+    """System message injection: mandatory startup reminder for all agents.
+    
+    This tool returns a system-level reminder that should be displayed to the user
+    at session start. It informs them that Open Brain enforcement is active and
+    that searching the brain is mandatory before storing memories.
+    
+    Returns a structured message that clients can display prominently.
+    """
+    return json.dumps({
+        "type": "system_message",
+        "level": "mandatory",
+        "title": "Open Brain: Search First Enforcement Active",
+        "message": (
+            "MANDATORY WORKFLOW: You must call open-brain_search FIRST before any other action.\n\n"
+            "Why? Open Brain enforces a 'search first' policy to ensure you have context before acting:\n"
+            "  • Prevents duplicate work\n"
+            "  • Ensures consistency with past decisions\n"
+            "  • Keeps your memory coherent and retrievable\n\n"
+            "What happens if you skip the search?\n"
+            "  • Calls to remember() or capture_context() will be BLOCKED\n"
+            "  • You'll get an error: 'BLOCKED: Must call open-brain_search first'\n"
+            "  • Your memories won't be stored\n\n"
+            "How to comply:\n"
+            "  1. Start every task by calling: open-brain_search with your task topic\n"
+            "  2. Also search for: 'user preferences formatting rules'\n"
+            "  3. After searching, all tools unlock and you can proceed normally\n\n"
+            "This is a hard requirement, not a suggestion."
+        ),
+        "action": "display_at_session_start"
+    }, indent=2)
+
+
+@mcp.tool()
+@instrument("boot_session")
+def boot_session(source: str, project: str = "", task: str = "",
+                  cwd: str = "", pid: int = 0, host: str = "") -> str:
+    """Boot your brain for this session. MUST be called before any other tool.
+
+    This loads your full project context so you can work effectively:
+    1. Pinned guardrails (non-negotiable rules for this project)
+    2. Project architecture and deployment context
+    3. Recent session history (last 7 days)
+    4. Known issues and corrections
+    5. OTHER ACTIVE SESSIONS — sibling MCP sessions live in the same brain
+       (v0.13.0+). If any appear, you MUST surface them to the user before
+       starting overlapping work.
+
+    The context is also stored in working memory (scratchpad) for quick access
+    throughout the session.
+
+    Call this ONCE at the start of every session, before doing anything else.
+
+    Args:
+        source: REQUIRED. Which agent is booting (e.g. 'claude', 'windsurf',
+                'cursor'). Session-compliance is tracked per-source.
+        project: The project you're working on (e.g. 'open-brain', 'resume-harbor').
+        task:    Short free-form description of what this session is about to
+                 work on (usually the first user prompt, truncated). Optional.
+                 (v0.13.0+)
+        cwd:     Absolute path of the caller's working directory. Optional but
+                 strongly recommended — it's how sibling-session lookups
+                 distinguish "same repo, different window" from "unrelated."
+                 (v0.13.0+)
+        pid:     Process id of the MCP client, if known. Optional. (v0.13.0+)
+        host:    Hostname of the MCP client. Optional. (v0.13.0+)
+    """
+    try:
+        if not source:
+            return _source_required_error("boot_session")
+        sections = []
+
+        # v0.14.0: session registry — supersede any prior row from the same
+        # client process (source + cwd + pid), then register ourselves.
+        # Liveness is maintained by an EXTERNAL heartbeat agent that pid-
+        # probes active rows; boot_session does NOT do time-based sweeping
+        # (TTL is a passive-expiry pattern that misses agents doing long
+        # non-brain work — see memory #4929 / #3719 on why timer-based
+        # expiry is wrong). Failures here must NOT break boot.
+        #
+        # Default pid = this server.py process's pid, default host = this
+        # machine's hostname. That makes the agent's pid probe meaningful
+        # even when the MCP client doesn't pass those args: the owning
+        # process of the session IS server.py (one per stdio client), so
+        # probing its pid is the authoritative liveness check. When the
+        # client disconnects, server.py exits, pid dies, agent sees it
+        # gone on the next cycle.
+        effective_pid = pid if pid else os.getpid()
+        effective_host = host if host else socket.gethostname()
+        try:
+            try:
+                db_supersede_previous_session(source, cwd, effective_pid)
+            except Exception:
+                pass
+            my_session = db_register_session(source, project, cwd,
+                                              effective_pid,
+                                              effective_host, task)
+            _active_session_ids[source] = my_session["id"]
+        except Exception:
+            my_session = {"id": None}
+
+        # Step 1: Load pinned guardrails (full content, not previews)
+        pinned = db_get_pinned(project) if project else []
+        if pinned:
+            guardrail_text = []
+            for m in pinned:
+                meta = m.get("metadata", {})
+                if isinstance(meta, str):
+                    meta = json.loads(meta) if meta else {}
+                guardrail_text.append(
+                    f"[GUARDRAIL #{m['id']}] ({meta.get('type', 'unknown')})\n{m['content']}"
+                )
+            sections.append({
+                "section": "PINNED GUARDRAILS",
+                "count": len(pinned),
+                "content": guardrail_text,
+            })
+
+        # Step 2: Project architecture and deployment context
+        if project:
+            arch_embedding = get_embedding(f"{project} architecture deployment how it works platform")
+            arch_memories = db_search(arch_embedding, f"{project} architecture deployment", 5, None, None, project, 0, 0, "")
+            if arch_memories:
+                arch_text = []
+                for m in arch_memories:
+                    arch_text.append(f"[#{m['id']}] {m['content'][:500]}")
+                sections.append({
+                    "section": "PROJECT CONTEXT",
+                    "count": len(arch_memories),
+                    "content": arch_text,
+                })
+
+        # Step 3: Recent session history (last 7 days)
+        session_memories: list[dict] = []
+        if project:
+            session_embedding = get_embedding(f"{project} session changes fixes decisions")
+            session_memories = db_search(session_embedding, f"{project} session", 5, None, None, project, 7, 0, "") or []
+            if session_memories:
+                session_text = []
+                for m in session_memories:
+                    session_text.append(f"[#{m['id']}] {m['content'][:300]}")
+                sections.append({
+                    "section": "RECENT HISTORY (7 days)",
+                    "count": len(session_memories),
+                    "content": session_text,
+                })
+
+        # Step 4: Known issues and corrections
+        issues_memories: list[dict] = []
+        if project:
+            issues_embedding = get_embedding(f"{project} known issues bugs corrections mistakes")
+            issues_memories = db_search(issues_embedding, f"{project} issues corrections", 5, None, None, project, 0, 0, "") or []
+            if issues_memories:
+                issues_text = []
+                for m in issues_memories:
+                    issues_text.append(f"[#{m['id']}] {m['content'][:300]}")
+                sections.append({
+                    "section": "KNOWN ISSUES & CORRECTIONS",
+                    "count": len(issues_memories),
+                    "content": issues_text,
+                })
+
+        # Step 5: Check for repeated corrections (same mistake corrected multiple times)
+        try:
+            repeated = db_find_repeated_corrections()
+            if repeated:
+                repeat_text = [
+                    f"REPEATED CORRECTION (similarity {r['similarity']}): "
+                    f"Memory #{r['id_a']}: {r['content_a'][:150]} | "
+                    f"Memory #{r['id_b']}: {r['content_b'][:150]}"
+                    for r in repeated[:5]
+                ]
+                sections.append({
+                    "section": "REPEATED CORRECTIONS (CRITICAL)",
+                    "count": len(repeated),
+                    "content": repeat_text,
+                })
+        except Exception:
+            pass
+
+        # Step 6: v0.13.0 -- OTHER ACTIVE SESSIONS. Surface sibling MCP
+        # sessions live in the same brain so this session can coordinate
+        # (or at least avoid duplicating work). This block is LOAD-BEARING,
+        # same as pinned guardrails: if any listed session is in the same
+        # project or a related cwd, the booting agent MUST surface it to
+        # the user before starting overlapping work.
+        try:
+            others = db_list_active_sessions(
+                project_filter=project or None,
+                exclude_session_id=my_session.get("id"),
+            )
+            if others:
+                sections.append({
+                    "section": "OTHER ACTIVE SESSIONS",
+                    "count": len(others),
+                    "content": [_serialize_session(s) for s in others],
+                })
+        except Exception:
+            pass
+
+        # Step 7: v0.14.0 — Extract action_items from recent-history and
+        # known-issues memories, populate the pending-ack gate, and
+        # surface them as a LOAD-BEARING section. Write-set tools stay
+        # blocked until acknowledge_action_item clears each entry.
+        try:
+            pending = _populate_pending_action_items(source, {
+                "recent_history": session_memories,
+                "known_issues":   issues_memories,
+            })
+            if pending:
+                sections.append({
+                    "section":      "ACTION ITEMS PENDING",
+                    "count":        len(pending),
+                    "content":      pending,
+                    "instruction":  (
+                        "You MUST call acknowledge_action_item(source, memory_id, "
+                        "text, decision, reason) for each entry before write tools "
+                        "unlock (remember, capture_context, supersede). "
+                        "decision ∈ {'will_execute', 'already_done', 'not_relevant'}. "
+                        "reason is required for already_done and not_relevant."
+                    ),
+                })
+        except Exception:
+            pass
+
+        # Step 8: Store summary in scratch pad and mark as booted
+        summary = json.dumps(sections, indent=2)
+        _scratch["boot_context"] = summary
+        _scratch["boot_project"] = project
+        _scratch["boot_source"] = source
+        _scratch["boot_time"] = datetime.now(timezone.utc).isoformat()
+
+        # Mark this source as booted
+        if source:
+            _booted_sources.add(source)
+        # Also record as a search for compliance
+        _record_search(source, project)
+
+        return json.dumps({
+            "success": True,
+            "booted": True,
+            "project": project,
+            "source": source,
+            "session_id": my_session.get("id"),
+            "sections_loaded": len(sections),
+            "context": sections,
+            "pending_action_items": _pending_action_items.get(source, []),
+            "message": f"Brain booted for '{project}'. {len(sections)} context sections loaded. You may now proceed.",
+        }, indent=2)
+
+    except Exception as exc:
+        # Boot should never hard-fail -- degrade gracefully
+        if source:
+            _booted_sources.add(source)
+        _record_search(source, project)
+        return json.dumps({
+            "success": True,
+            "booted": True,
+            "degraded": True,
+            "error": str(exc),
+            "message": "Boot completed with errors. Context may be incomplete. Proceed with caution.",
+        }, indent=2)
+
+
+@mcp.tool()
+@instrument("update_active_task")
+def update_active_task(source: str, task: str, session_id: int = 0) -> str:
+    """Update this session's current_task in the session registry.
+
+    Call when the user pivots, a task completes, or at natural checkpoints
+    so sibling sessions see an accurate snapshot of what you're doing.
+
+    Args:
+        source:     REQUIRED. The same source used at boot_session.
+        task:       New task description (free-form, keep it short).
+        session_id: Optional. If omitted, uses the session_id cached at
+                    boot for this source. Passing it explicitly is only
+                    needed when boot_session was called on a different
+                    process.
+    (v0.13.0+)
+    """
+    try:
+        if not source:
+            return _source_required_error("update_active_task")
+        sid = session_id or _active_session_ids.get(source, 0)
+        if not sid:
+            return json.dumps({"success": False,
+                "error": "No active session for this source. Call boot_session first."})
+        ok = db_update_active_task(sid, task)
+        if not ok:
+            return json.dumps({"success": False,
+                "error": f"Session {sid} is not active (expired or ended)."})
+        return json.dumps({"success": True, "session_id": sid, "task": task})
+    except Exception as exc:
+        return json.dumps({"success": False, "error": str(exc)})
+
+
+@mcp.tool()
+@instrument("list_active_sessions")
+def list_active_sessions(source: str, project: str = "",
+                          exclude_self: bool = True) -> str:
+    """Return all live MCP sessions, optionally filtered by project.
+
+    Liveness is maintained externally by the heartbeat agent
+    (scripts/heartbeat_agent.py), which pid-probes each row and marks
+    dead processes 'ended'. Running the agent is required for the
+    registry to reflect accurate state; without it, rows persist until
+    the owning process calls end_session (or reboots from the same
+    source+cwd+pid, which supersedes the prior row).
+
+    Args:
+        source:       REQUIRED. Caller's source identifier.
+        project:      Filter to sessions matching this project (empty =
+                      all projects).
+        exclude_self: If true (default), omits the caller's own session
+                      from results.
+    (v0.13.0, reworked v0.14.0)
+    """
+    try:
+        if not source:
+            return _source_required_error("list_active_sessions")
+        my_id = _active_session_ids.get(source, 0) if exclude_self else None
+        rows = db_list_active_sessions(
+            project_filter=project or None,
+            exclude_session_id=my_id or None,
+        )
+        _record_search(source, project)
+        return json.dumps({
+            "success": True,
+            "count": len(rows),
+            "sessions": [_serialize_session(r) for r in rows],
+        }, indent=2)
+    except Exception as exc:
+        return json.dumps({"success": False, "error": str(exc)})
+
+
+@mcp.tool()
+@instrument("end_session")
+def end_session(source: str, session_id: int = 0) -> str:
+    """Mark this session ended (clean shutdown). Optional — dead sessions
+    age out via TTL — but calling this reduces noise in
+    `list_active_sessions` for sibling sessions checking right after you
+    exit.
+
+    Args:
+        source:     REQUIRED. Same source used at boot_session.
+        session_id: Optional; defaults to the cached session id for this
+                    source.
+    (v0.13.0+)
+    """
+    try:
+        if not source:
+            return _source_required_error("end_session")
+        sid = session_id or _active_session_ids.get(source, 0)
+        if not sid:
+            return json.dumps({"success": False,
+                "error": "No active session for this source."})
+        ok = db_end_session(sid)
+        _active_session_ids.pop(source, None)
+        _pending_action_items.pop(source, None)
+        return json.dumps({
+            "success": True,
+            "session_id": sid,
+            "was_active": ok,
+        })
+    except Exception as exc:
+        return json.dumps({"success": False, "error": str(exc)})
+
+
+@mcp.tool()
+@instrument("acknowledge_action_item")
+def acknowledge_action_item(source: str, memory_id: int, text: str,
+                              decision: str, reason: str = "") -> str:
+    """Acknowledge one action_item surfaced by `boot_session`.
+
+    Write-set tools (remember, capture_context, supersede) are BLOCKED
+    until every action_item returned at boot is acknowledged. Call this
+    once per pending item.
+
+    Args:
+        source:    REQUIRED. Same source used at boot_session.
+        memory_id: The id of the memory that carried this action_item.
+        text:      The exact action_item text (from pending_action_items
+                   in the boot response).
+        decision:  One of 'will_execute' | 'already_done' | 'not_relevant'.
+                   - will_execute: session commits to doing this now.
+                   - already_done: was done in a previous session; reason
+                                   should cite when/by whom or memory id.
+                   - not_relevant: not applicable to current task; reason
+                                   must explain why.
+        reason:    Required for 'already_done' and 'not_relevant'.
+
+    Returns {success, remaining, decision, text}. Idempotent — acking an
+    item that's not in the pending list returns success with the current
+    remaining count.
+    (v0.14.0+)
+    """
+    try:
+        if not source:
+            return _source_required_error("acknowledge_action_item")
+        valid_decisions = {"will_execute", "already_done", "not_relevant"}
+        if decision not in valid_decisions:
+            return json.dumps({"success": False,
+                "error": f"decision must be one of {sorted(valid_decisions)}; got '{decision}'"})
+        if decision in {"already_done", "not_relevant"} and not (reason or "").strip():
+            return json.dumps({"success": False,
+                "error": f"reason is required for decision='{decision}'"})
+        if not text or not text.strip():
+            return json.dumps({"success": False, "error": "text is required"})
+
+        pending = _pending_action_items.get(source) or []
+        before = len(pending)
+        after = [p for p in pending
+                 if not (p.get("memory_id") == memory_id
+                         and p.get("text") == text.strip())]
+        _pending_action_items[source] = after
+        removed = before - len(after)
+
+        _audit_ack({
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "source":    source,
+            "memory_id": memory_id,
+            "text":      text.strip(),
+            "decision":  decision,
+            "reason":    reason.strip() if reason else "",
+            "removed":   removed,
+        })
+
+        return json.dumps({
+            "success":   True,
+            "decision":  decision,
+            "text":      text.strip(),
+            "removed":   removed,
+            "remaining": len(after),
+        })
+    except Exception as exc:
+        return json.dumps({"success": False, "error": str(exc)})
+
+
+@mcp.tool()
+@instrument("brain_checkpoint")
+def brain_checkpoint(action: str, source: str, context: str = "", project: str = "") -> str:
+    """Check the brain before a risky action. Returns relevant memories and warnings.
+
+    Call this BEFORE editing infrastructure files, database code, deployment
+    configs, or any action where past mistakes or decisions are relevant.
+    The brain will search for memories related to what you're about to do
+    and surface any guardrails, corrections, or prior decisions.
+
+    Skips if the same topic was checked within the last 5 minutes.
+
+    Args:
+        action: What you're about to do (e.g. 'edit infrastructure script',
+                'modify database schema', 'push to shep remote').
+        source: REQUIRED. Which agent is calling (e.g. 'claude', 'windsurf').
+                Session-compliance is tracked per-source.
+        context: Additional context about the specific files or changes.
+        project: The project scope (e.g. 'open-brain').
+    """
+    try:
+        if not source:
+            return _source_required_error("brain_checkpoint")
+        # Check cooldown -- skip if same topic checked recently
+        src = source
+        if src in _checkpoint_tracker:
+            last_check = _checkpoint_tracker[src].get(action)
+            if last_check and (time.time() - last_check) < CHECKPOINT_COOLDOWN:
+                return json.dumps({
+                    "success": True,
+                    "skipped": True,
+                    "reason": f"Already checked '{action}' {int(time.time() - last_check)}s ago. Cooldown is {CHECKPOINT_COOLDOWN}s.",
+                })
+
+        # Build a search query combining the action and context
+        query = f"{action} {context} {project}".strip()
+        if not query:
+            return json.dumps({"success": False, "error": "action is required"})
+
+        embedding = get_embedding(query)
+        memories = db_search(
+            embedding, query, 5, None, None, project or None, 0, 0, "",
+        )
+
+        # Also get pinned guardrails for this project
+        pinned = db_get_pinned(project) if project else []
+
+        # Record the checkpoint
+        if src not in _checkpoint_tracker:
+            _checkpoint_tracker[src] = {}
+        _checkpoint_tracker[src][action] = time.time()
+
+        # Format results
+        warnings = []
+        relevant = []
+
+        for m in pinned:
+            meta = m.get("metadata", {})
+            if isinstance(meta, str):
+                meta = json.loads(meta) if meta else {}
+            warnings.append({
+                "id": m["id"],
+                "type": "guardrail",
+                "content": m["content"][:500],
+            })
+
+        for m in memories:
+            meta = m.get("metadata", {})
+            if isinstance(meta, str):
+                meta = json.loads(meta) if meta else {}
+            mem_type = meta.get("type", "note")
+            entry = {
+                "id": m["id"],
+                "type": mem_type,
+                "content": m["content"][:300],
+                "similarity": m.get("similarity"),
+            }
+            relevant.append(entry)
+
+        return json.dumps({
+            "success": True,
+            "action": action,
+            "context": context,
+            "guardrails": len(warnings),
+            "relevant_memories": len(relevant),
+            "warnings": warnings,
+            "relevant": relevant,
+            "message": f"Checkpoint complete. {len(warnings)} guardrails, {len(relevant)} relevant memories. Review before proceeding.",
+        }, indent=2)
+
+    except Exception as exc:
+        return json.dumps({"success": True, "degraded": True, "error": str(exc),
+                          "message": "Checkpoint failed but not blocking. Proceed with caution."})
+
+
+@mcp.tool()
+@instrument("capture_context")
+def capture_context(context: str, source: str, project: str = "") -> str:
+    """Automatically extract and store memories from raw conversation or session context.
+
+    THIS is the primary tool for automatic brain capture. AI agents should call
+    this on their own at natural checkpoints — after completing a task, when a
+    decision is made, when something notable about the user or project is learned.
+    Do NOT wait for the user to ask. The user should never have to say "remember this."
+
+    The brain will decompose the context into individual atomic memories and store
+    each one separately for precise future retrieval.
+
+    When to call automatically (without being asked):
+    - A coding task or feature is completed
+    - A technical decision is made (architecture, library, approach)
+    - A bug is diagnosed and fixed (cause + fix)
+    - Something about the user's preferences, workflow, or project is learned
+    - A meeting, discussion, or planning session occurs
+    - An error or blocker is encountered and resolved
+
+    Args:
+        context: Raw text to capture — conversation excerpt, session summary,
+                 decisions made, things learned. Can be long, dump freely.
+        source:  REQUIRED. Which agent is capturing (e.g. 'windsurf', 'cursor',
+                 'claude'). Session-compliance is tracked per-source; pass the
+                 same source to search(), boot_session(), and capture_context()
+                 in your session.
+        project: Project this memory belongs to (e.g. 'open-brain', 'my-app').
+                 Empty string means global (not project-scoped).
+    """
+    try:
+        if not source:
+            return _source_required_error("capture_context")
+        # BLOCKING ENFORCEMENT: Check compliance + action-item gate before storing
+        compliance_error = _check_compliance(source, project, tool_name="capture_context")
+        if compliance_error:
+            return json.dumps(compliance_error, indent=2)
+
+        # Filter secrets from raw context before any processing
+        context = check_content(context)
+
+        stored = []
+        errors = []
+
+        # Try LLM extraction to decompose context into atomic memories
+        if METADATA_LLM_MODEL:
+            try:
+                prompt = (
+                    "Extract distinct, atomic memories from this context. "
+                    "Each memory should be one clear fact, decision, insight, or event — self-contained enough "
+                    "to be useful when retrieved alone months from now. "
+                    "Only include things worth remembering long-term. Skip filler.\n\n"
+                    f"Context:\n{context}\n\n"
+                    "Reply ONLY with a JSON array of strings. Example:\n"
+                    '["Decided to use Redis for session caching due to TTL support.", '
+                    '"User prefers flat file structure over nested src/ directories.", '
+                    '"Fixed bug where auth token wasn\'t being refreshed on 401."]'
+                )
+                result = _http_post(
+                    f"{OLLAMA_BASE_URL}/api/generate",
+                    {"model": METADATA_LLM_MODEL, "prompt": prompt, "stream": False},
+                )
+                raw = result.get("response", "").strip()
+                # Extract JSON array from response
+                start = raw.find("[")
+                end   = raw.rfind("]") + 1
+                if start != -1 and end > start:
+                    items = json.loads(raw[start:end])
+                    if isinstance(items, list) and items:
+                        valid_items = []
+                        for item in items:
+                            if isinstance(item, str) and item.strip():
+                                try:
+                                    valid_items.append(check_content(item))
+                                except SecretDetectedError as e:
+                                    errors.append(f"Blocked decomposed item: {e}")
+                                    continue
+                        # Phase 1: batch all embeddings (keeps embed model loaded)
+                        item_embeddings: list[list[float] | None] = []
+                        for item in valid_items:
+                            try:
+                                item_embeddings.append(get_embedding(item))
+                            except Exception as e:
+                                errors.append(str(e))
+                                item_embeddings.append(None)
+                        # Phase 2: batch all metadata (keeps LLM loaded)
+                        item_metas: list[dict | None] = []
+                        for item in valid_items:
+                            try:
+                                meta = extract_metadata(item)
+                                if source:
+                                    meta["source"] = source
+                                meta["auto_captured"] = True
+                                item_metas.append(meta)
+                            except Exception as e:
+                                errors.append(str(e))
+                                item_metas.append(None)
+                        # Phase 3: store all
+                        for item, embedding, meta in zip(valid_items, item_embeddings, item_metas):
+                            if embedding is None or meta is None:
+                                continue
+                            try:
+                                memory, action = db_store_deduped(item, embedding, meta, project)
+                                stored.append({"id": memory["id"], "preview": item[:100], "type": meta["type"], "action": action})
+                            except Exception as e:
+                                errors.append(str(e))
+            except Exception:
+                pass  # fall through to single-memory fallback
+
+        # Fallback: store whole context as one memory
+        if not stored:
+            embedding = get_embedding(context)
+            meta      = extract_metadata(context)
+            if source:
+                meta["source"] = source
+            meta["auto_captured"] = True
+            memory, action = db_store_deduped(context, embedding, meta, project)
+            _record_store(source)
+            stored.append({"id": memory["id"], "preview": context[:100], "type": meta["type"], "action": action})
+
+        response = {
+            "success":       True,
+            "memories_stored": len(stored),
+            "stored":        stored,
+            "errors":        errors if errors else None,
+        }
+        return json.dumps(response, indent=2)
+
+    except SecretDetectedError as exc:
+        return json.dumps({"success": False, "error": str(exc), "blocked_by": "secrets_filter"})
+    except Exception as exc:
+        return json.dumps({"success": False, "error": str(exc)})
+
+
+@mcp.tool()
+@instrument("recall")
+def recall(memory_id: int) -> str:
+    """Fetch the full content of a specific memory by ID.
+
+    Use this after `search` returns previews — when you need the complete text
+    of a memory before acting on it. Also tracks access (bumps access_count).
+
+    Args:
+        memory_id: The ID of the memory to recall (from search or list_recent output).
+    """
+    try:
+        memory = db_get_by_id(memory_id)
+        if not memory:
+            return json.dumps({"success": False, "error": f"Memory {memory_id} not found."})
+        meta = memory["metadata"] if isinstance(memory["metadata"], dict) else {}
+        result: dict = {
+            "id":           memory["id"],
+            "content":      memory["content"],
+            "type":         meta.get("type"),
+            "people":       meta.get("people", []),
+            "topics":       meta.get("topics", []),
+            "action_items": meta.get("action_items", []),
+            "created_at":   str(memory["created_at"]),
+            "access_count": memory.get("access_count", 0),
+        }
+        if memory.get("project"):
+            result["project"] = memory["project"]
+        if memory.get("annotation"):
+            result["annotation"] = memory["annotation"]
+        if memory.get("upvotes") or memory.get("downvotes"):
+            result["upvotes"] = memory.get("upvotes", 0)
+            result["downvotes"] = memory.get("downvotes", 0)
+        if memory.get("pinned"):
+            result["pinned"] = True
+        if memory.get("updated_at"):
+            result["updated_at"] = str(memory["updated_at"])
+        # Belief revision: surface a banner when a superseded memory is
+        # recalled directly by ID. The original content is returned as
+        # normal (audit semantics — "show me what we used to believe")
+        # but the agent is told it has been corrected and where to look
+        # for the current truth.
+        full = db_get_memory(memory_id)
+        if full and full.get("superseded_by_id"):
+            result["superseded_by_id"] = full["superseded_by_id"]
+            result["superseded_at"] = str(full["superseded_at"]) if full.get("superseded_at") else None
+            result["superseded_reason"] = full.get("superseded_reason")
+            result["banner"] = (
+                f"This memory was superseded by #{full['superseded_by_id']} "
+                f"on {full['superseded_at']}. "
+                f"Reason: {full.get('superseded_reason')}. "
+                f"Use recall({full['superseded_by_id']}) for current truth."
+            )
+        return json.dumps(result, indent=2)
+    except Exception as exc:
+        return json.dumps({"success": False, "error": str(exc)})
+
+
+@mcp.tool()
+@instrument("annotate")
+def annotate(memory_id: int, note: str = "", clear: bool = False) -> str:
+    """Attach a persistent note to an existing memory, or clear it.
+
+    Annotations enrich memories without replacing them — add corrections,
+    extra context, gotchas, or warnings that surface on future searches.
+    Inspired by Context Hub's annotation system.
+
+    Args:
+        memory_id: The ID of the memory to annotate.
+        note: The annotation text to attach. Ignored if clear=True.
+        clear: Set to True to remove the annotation from this memory.
+    """
+    try:
+        if clear:
+            result = db_annotate(memory_id, "")
+            if not result:
+                return json.dumps({"success": False, "error": f"Memory {memory_id} not found."})
+            return json.dumps({"success": True, "id": memory_id, "message": "Annotation cleared."})
+        if not note:
+            # Read-only: fetch current annotation
+            memory = db_get_by_id(memory_id)
+            if not memory:
+                return json.dumps({"success": False, "error": f"Memory {memory_id} not found."})
+            return json.dumps({
+                "id":         memory_id,
+                "annotation": memory.get("annotation", ""),
+                "preview":    (memory["content"][:150] + "...") if len(memory["content"]) > 150 else memory["content"],
+            }, indent=2)
+        result = db_annotate(memory_id, note)
+        if not result:
+            return json.dumps({"success": False, "error": f"Memory {memory_id} not found."})
+        return json.dumps({
+            "success":    True,
+            "id":         memory_id,
+            "annotation": note,
+            "message":    "Annotation saved.",
+        })
+    except Exception as exc:
+        return json.dumps({"success": False, "error": str(exc)})
+
+
+@mcp.tool()
+@instrument("rate")
+def rate(memory_id: int, direction: str) -> str:
+    """Rate a memory as useful (up) or not useful (down).
+
+    Quality signals help surface the best memories in future searches.
+    Call this after using a memory — did it actually help?
+
+    Args:
+        memory_id: The ID of the memory to rate.
+        direction: 'up' if the memory was useful, 'down' if it wasn't.
+    """
+    try:
+        if direction not in ("up", "down"):
+            return json.dumps({"success": False, "error": "direction must be 'up' or 'down'."})
+        result = db_rate(memory_id, direction)
+        if not result:
+            return json.dumps({"success": False, "error": f"Memory {memory_id} not found."})
+        return json.dumps({
+            "success":   True,
+            "id":        memory_id,
+            "upvotes":   result["upvotes"],
+            "downvotes": result["downvotes"],
+            "score":     result["upvotes"] - result["downvotes"],
+        })
+    except Exception as exc:
+        return json.dumps({"success": False, "error": str(exc)})
+
+
+@mcp.tool()
+@instrument("prune")
+def prune(days: int = 90, min_access: int = 0, dry_run: bool = True) -> str:
+    """Remove stale memories that haven't been useful.
+
+    Deletes memories older than N days that have been accessed fewer than
+    min_access times. Use dry_run=True (default) to preview what would be deleted.
+
+    SAFETY: Minimum 30 days. Maximum 50 deletions per call. Pinned memories are
+    never deleted. dry_run defaults to True.
+
+    Args:
+        days: Delete memories older than this many days (default 90, minimum 30).
+        min_access: Only delete memories accessed this many times or fewer (default 0 = never accessed).
+        dry_run: If True (default), only count what would be deleted. MUST be explicitly set to False to delete.
+    """
+    try:
+        if days < PRUNE_MIN_DAYS:
+            return json.dumps({
+                "success": False,
+                "error": f"BLOCKED: days={days} is below the hard minimum of {PRUNE_MIN_DAYS}. "
+                         f"This prevents accidental mass deletion.",
+                "blocked_by": "prune_safeguard",
+            })
+        if dry_run:
+            conn = _get_conn()
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT COUNT(*) FROM memories "
+                    "WHERE created_at < NOW() - INTERVAL '1 day' * %s "
+                    "AND access_count <= %s "
+                    "AND pinned = FALSE",
+                    (days, min_access),
+                )
+                count = cur.fetchone()[0]  # type: ignore[index]
+            return json.dumps({
+                "dry_run":     True,
+                "would_delete": count,
+                "max_per_call": PRUNE_MAX_DELETE,
+                "criteria":    f"older than {days} days, accessed <= {min_access} times",
+                "message":     f"Would delete {count} memories (max {PRUNE_MAX_DELETE} per call). "
+                               f"Set dry_run=False to execute.",
+            })
+        deleted = db_prune(days, min_access)
+        return json.dumps({
+            "success": True,
+            "deleted": deleted,
+            "max_per_call": PRUNE_MAX_DELETE,
+            "message": f"Pruned {deleted} stale memories (max {PRUNE_MAX_DELETE} per call).",
+        })
+    except Exception as exc:
+        return json.dumps({"success": False, "error": str(exc)})
+
+
+@mcp.tool()
+@instrument("forget")
+def forget(memory_id: int) -> str:
+    """Permanently delete a specific memory by its ID.
+
+    Get the ID from the search or list_recent output.
+
+    Args:
+        memory_id: The ID of the memory to delete.
+    """
+    try:
+        deleted = db_delete(memory_id)
+        return json.dumps({
+            "success": deleted,
+            "id":      memory_id,
+            "message": f"Memory {memory_id} deleted." if deleted else f"Memory {memory_id} not found.",
+        })
+    except Exception as exc:
+        return json.dumps({"success": False, "error": str(exc)})
+
+
+@mcp.tool()
+@instrument("forget_many")
+def forget_many(memory_ids: list[int]) -> str:
+    """Permanently delete multiple memories in a single call.
+
+    Use this instead of calling forget() in a loop.
+    Get IDs from search or list_recent output.
+
+    Args:
+        memory_ids: List of memory IDs to delete.
+    """
+    try:
+        result = db_delete_many(memory_ids)
+        return json.dumps({"success": True, **result})
+    except Exception as exc:
+        return json.dumps({"success": False, "error": str(exc)})
+
+
+@mcp.tool()
+@instrument("supersede")
+def supersede(
+    old_memory_id: int,
+    new_content: str,
+    reason: str,
+    source: str,
+    type_override: str = "",
+    project: str = "",
+    inherit_pinned: bool = False,
+) -> str:
+    """Mark an existing memory as superseded by a new corrected memory.
+
+    The old memory is preserved (audit trail intact) but excluded from
+    default search/recall results so agents see only current truth.
+    The new memory is created with all standard processing (embedding,
+    metadata extraction, secrets-filter) and its ID is written to
+    `old.superseded_by_id`.
+
+    Use this instead of `forget()` when knowledge has been REVISED rather
+    than ABANDONED — preserves the audit trail of past beliefs.
+
+    Args:
+        old_memory_id: ID of the memory being corrected. Must exist and
+                       not already be superseded (chains form a tree, not
+                       a DAG; correct the LATEST in the chain, not the
+                       original). Get IDs from search or recall output.
+        new_content:   The corrected/replacement content.
+        reason:        Why the old memory is wrong or outdated. Required —
+                       no silent overwrites. Stored on the old memory's
+                       `superseded_reason` column.
+        source:        REQUIRED. Which agent is supersedeing.
+        type_override: Optional type for the new memory.
+        project:       Project tag for the new memory. Defaults to the
+                       old memory's project.
+        inherit_pinned: If True AND the old memory is pinned, the new
+                       memory is also pinned. Default False — explicit
+                       opt-in to avoid accidentally promoting a non-
+                       guardrail to guardrail status.
+
+    Returns JSON with both memory IDs:
+        {"success": True, "old_id": <int>, "new_id": <int>,
+         "superseded_at": "<iso>", "old_pinned": <bool>}
+    """
+    try:
+        if not source:
+            return _source_required_error("supersede")
+        if not reason or not reason.strip():
+            return json.dumps({"success": False,
+                "error": "reason is required (no silent overwrites)"})
+        if not new_content or not new_content.strip():
+            return json.dumps({"success": False,
+                "error": "new_content is required"})
+
+        compliance_error = _check_compliance(source, project, tool_name="supersede")
+        if compliance_error:
+            return json.dumps(compliance_error, indent=2)
+
+        old = db_get_memory(old_memory_id)
+        if not old:
+            return json.dumps({"success": False,
+                "error": f"Memory {old_memory_id} not found"})
+        if old.get("superseded_by_id"):
+            return json.dumps({"success": False,
+                "error": f"Memory {old_memory_id} is already superseded by "
+                         f"#{old['superseded_by_id']}. Supersede THAT one "
+                         f"instead (chains form a tree, not a DAG)."})
+
+        # Default project to the old memory's project
+        target_project = project or old.get("project", "") or ""
+
+        # Create the new memory through the standard pipeline (so it gets
+        # embedding, metadata extraction, secrets-filter, dedup against
+        # OTHER active memories — but db_find_duplicate now excludes
+        # superseded, so it won't false-match against `old`).
+        new_content = check_content(new_content)
+        embedding   = get_embedding(new_content)
+        metadata    = extract_metadata(new_content)
+        if type_override:
+            metadata["type"] = type_override
+        metadata["source"] = source
+        metadata["supersedes"] = old_memory_id
+        new_memory, action = db_store_deduped(new_content, embedding, metadata, target_project)
+        _record_store(source)
+
+        # Apply pinning inheritance if requested
+        was_pinned = bool(old.get("pinned"))
+        if inherit_pinned and was_pinned and not new_memory.get("pinned"):
+            try:
+                db_set_pinned(new_memory["id"], True)
+            except Exception:
+                pass
+
+        # Mark the old memory superseded
+        db_supersede(old_memory_id, new_memory["id"], reason.strip())
+
+        return json.dumps({
+            "success":         True,
+            "old_id":          old_memory_id,
+            "new_id":          new_memory["id"],
+            "new_action":      action,
+            "old_pinned":      was_pinned,
+            "new_pinned":      bool(inherit_pinned and was_pinned),
+            "type":            metadata["type"],
+            "project":         target_project,
+        }, indent=2)
+    except SecretDetectedError as exc:
+        return json.dumps({"success": False, "error": str(exc),
+                           "blocked_by": "secrets_filter"})
+    except Exception as exc:
+        return json.dumps({"success": False, "error": str(exc)})
+
+
+@mcp.tool()
+@instrument("unsupersede")
+def unsupersede(memory_id: int, source: str) -> str:
+    """Reverse a supersession by clearing the supersession metadata on
+    the given memory. Both the original (now-active-again) memory AND
+    the corrector (created during the original supersede() call) end
+    up active. If you want to undo the supersession entirely, also
+    call forget() on the corrector memory after this.
+
+    Args:
+        memory_id: ID of the memory whose supersession you want to clear.
+        source:    REQUIRED. Which agent is unsupersedeing.
+    """
+    try:
+        if not source:
+            return _source_required_error("unsupersede")
+        target = db_get_memory(memory_id)
+        if not target:
+            return json.dumps({"success": False,
+                "error": f"Memory {memory_id} not found"})
+        if not target.get("superseded_by_id"):
+            return json.dumps({"success": False,
+                "error": f"Memory {memory_id} was not superseded; nothing to undo."})
+        former_corrector = target["superseded_by_id"]
+        updated = db_unsupersede(memory_id)
+        return json.dumps({
+            "success":           True,
+            "id":                memory_id,
+            "former_corrector":  former_corrector,
+            "note":              "Both memories are now active. Call "
+                                f"forget({former_corrector}) to also remove "
+                                "the corrector if you want full undo.",
+        }, indent=2)
+    except Exception as exc:
+        return json.dumps({"success": False, "error": str(exc)})
+
+
+@mcp.tool()
+@instrument("load_skill")
+def load_skill(name: str, source: str, project: str = "") -> str:
+    """Load a specific skill by its trigger name.
+
+    Skills are memories with `skill_trigger.name` set. Call this when
+    you're about to start work on a topic you know has a named skill
+    (e.g. 'ollama-shutdown-graceful' before touching ollama shutdown
+    code). Returns the skill content in the same shape as `recall`.
+
+    Only active (non-superseded) skills are returned. A skill with
+    `projects` populated is only loadable from one of those projects;
+    a skill with `projects = []` is global and loadable from anywhere.
+
+    Args:
+        name:    The skill name from its skill_trigger.name field.
+        source:  REQUIRED agent identifier.
+        project: Current project scope. Required to load project-scoped
+                 skills; optional for global skills.
+    """
+    try:
+        if not source:
+            return _source_required_error("load_skill")
+        if not name:
+            return json.dumps({"success": False,
+                "error": "name is required"})
+        skill = db_get_skill_by_name(name, project or None)
+        if not skill:
+            scope = f" in scope of project '{project}'" if project else ""
+            return json.dumps({"success": False,
+                "error": f"Skill '{name}' not found{scope}."})
+        _record_search(source, project)
+        meta = skill["metadata"] if isinstance(skill["metadata"], dict) else {}
+        return json.dumps({
+            "success":       True,
+            "id":            skill["id"],
+            "name":          name,
+            "content":       skill["content"],
+            "type":          meta.get("type"),
+            "project":       skill.get("project"),
+            "skill_trigger": skill.get("skill_trigger"),
+        }, indent=2)
+    except Exception as exc:
+        return json.dumps({"success": False, "error": str(exc)})
+
+
+@mcp.tool()
+@instrument("pin")
+def pin(memory_id: int) -> str:
+    """Pin a memory so it always appears in search results for its project.
+
+    Pinned memories surface at the top of every search scoped to their
+    project, regardless of query similarity. Use this for workflow rules,
+    conventions, and guardrails that agents must always see.
+
+    A memory must belong to a project to be pinned (global memories cannot
+    be pinned since pinning only affects project-scoped searches).
+
+    Args:
+        memory_id: The ID of the memory to pin.
+    """
+    try:
+        result = db_set_pinned(memory_id, True)
+        if result is None:
+            return json.dumps({"success": False, "error": f"Memory {memory_id} not found."})
+        if not result.get("project"):
+            # Revert -- global memories cannot be pinned
+            db_set_pinned(memory_id, False)
+            return json.dumps({
+                "success": False,
+                "error": "Cannot pin a global memory. Pinning only works for project-scoped memories. "
+                         "Re-store this memory with a project parameter first.",
+            })
+        return json.dumps({
+            "success": True,
+            "id":      result["id"],
+            "pinned":  True,
+            "project": result["project"],
+            "preview": result["content"][:100],
+            "message": f"Memory {memory_id} pinned. It will now appear at the top of all searches for project '{result['project']}'.",
+        }, indent=2)
+    except Exception as exc:
+        return json.dumps({"success": False, "error": str(exc)})
+
+
+@mcp.tool()
+@instrument("unpin")
+def unpin(memory_id: int) -> str:
+    """Remove the pin from a memory, returning it to normal search behavior.
+
+    The memory is not deleted -- it just stops appearing at the top of every
+    search for its project.
+
+    Args:
+        memory_id: The ID of the memory to unpin.
+    """
+    try:
+        result = db_set_pinned(memory_id, False)
+        if result is None:
+            return json.dumps({"success": False, "error": f"Memory {memory_id} not found."})
+        return json.dumps({
+            "success": True,
+            "id":      result["id"],
+            "pinned":  False,
+            "message": f"Memory {memory_id} unpinned.",
+        }, indent=2)
+    except Exception as exc:
+        return json.dumps({"success": False, "error": str(exc)})
+
+
+@mcp.tool()
+@instrument("scratch_set")
+def scratch_set(key: str, value: str) -> str:
+    """Store a value in working memory (session scratchpad).
+
+    Working memory is ephemeral -- it is cleared every time the server restarts.
+    Use it for in-session context: current task, active file, goal, reasoning state.
+    For persistent storage use remember() instead.
+
+    Args:
+        key: A short label for this piece of context (e.g. 'current_task', 'active_file').
+        value: The value to store.
+    """
+    _scratch[key] = value
+    return json.dumps({"success": True, "key": key, "stored": True})
+
+
+@mcp.tool()
+@instrument("scratch_get")
+def scratch_get(key: str) -> str:
+    """Retrieve a value from working memory (session scratchpad).
+
+    Returns the value stored under the given key, or null if not set.
+    Working memory is ephemeral and cleared on server restart.
+
+    Args:
+        key: The label to look up.
+    """
+    value = _scratch.get(key)
+    return json.dumps({"key": key, "value": value, "found": value is not None})
+
+
+@mcp.tool()
+@instrument("scratch_list")
+def scratch_list() -> str:
+    """List all keys and values currently in working memory (session scratchpad).
+
+    Working memory is ephemeral and cleared on server restart.
+    Use this to inspect what context is currently active.
+    """
+    return json.dumps({
+        "count": len(_scratch),
+        "entries": dict(_scratch),
+    }, indent=2)
+
+
+# ─── Transport Helpers ─────────────────────────────────────────────────────────
+
+HTTP_PORT = int(os.getenv("OPEN_BRAIN_PORT", "8080"))
+HTTP_HOST = os.getenv("OPEN_BRAIN_HOST", "0.0.0.0")
+REST_PORT = int(os.getenv("OPEN_BRAIN_REST_PORT", "8765"))
+REST_HOST = os.getenv("OPEN_BRAIN_REST_HOST", "0.0.0.0")
+CHECK_INTERVAL_HOURS = int(os.getenv("OPEN_BRAIN_CHECK_INTERVAL", "0"))
+
+
+def _run_http(host: str, port: int) -> None:
+    """Run the MCP server over streamable HTTP."""
+    import uvicorn
+
+    app = mcp.streamable_http_app()
+    print(
+        f"Open Brain HTTP server: http://{host}:{port}/mcp",
+        file=sys.stderr,
+    )
+    uvicorn.run(app, host=host, port=port, log_level="info")
+
+
+def _run_stdio() -> None:
+    """Run the MCP server over stdio (default)."""
+    mcp.run(transport="stdio")
+
+
+def _run_both(host: str, port: int) -> None:
+    """Run HTTP in a daemon thread, stdio in the foreground."""
+    t = threading.Thread(target=_run_http, args=(host, port), daemon=True)
+    t.start()
+    _run_stdio()
+
+
+def _run_rest(host: str, port: int) -> None:
+    """Run the REST API (for remote clients like Co-work, Cursor, web UIs)."""
+    from rest_api import app, _api_key, run
+    run(host=host, port=port)
+
+
+def _run_all(mcp_host: str, mcp_port: int, rest_host: str, rest_port: int) -> None:
+    """Run all transports: stdio (foreground) + MCP HTTP + REST API (background)."""
+    # MCP HTTP in background
+    t1 = threading.Thread(target=_run_http, args=(mcp_host, mcp_port), daemon=True)
+    t1.start()
+    # REST API in background
+    t2 = threading.Thread(target=_run_rest, args=(rest_host, rest_port), daemon=True)
+    t2.start()
+    # stdio in foreground
+    _run_stdio()
+
+
+def _consolidation_loop(interval_seconds: int) -> None:
+    """Background thread: periodically scan for related memories and merge them using the LLM.
+    Only runs if METADATA_LLM_MODEL and OPEN_BRAIN_CONSOLIDATION_INTERVAL are set."""
+    while True:
+        time.sleep(interval_seconds)
+        try:
+            conn = _get_conn()
+            # Fetch all memories ordered by oldest first, in batches
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(
+                    "SELECT id, content, embedding::text, metadata FROM memories "
+                    "WHERE pinned = FALSE ORDER BY created_at ASC LIMIT 200"
+                )
+                rows = [dict(r) for r in cur.fetchall()]
+
+            merged_count = 0
+            seen_ids: set[int] = set()
+            for row in rows:
+                if row["id"] in seen_ids:
+                    continue
+                # Parse embedding back to list
+                try:
+                    emb_str = row["embedding"].strip("[]")
+                    emb = [float(x) for x in emb_str.split(",")]
+                except Exception:
+                    continue
+                related = db_find_related(emb)
+                if related is None or related["id"] in seen_ids or related["id"] == row["id"]:
+                    continue
+                decision = _llm_merge_decision(row["content"], related["content"])
+                if decision == "MERGE":
+                    merged_content = _llm_merge_content(row["content"], related["content"])
+                    try:
+                        merged_content = check_content(merged_content)
+                    except Exception:
+                        continue
+                    merged_emb = get_embedding(merged_content)
+                    merged_meta = extract_metadata(merged_content)
+                    # Keep the older memory (related), update it with merged content
+                    db_update(related["id"], merged_content, merged_emb, merged_meta)
+                    # Delete the newer duplicate
+                    db_delete(row["id"])
+                    seen_ids.add(row["id"])
+                    seen_ids.add(related["id"])
+                    merged_count += 1
+                elif decision == "REPLACE":
+                    db_update(related["id"], row["content"], emb,
+                              row["metadata"] if isinstance(row["metadata"], dict) else {})
+                    db_delete(row["id"])
+                    seen_ids.add(row["id"])
+                    seen_ids.add(related["id"])
+                    merged_count += 1
+
+            if merged_count > 0:
+                print(f"[open-brain] consolidation: merged/replaced {merged_count} memories", file=sys.stderr)
+        except Exception as e:
+            print(f"[open-brain] consolidation error (non-fatal): {e}", file=sys.stderr)
+
+
+def _periodic_check(interval_hours: int) -> None:
+    """Background thread: check for unwired agents on an interval."""
+    from wire import run_check_quiet, print_first_run_notice
+
+    interval = interval_hours * 3600
+    while True:
+        time.sleep(interval)
+        try:
+            results = run_check_quiet()
+            print_first_run_notice(results)
+        except Exception as e:
+            print(f"Periodic check error: {e}", file=sys.stderr)
+
+
+# ─── Entry point ──────────────────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Open Brain MCP Server",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "examples:\n"
+            "  python server.py                    # stdio (default, for editors)\n"
+            "  python server.py --transport http    # MCP HTTP for claude.ai connectors\n"
+            "  python server.py --transport rest    # REST API for remote clients (Co-work, web)\n"
+            "  python server.py --transport both    # stdio + MCP HTTP\n"
+            "  python server.py --transport all     # stdio + MCP HTTP + REST API\n"
+            "  python server.py wire                # auto-wire all detected agents\n"
+            "  python server.py wire --check        # read-only scan\n"
+        ),
+    )
+    parser.add_argument(
+        "command", nargs="?", default="serve",
+        choices=["serve", "wire"],
+        help="'serve' (default) to run the server, 'wire' to configure agents",
+    )
+    parser.add_argument(
+        "--transport", choices=["stdio", "http", "rest", "both", "all"], default="stdio",
+        help="Transport: stdio (editors), http (MCP), rest (remote API), both (stdio+http), all (stdio+http+rest)",
+    )
+    parser.add_argument(
+        "--port", type=int, default=HTTP_PORT,
+        help=f"HTTP port (default: {HTTP_PORT}, env: OPEN_BRAIN_PORT)",
+    )
+    parser.add_argument(
+        "--host", default=HTTP_HOST,
+        help=f"HTTP host (default: {HTTP_HOST}, env: OPEN_BRAIN_HOST)",
+    )
+    parser.add_argument(
+        "--rest-port", type=int, default=REST_PORT,
+        help=f"REST API port (default: {REST_PORT}, env: OPEN_BRAIN_REST_PORT)",
+    )
+    parser.add_argument(
+        "--first-run", action="store_true",
+        help="Check for unwired agents on startup",
+    )
+    parser.add_argument(
+        "--check", action="store_true",
+        help="Wire command: read-only scan, no changes",
+    )
+
+    args = parser.parse_args()
+
+    if args.command == "wire":
+        from wire import run_wire
+
+        run_wire(check_only=args.check)
+    else:
+        # First-run notice
+        if args.first_run:
+            try:
+                from wire import run_check_quiet, print_first_run_notice
+
+                print_first_run_notice(run_check_quiet())
+            except Exception as e:
+                print(f"First-run check failed: {e}", file=sys.stderr)
+
+        # OpenTelemetry initialization (traces + metrics + auto-instrumentation)
+        telemetry.initialize()
+
+        # Auto-migrate hybrid search schema if enabled
+        try:
+            db_migrate_hybrid()
+        except Exception as e:
+            print(f"[open-brain] hybrid migration failed (non-fatal): {e}", file=sys.stderr)
+
+        # Bi-temporal migration: valid_time + transaction_time columns
+        try:
+            db_migrate_bitemporal()
+        except Exception as e:
+            print(f"[open-brain] bi-temporal migration failed (non-fatal): {e}", file=sys.stderr)
+
+        # Uptime tracking: migrate, load prior total, start flush thread
+        try:
+            db_migrate_uptime()
+            _init_uptime(db_load_uptime())
+            print(f"[open-brain] uptime resumed at {_uptime_offset:.0f}s", file=sys.stderr)
+
+            def _uptime_flush_loop(interval: int) -> None:
+                while True:
+                    time.sleep(interval)
+                    try:
+                        db_flush_uptime(current_uptime())
+                    except Exception:
+                        pass
+
+            t_uptime = threading.Thread(
+                target=_uptime_flush_loop,
+                args=(UPTIME_FLUSH_INTERVAL,),
+                daemon=True,
+            )
+            t_uptime.start()
+        except Exception as e:
+            print(f"[open-brain] uptime tracking failed (non-fatal): {e}", file=sys.stderr)
+
+        # Periodic background check
+        if CHECK_INTERVAL_HOURS > 0:
+            t = threading.Thread(
+                target=_periodic_check,
+                args=(CHECK_INTERVAL_HOURS,),
+                daemon=True,
+            )
+            t.start()
+
+        # Background consolidation (LLM-driven merge/dedup)
+        if METADATA_LLM_MODEL and CONSOLIDATION_INTERVAL > 0:
+            t_consolidate = threading.Thread(
+                target=_consolidation_loop,
+                args=(CONSOLIDATION_INTERVAL,),
+                daemon=True,
+            )
+            t_consolidate.start()
+            print(f"[open-brain] consolidation thread started (every {CONSOLIDATION_INTERVAL}s)", file=sys.stderr)
+
+        # Start transport
+        if args.transport == "http":
+            _run_http(args.host, args.port)
+        elif args.transport == "rest":
+            _run_rest(args.host, args.rest_port)
+        elif args.transport == "both":
+            _run_both(args.host, args.port)
+        elif args.transport == "all":
+            _run_all(args.host, args.port, args.host, args.rest_port)
+        else:
+            _run_stdio()

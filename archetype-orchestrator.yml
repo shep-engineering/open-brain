@@ -1,0 +1,102 @@
+# =============================================================================
+# archetype-orchestrator.yml — Archetype Orchestrator Configuration
+# =============================================================================
+# Preferred config name for the renamed project.
+# Legacy compatibility: governance.yml is still supported during transition.
+# =============================================================================
+
+project:
+  name: open-brain
+  description: "Persistent AI second brain: MCP server + pgvector + local LLMs"
+  version: "0.1.0"
+
+# ─── Spec discovery ──────────────────────────────────────────
+# The discovery engine auto-crawls all sibling directories of this project
+# for archetypes, personas, and specs. No manual paths needed.
+# Only add paths here for non-standard locations (e.g. vendored specs).
+discovery:
+  search_paths: []
+  # Aliases for non-standard naming
+  spec_aliases:
+    - archetypes
+    - personas
+    - specs
+    - roles
+
+# ─── Stack detection (used by CI templates) ───────────────────
+stack:
+  backend:
+    language: python
+    version: "3.11"
+    test_command: "pytest --tb=short -q"
+  # frontend:
+  #   framework: react
+  #   version: "18"
+  #   test_command: "npm test"
+  # docker:
+  #   compose: true
+  #   runtime: podman    # or docker
+
+# ─── Orchestrator ─────────────────────────────────────────────
+orchestrator:
+  mode: discovery          # discovery | manual
+  # In manual mode, list specs explicitly:
+  # active:
+  #   - security-guardian
+  #   - quality-guardian
+  #   - documentation-evangelist
+
+# ─── Planning ────────────────────────────────────────────────
+planning:
+  require_dual_agent_workflow: true
+  require_context_loop: true
+  require_ralph_loop: true
+  require_source_consultation_map: true
+  warn_if_context_checkpoints_missing: true
+
+# ─── CI ──────────────────────────────────────────────────────
+ci:
+  provider: github-actions
+  templates:
+    - commit-stage.yml
+    - security-gates.yml
+
+# ─── Testing ────────────────────────────────────────────────
+# Commands run at the release gate (before merge/push to main).
+# Auto-detected if not set: pytest for Python projects, npm test for Node.
+# Override in .archetypes/validate.env: TEST_COMMAND, TEST_INTEGRATION_COMMAND, TEST_E2E_COMMAND
+# test:
+#   command: "pytest --tb=short -q"          # Unit tests
+#   integration_command: ""                  # Integration tests (optional)
+#   e2e_command: ""                          # E2E (e.g. "npx playwright test")
+
+# ─── Security audit ──────────────────────────────────────────
+# Dependency vulnerability scan run at the release gate.
+# Auto-detected: pip-audit (Python projects), npm audit (Node projects).
+# Override in .archetypes/validate.env: SECURITY_AUDIT_COMMAND
+# security:
+#   audit_command: "pip-audit -q"            # e.g. "npm audit --audit-level high"
+
+# ─── Branch protection ───────────────────────────────────────
+branches:
+  protected:
+    - main
+    - master
+    - develop
+
+# ─── Features ───────────────────────────────────────────────
+# Optional governance features. Managed via ge enable/disable or --features flag.
+# Stored locally in .archetypes/features.env (gitignored, per-project).
+# Presets: ide (core only), full (all governance), or comma-separated list.
+# features:
+#   hooks: yes              # Git pre-commit/pre-push hooks
+#   validation: yes         # Secrets, code safety, config safety checks
+#   lifecycle: yes          # Task start/end marker enforcement
+#   release_gate: yes       # CHANGELOG + semver increment enforcement
+#   ci: no                  # GitHub Actions workflow templates
+#   playwright: no          # Playwright E2E test scaffolding
+
+# ─── Preferences ─────────────────────────────────────────────
+# Defaults for ge/ao commands so you don't repeat flags every time.
+preferences:
+  default_tool: ""         # copilot | claude | cursor | cline | codex | manual
