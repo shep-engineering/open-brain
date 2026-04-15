@@ -1,6 +1,6 @@
 # Tools Reference
 
-Open Brain exposes 22 MCP tools: 19 user-facing tools and 3 cognitive architecture tools for agent compliance enforcement.
+Open Brain exposes 25 MCP tools: 22 user-facing tools and 3 cognitive architecture tools for agent compliance enforcement.
 
 ---
 
@@ -345,12 +345,57 @@ Initialize your brain for a new session. Loads full project context before the A
 |-----------|------|----------|-------------|
 | `project` | string | No | The project to load context for (e.g. "open-brain") |
 | `source` | string | No | Which agent is booting (e.g. "claude", "windsurf") |
+| `task` | string | No | Short free-form description of the session's intent (typically the first user prompt, truncated). Populates `active_sessions.current_task` so sibling sessions see what you're doing. *(Added v0.13.0.)* |
+| `cwd` | string | No | Absolute path of the caller's working directory. Strongly recommended — it's how sibling-session lookups distinguish "same repo, different window" from "unrelated." *(Added v0.13.0.)* |
+| `pid` | int | No | Process id of the MCP client, if known. *(Added v0.13.0.)* |
+| `host` | string | No | Hostname of the MCP client. *(Added v0.13.0.)* |
 
-**Returns:** Pinned guardrails (full content), project architecture context, recent session history (7 days), known issues/corrections, and repeated correction warnings. All stored in the session scratchpad.
+**Returns:** Pinned guardrails (full content), project architecture context, recent session history (7 days), known issues/corrections, repeated correction warnings, and (v0.13.0+) an `OTHER ACTIVE SESSIONS` section listing sibling live MCP sessions. All stored in the session scratchpad. The response also includes `session_id` for later use with `update_active_task` / `end_session`.
 
 *(v0.12.0)* The pinned-guardrails set returned at boot now excludes skill-tagged memories unless `skill_trigger.always_on` is `true`. Skill-triggered memories instead surface via `search` keyword auto-match or explicit `load_skill(name)`. See [Skills Layer](#skills-layer-v0120).
 
+*(v0.13.0)* Registers an `active_sessions` row, sweeps dead rows (heartbeat older than `OPEN_BRAIN_SESSION_TTL_MINUTES`, default 5), and surfaces other live sessions in the same project as a load-bearing context block. See [Session Registry](#session-registry-v0130).
+
 **Enforcement:** Server blocks `remember()` and `capture_context()` until `boot_session` has been called. Claude Code's PreToolUse hook blocks ALL non-brain tools until boot appears in the transcript.
+
+---
+
+## Session Registry (v0.13.0+)
+
+Live MCP-client sessions are tracked in an `active_sessions` table so a booting session can see what sibling sessions are currently doing. Closes the parallel-session blind spot: before v0.13.0, a Claude session in one terminal had zero visibility into a Claude session in another terminal working on the same project, even though both were connected to the same brain.
+
+Three new tools manage session state; `boot_session` registers implicitly; every other tool call refreshes `heartbeat_at` through the compliance hook. Rows older than `OPEN_BRAIN_SESSION_TTL_MINUTES` (default 5, matches Anthropic prompt-cache TTL) are swept to `status='ended'` automatically.
+
+### `update_active_task`
+
+Update the caller's `current_task` and bump heartbeat. Call when the user pivots or a task completes.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `source` | string | **Yes** | Caller's source identifier (same as boot). |
+| `task` | string | **Yes** | New task description. |
+| `session_id` | int | No | Defaults to the session id cached at boot. Pass explicitly only when booting happened in a different process. |
+
+### `list_active_sessions`
+
+Read-only snapshot of live sessions. Sweeps dead rows first.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `source` | string | **Yes** | Caller's source identifier. |
+| `project` | string | No | Filter to one project (empty = all). |
+| `exclude_self` | bool | No | Default `true` — omits the caller's own session. |
+
+### `end_session`
+
+Clean-shutdown path. Marks the session `ended` and clears the cached id.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `source` | string | **Yes** | Caller's source identifier. |
+| `session_id` | int | No | Defaults to the cached id. |
+
+Optional — the TTL sweeper handles crashed sessions — but calling this reduces noise in sibling queries right after exit.
 
 ---
 

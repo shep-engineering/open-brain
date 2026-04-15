@@ -5,6 +5,78 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] - 2026-04-14
+
+### Added — Session registry (parallel-session visibility)
+
+Open Brain now tracks **live MCP-client sessions** so a booting session
+can see what other sessions are currently working on. Closes the
+parallel-session blind spot that caused the 2026-04-14 Netflix prep
+mix-up: a sibling Claude session was running interview-prep work while
+this one was somewhere else; neither knew, and the brain had no
+mechanism to surface either to the other.
+
+**Why:** memory #3719 flagged the gap explicitly after the incident.
+Before this release, `boot_session` returned static memories only.
+Nothing in the schema represented "which agents are live right now,
+working on what." A guardrail memory can't fix that — the sibling is
+architecturally blind.
+
+**New table** (`scripts/migrate_v6_session_registry.py` — idempotent,
+reversible):
+  * `active_sessions(id, source, project, cwd, pid, host, current_task,
+    started_at, heartbeat_at, status, metadata)`
+  * 3 indexes: `(status, heartbeat_at)` for TTL sweeps,
+    `(project, status)` for cross-session lookups,
+    `(source, cwd, status)` for dedup + implicit heartbeat.
+
+**TTL rule:** rows with `status='active'` AND `heartbeat_at < now() -
+OPEN_BRAIN_SESSION_TTL_MINUTES` (default 5 min) are swept to
+`status='ended'` inline on `boot_session` / `list_active_sessions`.
+5 minutes matches the Anthropic prompt-cache TTL — a session that
+hasn't pinged in that window has lost its warm cache anyway.
+
+**Modified tool — `boot_session`.**
+- New optional args: `task`, `cwd`, `pid`, `host`.
+- Registers a new `active_sessions` row on every call.
+- Sweeps dead rows first.
+- Adds an **OTHER ACTIVE SESSIONS** section to the returned context
+  listing all sibling live sessions in the same project.
+- Returns `session_id` in the response for use by `update_active_task` /
+  `end_session`.
+
+**New tool — `update_active_task(source, task, session_id=0)`.**
+Updates `current_task` on the caller's session and bumps heartbeat.
+Call when the user pivots or a task completes.
+
+**New tool — `list_active_sessions(source, project="",
+exclude_self=True)`.** Read-only snapshot. Sweeps dead rows first.
+
+**New tool — `end_session(source, session_id=0)`.** Clean-shutdown
+path. Optional (TTL handles crashes) but reduces noise.
+
+**Implicit heartbeat:** every MCP tool call from a booted source
+refreshes `heartbeat_at` via the existing `_record_search` hook — no
+extra round-trips for the caller. Failures are silent.
+
+**Agent-side contract (load-bearing):** the booting agent MUST
+surface OTHER_ACTIVE_SESSIONS to the user when any listed session is
+in the same project or a related cwd, before starting overlapping
+work. Same treatment as action_items on memories.
+
+**Tool count:** 22 → 25.
+
+**Lineage:** elevated from "next-session candidate" to PRIORITY-1
+after a repeat of the parallel-session failure hit 2026-04-14
+(sibling told user "I have no knowledge of what you're doing" when
+the user had explicitly said a sibling Claude session existed).
+Separate from the action_item-compliance failure (same incident, same
+day) that memory #3719 owns — Session Registry fixes the visibility
+gap; action_item compliance is a behavioral failure a registry can't
+patch.
+
+---
+
 ## [0.12.0] - 2026-04-14
 
 ### Added — Skills layer (conditional-load guardrails)
