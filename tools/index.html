@@ -1056,6 +1056,34 @@
   
 </li>
         
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#action-item-compliance-gate-v0140" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Action-Item Compliance Gate (v0.14.0+)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Action-Item Compliance Gate (v0.14.0+)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#acknowledge_action_item" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        acknowledge_action_item
+      
+    </span>
+  </a>
+  
+</li>
+        
           <li class="md-nav__item">
   <a href="#brain_checkpoint" class="md-nav__link">
     <span class="md-ellipsis">
@@ -1813,6 +1841,34 @@
   
 </li>
         
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#action-item-compliance-gate-v0140" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Action-Item Compliance Gate (v0.14.0+)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Action-Item Compliance Gate (v0.14.0+)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#acknowledge_action_item" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        acknowledge_action_item
+      
+    </span>
+  </a>
+  
+</li>
+        
           <li class="md-nav__item">
   <a href="#brain_checkpoint" class="md-nav__link">
     <span class="md-ellipsis">
@@ -1886,7 +1942,7 @@
 
 
 <h1 id="tools-reference">Tools Reference</h1>
-<p>Open Brain exposes 25 MCP tools: 22 user-facing tools and 3 cognitive architecture tools for agent compliance enforcement.</p>
+<p>Open Brain exposes 26 MCP tools: 23 user-facing tools and 3 cognitive architecture tools for agent compliance enforcement.</p>
 <hr />
 <h2 id="core-tools">Core Tools</h2>
 <h3 id="remember"><code>remember</code></h3>
@@ -2616,12 +2672,13 @@
 </table>
 <p><strong>Returns:</strong> Pinned guardrails (full content), project architecture context, recent session history (7 days), known issues/corrections, repeated correction warnings, and (v0.13.0+) an <code>OTHER ACTIVE SESSIONS</code> section listing sibling live MCP sessions. All stored in the session scratchpad. The response also includes <code>session_id</code> for later use with <code>update_active_task</code> / <code>end_session</code>.</p>
 <p><em>(v0.12.0)</em> The pinned-guardrails set returned at boot now excludes skill-tagged memories unless <code>skill_trigger.always_on</code> is <code>true</code>. Skill-triggered memories instead surface via <code>search</code> keyword auto-match or explicit <code>load_skill(name)</code>. See <a href="#skills-layer-v0120">Skills Layer</a>.</p>
-<p><em>(v0.13.0)</em> Registers an <code>active_sessions</code> row, sweeps dead rows (heartbeat older than <code>OPEN_BRAIN_SESSION_TTL_MINUTES</code>, default 5), and surfaces other live sessions in the same project as a load-bearing context block. See <a href="#session-registry-v0130">Session Registry</a>.</p>
+<p><em>(v0.13.0 / reworked v0.14.0)</em> Registers an <code>active_sessions</code> row (defaulting <code>pid</code> to <code>os.getpid()</code> and <code>host</code> to <code>socket.gethostname()</code> when caller omits them), supersedes any prior row from the same (source, cwd, pid) client process, and surfaces other live sessions in the same project as a load-bearing context block. Liveness is maintained by an external heartbeat agent — no TTL. See <a href="#session-registry-v0130">Session Registry</a>.</p>
+<p><em>(v0.14.0)</em> Scans RECENT HISTORY and KNOWN ISSUES memories for <code>action_items</code>, populates a per-source pending list, and adds an <code>ACTION ITEMS PENDING</code> section with <code>pending_action_items</code> in the response. Write-set tools (<code>remember</code>, <code>capture_context</code>, <code>supersede</code>) are BLOCKED until every item is acknowledged via <code>acknowledge_action_item</code>. See <a href="#action-item-compliance-gate-v0140">Action-Item Compliance Gate</a>.</p>
 <p><strong>Enforcement:</strong> Server blocks <code>remember()</code> and <code>capture_context()</code> until <code>boot_session</code> has been called. Claude Code's PreToolUse hook blocks ALL non-brain tools until boot appears in the transcript.</p>
 <hr />
 <h2 id="session-registry-v0130">Session Registry (v0.13.0+)</h2>
 <p>Live MCP-client sessions are tracked in an <code>active_sessions</code> table so a booting session can see what sibling sessions are currently doing. Closes the parallel-session blind spot: before v0.13.0, a Claude session in one terminal had zero visibility into a Claude session in another terminal working on the same project, even though both were connected to the same brain.</p>
-<p>Three new tools manage session state; <code>boot_session</code> registers implicitly; every other tool call refreshes <code>heartbeat_at</code> through the compliance hook. Rows older than <code>OPEN_BRAIN_SESSION_TTL_MINUTES</code> (default 5, matches Anthropic prompt-cache TTL) are swept to <code>status='ended'</code> automatically.</p>
+<p>Three tools manage session state; <code>boot_session</code> registers implicitly. Liveness (v0.14.0+) is detected by the <strong>heartbeat agent</strong> (<code>scripts/heartbeat_agent.py</code>) — a separate process that periodically pid-probes each active row via <code>psutil.pid_exists</code> and marks dead rows <code>status='ended'</code>. server.py's atexit + SIGTERM/SIGINT handlers also call <code>db_end_session</code> on clean shutdown. No TTL. No self-ping. Probe interval: <code>OPEN_BRAIN_HEARTBEAT_INTERVAL</code> (default 60s).</p>
 <h3 id="update_active_task"><code>update_active_task</code></h3>
 <p>Update the caller's <code>current_task</code> and bump heartbeat. Call when the user pivots or a task completes.</p>
 <table>
@@ -2676,7 +2733,7 @@
 <td><code>project</code></td>
 <td>string</td>
 <td>No</td>
-<td>Filter to one project (empty = all).</td>
+<td>Filter to one project (empty string = all projects across the brain).</td>
 </tr>
 <tr>
 <td><code>exclude_self</code></td>
@@ -2686,6 +2743,9 @@
 </tr>
 </tbody>
 </table>
+<p><strong>Cross-project visibility:</strong> pass <code>project=""</code> (empty string, not the caller's default project) to see sessions in every project. <code>boot_session</code>'s <code>OTHER ACTIVE SESSIONS</code> block is always project-scoped by design — to see cross-project siblings, call <code>list_active_sessions</code> explicitly.</p>
+<p><strong>Liveness model (v0.14.0+):</strong> a session is alive iff its owning server.py process is running. Liveness is detected externally by the heartbeat agent (<code>scripts/heartbeat_agent.py</code>) which pid-probes each row via <code>psutil.pid_exists</code>. Rows from dead processes are marked <code>status='ended'</code> on the next probe cycle (default 60s, <code>OPEN_BRAIN_HEARTBEAT_INTERVAL</code>). Clean shutdowns (MCP client disconnect, SIGTERM, SIGINT) also call <code>db_end_session</code> via server.py's atexit hooks. Only SIGKILL / power-loss leaves a stale row, and the agent cleans those up within one cycle.</p>
+<p>No TTL. No self-ping. Sessions doing long non-brain work stay visible as long as their server.py process is alive.</p>
 <h3 id="end_session"><code>end_session</code></h3>
 <p>Clean-shutdown path. Marks the session <code>ended</code> and clears the cached id.</p>
 <table>
@@ -2712,7 +2772,58 @@
 </tr>
 </tbody>
 </table>
-<p>Optional — the TTL sweeper handles crashed sessions — but calling this reduces noise in sibling queries right after exit.</p>
+<p>Optional — server.py's atexit hook and the heartbeat agent already handle clean shutdowns and crashed processes respectively — but calling this explicitly tightens the window between shutdown and the next sibling query.</p>
+<hr />
+<h2 id="action-item-compliance-gate-v0140">Action-Item Compliance Gate (v0.14.0+)</h2>
+<p>Memories carry <code>action_items</code> in their metadata. At <code>boot_session</code>, the server scans memories surfaced in RECENT HISTORY and KNOWN ISSUES for action_items, populates a per-source pending list (deduped, capped at <code>OPEN_BRAIN_ACTION_ITEM_GATE_MAX</code>, default 10), and surfaces them as an <code>ACTION ITEMS PENDING</code> section. Write-set tools (<code>remember</code>, <code>capture_context</code>, <code>supersede</code>) are <strong>BLOCKED</strong> with <code>blocked_by: action_items_pending</code> until every item is acknowledged. Reads stay open so the session can investigate before deciding.</p>
+<p>Pinned guardrails are skipped — they're rules, not pending tasks.</p>
+<p>Pending state is ephemeral (in-memory, per-source). Re-ack is required on reboot, matching session-registry TTL semantics. A server restart drops the state; next <code>boot_session</code> re-surfaces unresolved items.</p>
+<p>Acks are logged to <code>logs/action_item_acks.jsonl</code> (append-only JSONL).</p>
+<h3 id="acknowledge_action_item"><code>acknowledge_action_item</code></h3>
+<p>Engage with one pending action_item. Call once per item; writes unlock when the pending list is empty.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>source</code></td>
+<td>string</td>
+<td><strong>Yes</strong></td>
+<td>Same source used at boot.</td>
+</tr>
+<tr>
+<td><code>memory_id</code></td>
+<td>int</td>
+<td><strong>Yes</strong></td>
+<td>The id of the memory that carried this action_item.</td>
+</tr>
+<tr>
+<td><code>text</code></td>
+<td>string</td>
+<td><strong>Yes</strong></td>
+<td>Exact text (from <code>pending_action_items</code> in the boot response).</td>
+</tr>
+<tr>
+<td><code>decision</code></td>
+<td>string</td>
+<td><strong>Yes</strong></td>
+<td>One of <code>will_execute</code>, <code>already_done</code>, <code>not_relevant</code>.</td>
+</tr>
+<tr>
+<td><code>reason</code></td>
+<td>string</td>
+<td>Conditional</td>
+<td>Required for <code>already_done</code> and <code>not_relevant</code> — explain why.</td>
+</tr>
+</tbody>
+</table>
+<p>Returns <code>{success, decision, text, removed, remaining}</code>. Idempotent — acking a non-pending item returns success with <code>removed: 0</code>.</p>
 <hr />
 <h3 id="brain_checkpoint"><code>brain_checkpoint</code></h3>
 <p>Check the brain before a risky action. Searches for relevant memories and surfaces guardrails.</p>
