@@ -61,11 +61,17 @@ if %errorlevel%==0 (
     echo     Ollama started ^(dual GPU, max 2 models loaded^)
 )
 
-echo [4/4] Starting Open Brain MCP server...
+echo [4/5] Starting Open Brain MCP server...
 start "" /B "%PYTHON%" "%OB_ROOT%\server.py" 2>>"%OB_ROOT%\server-crash.log"
 echo     Open Brain server started
 
+echo [5/5] Starting session-registry heartbeat agent (v0.14.0+)...
+start "" /B "%PYTHON%" "%OB_ROOT%\scripts\heartbeat_agent.py" >"%OB_ROOT%\logs\heartbeat-agent.log" 2>&1
+echo     Heartbeat agent started ^(pid-probe interval 60s^)
+
 echo.
-echo Open Brain v0.9.0 is ON. 19 MCP tools ready for Windsurf / Cursor / Claude Code.
+echo Open Brain v0.14.0 is ON. 26 MCP tools ready for Windsurf / Cursor / Claude Code.
+echo   - Session registry with signoff + external heartbeat agent ^(no TTL^)
+echo   - Action-item compliance gate blocks writes until action_items are acknowledged
 echo   - Hybrid search ^(vector + full-text^), uptime-based decay, time-scoped search
-echo   - procedural + episodic memory types, pinned guardrails
+echo   - Skills layer ^(conditional-load guardrails^), belief revision ^(supersede^)
