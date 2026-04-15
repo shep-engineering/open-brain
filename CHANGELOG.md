@@ -78,6 +78,11 @@ Without the agent running, sessions from crashed/SIGKILLed clients
 stay `active` in the registry forever — cosmetic noise, not a
 correctness issue.
 
+**Required dependency:** `psutil` (v7.2.2 or later). Install via
+`pip install psutil`. This is listed in `requirements.txt` and needed
+by `scripts/heartbeat_agent.py` for `pid_exists()` checks. Missing
+psutil causes import failure and 500 errors on startup.
+
 ---
 
 ### Added — Action-item compliance gate
