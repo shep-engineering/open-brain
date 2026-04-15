@@ -20,9 +20,12 @@ MCP client config:
 from __future__ import annotations
 
 import argparse
+import atexit
 import json
 import os
 import re
+import signal
+import socket
 import sys
 import threading
 import time
@@ -61,7 +64,8 @@ COMPLIANCE_MAX_STORES   = int(os.getenv("COMPLIANCE_MAX_STORES",              "5
 MERGE_LOWER_THRESHOLD   = float(os.getenv("OPEN_BRAIN_MERGE_LOWER_THRESHOLD", "0.70"))  # below this = unrelated
 CONSOLIDATION_INTERVAL  = int(os.getenv("OPEN_BRAIN_CONSOLIDATION_INTERVAL",  "0"))    # 0 = disabled
 SKILL_TRIGGER_MAX       = int(os.getenv("OPEN_BRAIN_SKILL_TRIGGER_MAX",      "5"))     # max skill auto-matches per search (v0.12.0+)
-SESSION_TTL_MINUTES     = int(os.getenv("OPEN_BRAIN_SESSION_TTL_MINUTES",    "5"))     # dead-session sweep window (v0.13.0+)
+HEARTBEAT_AGENT_INTERVAL = int(os.getenv("OPEN_BRAIN_HEARTBEAT_INTERVAL",    "60"))    # heartbeat-agent pid-probe interval, seconds (v0.14.0+)
+ACTION_ITEM_GATE_MAX    = int(os.getenv("OPEN_BRAIN_ACTION_ITEM_GATE_MAX",   "10"))    # max pending action_items per source (v0.14.0+)
 
 # ─── Session Compliance Tracking ─────────────────────────────────────────────
 #
@@ -101,6 +105,83 @@ _scratch: dict[str, str] = {}
 # Cleared on end_session.
 
 _active_session_ids: dict[str, int] = {}
+
+# ─── Session Signoff Hooks (v0.14.0+) ────────────────────────────────────────
+#
+# When this server.py process exits (normal shutdown, SIGTERM, stdio close),
+# mark every cached session_id 'ended'. This is the primary liveness signal:
+# a session is alive iff its owning server.py process is running. The
+# heartbeat agent catches SIGKILL / power-loss cases by pid-probing active
+# rows externally. Rationale: memory #4929 / #3719 — timer-based expiry is
+# wrong; process lifecycle is the authoritative signal.
+
+def _signoff_all_sessions() -> None:
+    """End every session cached in _active_session_ids. Called on atexit
+    and from signal handlers. Swallow all exceptions — shutdown must not
+    raise."""
+    try:
+        for source, sid in list(_active_session_ids.items()):
+            try:
+                db_end_session(sid)
+            except Exception:
+                pass
+        _active_session_ids.clear()
+    except Exception:
+        pass
+
+
+def _install_session_signoff_hooks() -> None:
+    """Wire atexit + SIGTERM/SIGINT handlers for session signoff.
+
+    SIGKILL can't be caught (POSIX guarantee; Windows TerminateProcess
+    equivalent). Those cases are the heartbeat agent's domain.
+    """
+    atexit.register(_signoff_all_sessions)
+    # SIGINT and SIGTERM chain through to the normal atexit path.
+    def _handler(signum, frame):
+        _signoff_all_sessions()
+        # Restore default handler and re-raise so the process actually exits
+        # with the expected signal-derived code.
+        try:
+            signal.signal(signum, signal.SIG_DFL)
+            os.kill(os.getpid(), signum)
+        except Exception:
+            sys.exit(128 + signum)
+    try:
+        signal.signal(signal.SIGTERM, _handler)
+    except Exception:
+        pass
+    try:
+        signal.signal(signal.SIGINT, _handler)
+    except Exception:
+        pass
+
+
+_install_session_signoff_hooks()
+
+
+# ─── Action-Item Compliance Gate (v0.14.0+) ──────────────────────────────────
+#
+# boot_session extracts action_items from memories in RECENT HISTORY and
+# KNOWN ISSUES sections and populates this map. Write-set MCP tools are
+# blocked until the session acknowledges each item via
+# acknowledge_action_item. Ephemeral — re-ack required on reboot.
+# Shape: {source: [{"memory_id": int, "index": int, "text": str, "origin": str}]}
+
+_pending_action_items: dict[str, list[dict]] = {}
+
+# Tools that are BLOCKED when _pending_action_items[source] is non-empty.
+# Reads + registry maintenance stay open so the session can investigate and
+# acknowledge before writing.
+ACTION_ITEM_GATE_WRITE_SET = frozenset({
+    "remember", "capture_context", "brain_checkpoint", "supersede",
+    "pin", "unpin", "forget", "forget_many", "prune",
+    "load_skill", "annotate", "rate",
+})
+
+ACTION_ITEM_AUDIT_LOG_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "logs", "action_item_acks.jsonl",
+)
 
 # ─── Uptime Tracking ──────────────────────────────────────────────────────────
 #
@@ -142,14 +223,6 @@ def _record_search(source: str, project: str) -> None:
         _session_tracker[source] = {"searches": 0, "stores_since_search": 0}
     _session_tracker[source]["searches"] += 1
     _session_tracker[source]["stores_since_search"] = 0
-    # v0.13.0: implicit heartbeat for the active_sessions registry.
-    # _record_search is called from every MCP tool handler, so using it as
-    # the heartbeat hook keeps the session alive as long as the agent is
-    # doing anything. Failures here must not break the caller.
-    try:
-        _heartbeat_source(source)
-    except Exception:
-        pass
 
 
 def _record_store(source: str) -> None:
@@ -174,7 +247,106 @@ def _source_required_error(tool: str) -> str:
     }, indent=2)
 
 
-def _check_compliance(source: str, project: str) -> dict | None:
+def _extract_action_items_from_memory(mem: dict, origin: str) -> list[dict]:
+    """Pull action_items from a memory's metadata into gate-entry shape.
+
+    Returns a list of {memory_id, index, text, origin} dicts — one per
+    non-empty action_item in the memory. Swallows malformed metadata
+    silently; this runs in a boot path that must never fail.
+    """
+    try:
+        meta = mem.get("metadata")
+        if isinstance(meta, str):
+            meta = json.loads(meta) if meta else {}
+        if not isinstance(meta, dict):
+            return []
+        items = meta.get("action_items") or []
+        if not isinstance(items, list):
+            return []
+        out: list[dict] = []
+        for i, text in enumerate(items):
+            if not isinstance(text, str) or not text.strip():
+                continue
+            out.append({
+                "memory_id": mem.get("id"),
+                "index":     i,
+                "text":      text.strip(),
+                "origin":    origin,
+            })
+        return out
+    except Exception:
+        return []
+
+
+def _populate_pending_action_items(source: str, memories_by_origin: dict) -> list[dict]:
+    """Populate _pending_action_items[source] from boot_session's surfaced
+    memories. Dedupes by action_item text across origins. Caps at
+    ACTION_ITEM_GATE_MAX (keeping the most recent by memory_id).
+
+    memories_by_origin: {"recent_history": [...], "known_issues": [...]}
+
+    Returns the pending list for this source (what was actually written).
+    """
+    if not source:
+        return []
+    extracted: list[dict] = []
+    for origin, mems in memories_by_origin.items():
+        for mem in mems or []:
+            extracted.extend(_extract_action_items_from_memory(mem, origin))
+    # Dedupe by text (keep the first occurrence — recent_history comes
+    # before known_issues in extraction order, so recent wins ties).
+    seen: set[str] = set()
+    deduped: list[dict] = []
+    for entry in extracted:
+        if entry["text"] in seen:
+            continue
+        seen.add(entry["text"])
+        deduped.append(entry)
+    # Cap at MAX. Keep most-recent-surfaced by memory_id DESC (memory_id
+    # monotonically increases with creation time on this brain).
+    if len(deduped) > ACTION_ITEM_GATE_MAX:
+        deduped.sort(key=lambda e: e.get("memory_id") or 0, reverse=True)
+        deduped = deduped[:ACTION_ITEM_GATE_MAX]
+    _pending_action_items[source] = deduped
+    return deduped
+
+
+def _check_action_item_gate(source: str, tool_name: str) -> dict | None:
+    """Block write-set tools when `source` has un-acknowledged action_items.
+
+    Returns a blocked_by='action_items_pending' error dict or None if
+    the tool is not in the write set or the session has no pending items.
+    """
+    if not source or tool_name not in ACTION_ITEM_GATE_WRITE_SET:
+        return None
+    pending = _pending_action_items.get(source) or []
+    if not pending:
+        return None
+    return {
+        "success":    False,
+        "blocked_by": "action_items_pending",
+        "error":      f"BLOCKED: {len(pending)} action_item(s) from boot_session must be "
+                       "acknowledged before write tools unlock.",
+        "pending":    [{"memory_id": p["memory_id"], "text": p["text"], "origin": p["origin"]}
+                       for p in pending],
+        "hint":       "Call acknowledge_action_item(source, memory_id, text, decision, reason) "
+                       "for each. decision ∈ {'will_execute', 'already_done', 'not_relevant'}. "
+                       "reason is required for already_done and not_relevant.",
+    }
+
+
+def _audit_ack(entry: dict) -> None:
+    """Append an ack record to logs/action_item_acks.jsonl. Swallow errors —
+    audit failures must not break the ack path."""
+    try:
+        os.makedirs(os.path.dirname(ACTION_ITEM_AUDIT_LOG_PATH), exist_ok=True)
+        with open(ACTION_ITEM_AUDIT_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")
+    except Exception:
+        pass
+
+
+def _check_compliance(source: str, project: str, tool_name: str = "") -> dict | None:
     """Polling-based compliance: block storage if agent hasn't booted and searched.
 
     Rules:
@@ -183,11 +355,22 @@ def _check_compliance(source: str, project: str) -> dict | None:
     - After COMPLIANCE_MAX_STORES stores, must search again
     - Searching resets the store counter
     - This enforces continuous brain polling, not a one-time checkbox
+    - v0.14.0: action-item gate — tools in ACTION_ITEM_GATE_WRITE_SET are
+      additionally blocked until _pending_action_items[source] is empty.
 
     Returns error dict if blocked, None if compliant.
     """
     if not source:
         return None  # Can't track anonymous calls
+
+    # v0.14.0 action-item gate runs BEFORE search-first gate. Rationale:
+    # unacknowledged action_items are a higher-order failure than polling
+    # discipline; even if the session searched, if it hasn't engaged with
+    # the action_items surfaced at boot, we want the error message to be
+    # specifically about that.
+    ai_err = _check_action_item_gate(source, tool_name)
+    if ai_err:
+        return ai_err
 
     # Must boot before storing
     if source not in _booted_sources:
@@ -670,30 +853,46 @@ def db_get_skill_by_name(name: str, project_filter: str | None) -> dict | None:
         return None
 
 
-# ─── Session Registry (v0.13.0) ──────────────────────────────────────────────
+# ─── Session Registry (v0.13.0, reworked v0.14.0) ───────────────────────────
 #
 # Tracks live MCP-client sessions so booting sessions can SEE other sessions
 # working in the same project / cwd. Closes the parallel-session blind spot
-# that caused the Netflix prep mix-up (memory #3719). Design doc:
-# docs/planning/SESSION_REGISTRY_DESIGN.md
+# that caused the Netflix prep mix-up (memory #3719).
+#
+# v0.14.0 architectural rework: REMOVED time-based TTL sweep (memory #4929
+# — timer-based expiry is wrong; a session doing long non-brain work was
+# silently aged out and vanished from the registry). Liveness is now
+# maintained by:
+#   1. Explicit signoff — server.py's atexit + signal handlers call
+#      db_end_session for every cached session_id on clean shutdown.
+#   2. External heartbeat agent (scripts/heartbeat_agent.py) — probes each
+#      active row's pid via psutil and marks ended when the process is gone.
+#   3. Supersede-on-reboot — a new boot from the same (source, cwd, pid)
+#      marks the prior row ended before inserting the new one.
+#
+# Design doc: docs/planning/SESSION_REGISTRY_DESIGN.md
+# v0.14.0 rework notes in CHANGELOG.md under [0.14.0].
 
 
-def db_sweep_dead_sessions(ttl_minutes: int = None) -> int:
-    """Mark sessions that haven't heartbeat within the TTL as 'ended'.
+def db_supersede_previous_session(source: str, cwd: str, pid: int) -> int:
+    """Mark any still-'active' row from the same client process as 'ended'
+    before registering a new one. Same (source, cwd, pid) tuple means the
+    client process restarted or reconnected; the prior row is stale.
 
-    Called inline from boot_session and list_active_sessions so there's no
-    separate cron. Returns the number of rows swept.
+    Returns number of rows superseded. Safe no-op if no match.
     """
-    if ttl_minutes is None:
-        ttl_minutes = SESSION_TTL_MINUTES
+    if not source or not pid:
+        return 0
     conn = _get_conn()
     with conn.cursor() as cur:
         cur.execute(
             "UPDATE active_sessions "
             "SET status = 'ended' "
             "WHERE status = 'active' "
-            "  AND heartbeat_at < now() - (%s || ' minutes')::interval",
-            (str(ttl_minutes),),
+            "  AND source = %s "
+            "  AND (cwd = %s OR (cwd IS NULL AND %s IS NULL)) "
+            "  AND pid = %s",
+            (source, cwd or None, cwd or None, pid),
         )
         return cur.rowcount or 0
 
@@ -793,18 +992,6 @@ def db_list_active_sessions(project_filter: str | None = None,
             params,
         )
         return [dict(r) for r in cur.fetchall()]
-
-
-def _heartbeat_source(source: str) -> None:
-    """Bump heartbeat for whatever active_session this source cached at boot.
-    Cheap wrapper for the implicit-heartbeat path; safe to call from any
-    MCP tool. Silent if the source never booted or already ended."""
-    sid = _active_session_ids.get(source)
-    if sid:
-        try:
-            db_heartbeat_session(sid)
-        except Exception:
-            pass
 
 
 def _serialize_session(s: dict) -> dict:
@@ -1305,8 +1492,8 @@ def remember(content: str, source: str, type_override: str = "", project: str = 
     try:
         if not source:
             return _source_required_error("remember")
-        # BLOCKING ENFORCEMENT: Check compliance before storing
-        compliance_error = _check_compliance(source, project)
+        # BLOCKING ENFORCEMENT: Check compliance + action-item gate before storing
+        compliance_error = _check_compliance(source, project, tool_name="remember")
         if compliance_error:
             return json.dumps(compliance_error, indent=2)
 
@@ -1624,14 +1811,31 @@ def boot_session(source: str, project: str = "", task: str = "",
             return _source_required_error("boot_session")
         sections = []
 
-        # v0.13.0: session registry -- sweep dead rows and register ourselves
-        # first so OTHER_ACTIVE_SESSIONS reflects live state at boot time.
-        # Failures here must NOT break boot; degrade gracefully.
+        # v0.14.0: session registry — supersede any prior row from the same
+        # client process (source + cwd + pid), then register ourselves.
+        # Liveness is maintained by an EXTERNAL heartbeat agent that pid-
+        # probes active rows; boot_session does NOT do time-based sweeping
+        # (TTL is a passive-expiry pattern that misses agents doing long
+        # non-brain work — see memory #4929 / #3719 on why timer-based
+        # expiry is wrong). Failures here must NOT break boot.
+        #
+        # Default pid = this server.py process's pid, default host = this
+        # machine's hostname. That makes the agent's pid probe meaningful
+        # even when the MCP client doesn't pass those args: the owning
+        # process of the session IS server.py (one per stdio client), so
+        # probing its pid is the authoritative liveness check. When the
+        # client disconnects, server.py exits, pid dies, agent sees it
+        # gone on the next cycle.
+        effective_pid = pid if pid else os.getpid()
+        effective_host = host if host else socket.gethostname()
         try:
-            db_sweep_dead_sessions()
+            try:
+                db_supersede_previous_session(source, cwd, effective_pid)
+            except Exception:
+                pass
             my_session = db_register_session(source, project, cwd,
-                                              pid if pid else None,
-                                              host, task)
+                                              effective_pid,
+                                              effective_host, task)
             _active_session_ids[source] = my_session["id"]
         except Exception:
             my_session = {"id": None}
@@ -1668,9 +1872,10 @@ def boot_session(source: str, project: str = "", task: str = "",
                 })
 
         # Step 3: Recent session history (last 7 days)
+        session_memories: list[dict] = []
         if project:
             session_embedding = get_embedding(f"{project} session changes fixes decisions")
-            session_memories = db_search(session_embedding, f"{project} session", 5, None, None, project, 7, 0, "")
+            session_memories = db_search(session_embedding, f"{project} session", 5, None, None, project, 7, 0, "") or []
             if session_memories:
                 session_text = []
                 for m in session_memories:
@@ -1682,9 +1887,10 @@ def boot_session(source: str, project: str = "", task: str = "",
                 })
 
         # Step 4: Known issues and corrections
+        issues_memories: list[dict] = []
         if project:
             issues_embedding = get_embedding(f"{project} known issues bugs corrections mistakes")
-            issues_memories = db_search(issues_embedding, f"{project} issues corrections", 5, None, None, project, 0, 0, "")
+            issues_memories = db_search(issues_embedding, f"{project} issues corrections", 5, None, None, project, 0, 0, "") or []
             if issues_memories:
                 issues_text = []
                 for m in issues_memories:
@@ -1733,7 +1939,32 @@ def boot_session(source: str, project: str = "", task: str = "",
         except Exception:
             pass
 
-        # Step 7: Store summary in scratch pad and mark as booted
+        # Step 7: v0.14.0 — Extract action_items from recent-history and
+        # known-issues memories, populate the pending-ack gate, and
+        # surface them as a LOAD-BEARING section. Write-set tools stay
+        # blocked until acknowledge_action_item clears each entry.
+        try:
+            pending = _populate_pending_action_items(source, {
+                "recent_history": session_memories,
+                "known_issues":   issues_memories,
+            })
+            if pending:
+                sections.append({
+                    "section":      "ACTION ITEMS PENDING",
+                    "count":        len(pending),
+                    "content":      pending,
+                    "instruction":  (
+                        "You MUST call acknowledge_action_item(source, memory_id, "
+                        "text, decision, reason) for each entry before write tools "
+                        "unlock (remember, capture_context, supersede). "
+                        "decision ∈ {'will_execute', 'already_done', 'not_relevant'}. "
+                        "reason is required for already_done and not_relevant."
+                    ),
+                })
+        except Exception:
+            pass
+
+        # Step 8: Store summary in scratch pad and mark as booted
         summary = json.dumps(sections, indent=2)
         _scratch["boot_context"] = summary
         _scratch["boot_project"] = project
@@ -1754,6 +1985,7 @@ def boot_session(source: str, project: str = "", task: str = "",
             "session_id": my_session.get("id"),
             "sections_loaded": len(sections),
             "context": sections,
+            "pending_action_items": _pending_action_items.get(source, []),
             "message": f"Brain booted for '{project}'. {len(sections)} context sections loaded. You may now proceed.",
         }, indent=2)
 
@@ -1810,8 +2042,12 @@ def list_active_sessions(source: str, project: str = "",
                           exclude_self: bool = True) -> str:
     """Return all live MCP sessions, optionally filtered by project.
 
-    Dead sessions (heartbeat older than SESSION_TTL_MINUTES) are swept
-    to 'ended' before the read, so the result reflects current state.
+    Liveness is maintained externally by the heartbeat agent
+    (scripts/heartbeat_agent.py), which pid-probes each row and marks
+    dead processes 'ended'. Running the agent is required for the
+    registry to reflect accurate state; without it, rows persist until
+    the owning process calls end_session (or reboots from the same
+    source+cwd+pid, which supersedes the prior row).
 
     Args:
         source:       REQUIRED. Caller's source identifier.
@@ -1819,15 +2055,11 @@ def list_active_sessions(source: str, project: str = "",
                       all projects).
         exclude_self: If true (default), omits the caller's own session
                       from results.
-    (v0.13.0+)
+    (v0.13.0, reworked v0.14.0)
     """
     try:
         if not source:
             return _source_required_error("list_active_sessions")
-        try:
-            db_sweep_dead_sessions()
-        except Exception:
-            pass
         my_id = _active_session_ids.get(source, 0) if exclude_self else None
         rows = db_list_active_sessions(
             project_filter=project or None,
@@ -1866,10 +2098,81 @@ def end_session(source: str, session_id: int = 0) -> str:
                 "error": "No active session for this source."})
         ok = db_end_session(sid)
         _active_session_ids.pop(source, None)
+        _pending_action_items.pop(source, None)
         return json.dumps({
             "success": True,
             "session_id": sid,
             "was_active": ok,
+        })
+    except Exception as exc:
+        return json.dumps({"success": False, "error": str(exc)})
+
+
+@mcp.tool()
+@instrument("acknowledge_action_item")
+def acknowledge_action_item(source: str, memory_id: int, text: str,
+                              decision: str, reason: str = "") -> str:
+    """Acknowledge one action_item surfaced by `boot_session`.
+
+    Write-set tools (remember, capture_context, supersede) are BLOCKED
+    until every action_item returned at boot is acknowledged. Call this
+    once per pending item.
+
+    Args:
+        source:    REQUIRED. Same source used at boot_session.
+        memory_id: The id of the memory that carried this action_item.
+        text:      The exact action_item text (from pending_action_items
+                   in the boot response).
+        decision:  One of 'will_execute' | 'already_done' | 'not_relevant'.
+                   - will_execute: session commits to doing this now.
+                   - already_done: was done in a previous session; reason
+                                   should cite when/by whom or memory id.
+                   - not_relevant: not applicable to current task; reason
+                                   must explain why.
+        reason:    Required for 'already_done' and 'not_relevant'.
+
+    Returns {success, remaining, decision, text}. Idempotent — acking an
+    item that's not in the pending list returns success with the current
+    remaining count.
+    (v0.14.0+)
+    """
+    try:
+        if not source:
+            return _source_required_error("acknowledge_action_item")
+        valid_decisions = {"will_execute", "already_done", "not_relevant"}
+        if decision not in valid_decisions:
+            return json.dumps({"success": False,
+                "error": f"decision must be one of {sorted(valid_decisions)}; got '{decision}'"})
+        if decision in {"already_done", "not_relevant"} and not (reason or "").strip():
+            return json.dumps({"success": False,
+                "error": f"reason is required for decision='{decision}'"})
+        if not text or not text.strip():
+            return json.dumps({"success": False, "error": "text is required"})
+
+        pending = _pending_action_items.get(source) or []
+        before = len(pending)
+        after = [p for p in pending
+                 if not (p.get("memory_id") == memory_id
+                         and p.get("text") == text.strip())]
+        _pending_action_items[source] = after
+        removed = before - len(after)
+
+        _audit_ack({
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "source":    source,
+            "memory_id": memory_id,
+            "text":      text.strip(),
+            "decision":  decision,
+            "reason":    reason.strip() if reason else "",
+            "removed":   removed,
+        })
+
+        return json.dumps({
+            "success":   True,
+            "decision":  decision,
+            "text":      text.strip(),
+            "removed":   removed,
+            "remaining": len(after),
         })
     except Exception as exc:
         return json.dumps({"success": False, "error": str(exc)})
@@ -2004,8 +2307,8 @@ def capture_context(context: str, source: str, project: str = "") -> str:
     try:
         if not source:
             return _source_required_error("capture_context")
-        # BLOCKING ENFORCEMENT: Check compliance before storing
-        compliance_error = _check_compliance(source, project)
+        # BLOCKING ENFORCEMENT: Check compliance + action-item gate before storing
+        compliance_error = _check_compliance(source, project, tool_name="capture_context")
         if compliance_error:
             return json.dumps(compliance_error, indent=2)
 
@@ -2382,7 +2685,7 @@ def supersede(
             return json.dumps({"success": False,
                 "error": "new_content is required"})
 
-        compliance_error = _check_compliance(source, project)
+        compliance_error = _check_compliance(source, project, tool_name="supersede")
         if compliance_error:
             return json.dumps(compliance_error, indent=2)
 

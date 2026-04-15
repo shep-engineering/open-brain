@@ -483,10 +483,49 @@ class Infrastructure:
         `open-brain-db` container, not the Docker daemon itself.
         """
         self._emit("stop", "start", "stopping Open Brain infrastructure")
+        self._stop_heartbeat_agent()
         self._stop_ollama()
         self._stop_db()
         self._emit("stop", "info", "Docker Desktop left running (respects other containers)")
         self._emit("stop", "ready", "stop_all complete")
+
+    def _stop_heartbeat_agent(self) -> None:
+        """Terminate the v0.14.0+ session-registry heartbeat agent if running.
+
+        The agent is a standalone Python process spawned from open-brain-on.cmd
+        (or the dashboard). It catches SIGINT/SIGTERM and exits between probe
+        cycles. We find any python* process whose argv ends in
+        `scripts/heartbeat_agent.py` and terminate it. Best-effort: if psutil
+        is unavailable or we can't match the process, we skip — the agent will
+        just keep running until the DB is gone, then error out cleanly.
+        """
+        try:
+            import psutil
+        except ImportError:
+            self._emit("stop", "info", "psutil not available — skipping heartbeat agent stop")
+            return
+
+        killed = 0
+        for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+            try:
+                name = (proc.info.get("name") or "").lower()
+                if not (name.startswith("python") or name.startswith("pythonw")):
+                    continue
+                cmdline = proc.info.get("cmdline") or []
+                if not any("heartbeat_agent.py" in str(c) for c in cmdline):
+                    continue
+                proc.terminate()
+                try:
+                    proc.wait(timeout=5)
+                except psutil.TimeoutExpired:
+                    proc.kill()
+                killed += 1
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        if killed:
+            self._emit("stop", "info", f"heartbeat agent stopped ({killed} process)")
+        else:
+            self._emit("stop", "info", "heartbeat agent not running")
 
     def _ollama_loaded_models(self) -> list[str]:
         """Return model names currently loaded in VRAM, via `ollama ps`.

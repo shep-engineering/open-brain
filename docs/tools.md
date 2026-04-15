@@ -1,6 +1,6 @@
 # Tools Reference
 
-Open Brain exposes 25 MCP tools: 22 user-facing tools and 3 cognitive architecture tools for agent compliance enforcement.
+Open Brain exposes 26 MCP tools: 23 user-facing tools and 3 cognitive architecture tools for agent compliance enforcement.
 
 ---
 
@@ -354,7 +354,9 @@ Initialize your brain for a new session. Loads full project context before the A
 
 *(v0.12.0)* The pinned-guardrails set returned at boot now excludes skill-tagged memories unless `skill_trigger.always_on` is `true`. Skill-triggered memories instead surface via `search` keyword auto-match or explicit `load_skill(name)`. See [Skills Layer](#skills-layer-v0120).
 
-*(v0.13.0)* Registers an `active_sessions` row, sweeps dead rows (heartbeat older than `OPEN_BRAIN_SESSION_TTL_MINUTES`, default 5), and surfaces other live sessions in the same project as a load-bearing context block. See [Session Registry](#session-registry-v0130).
+*(v0.13.0 / reworked v0.14.0)* Registers an `active_sessions` row (defaulting `pid` to `os.getpid()` and `host` to `socket.gethostname()` when caller omits them), supersedes any prior row from the same (source, cwd, pid) client process, and surfaces other live sessions in the same project as a load-bearing context block. Liveness is maintained by an external heartbeat agent — no TTL. See [Session Registry](#session-registry-v0130).
+
+*(v0.14.0)* Scans RECENT HISTORY and KNOWN ISSUES memories for `action_items`, populates a per-source pending list, and adds an `ACTION ITEMS PENDING` section with `pending_action_items` in the response. Write-set tools (`remember`, `capture_context`, `supersede`) are BLOCKED until every item is acknowledged via `acknowledge_action_item`. See [Action-Item Compliance Gate](#action-item-compliance-gate-v0140).
 
 **Enforcement:** Server blocks `remember()` and `capture_context()` until `boot_session` has been called. Claude Code's PreToolUse hook blocks ALL non-brain tools until boot appears in the transcript.
 
@@ -364,7 +366,7 @@ Initialize your brain for a new session. Loads full project context before the A
 
 Live MCP-client sessions are tracked in an `active_sessions` table so a booting session can see what sibling sessions are currently doing. Closes the parallel-session blind spot: before v0.13.0, a Claude session in one terminal had zero visibility into a Claude session in another terminal working on the same project, even though both were connected to the same brain.
 
-Three new tools manage session state; `boot_session` registers implicitly; every other tool call refreshes `heartbeat_at` through the compliance hook. Rows older than `OPEN_BRAIN_SESSION_TTL_MINUTES` (default 5, matches Anthropic prompt-cache TTL) are swept to `status='ended'` automatically.
+Three tools manage session state; `boot_session` registers implicitly. Liveness (v0.14.0+) is detected by the **heartbeat agent** (`scripts/heartbeat_agent.py`) — a separate process that periodically pid-probes each active row via `psutil.pid_exists` and marks dead rows `status='ended'`. server.py's atexit + SIGTERM/SIGINT handlers also call `db_end_session` on clean shutdown. No TTL. No self-ping. Probe interval: `OPEN_BRAIN_HEARTBEAT_INTERVAL` (default 60s).
 
 ### `update_active_task`
 
@@ -383,8 +385,14 @@ Read-only snapshot of live sessions. Sweeps dead rows first.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `source` | string | **Yes** | Caller's source identifier. |
-| `project` | string | No | Filter to one project (empty = all). |
+| `project` | string | No | Filter to one project (empty string = all projects across the brain). |
 | `exclude_self` | bool | No | Default `true` — omits the caller's own session. |
+
+**Cross-project visibility:** pass `project=""` (empty string, not the caller's default project) to see sessions in every project. `boot_session`'s `OTHER ACTIVE SESSIONS` block is always project-scoped by design — to see cross-project siblings, call `list_active_sessions` explicitly.
+
+**Liveness model (v0.14.0+):** a session is alive iff its owning server.py process is running. Liveness is detected externally by the heartbeat agent (`scripts/heartbeat_agent.py`) which pid-probes each row via `psutil.pid_exists`. Rows from dead processes are marked `status='ended'` on the next probe cycle (default 60s, `OPEN_BRAIN_HEARTBEAT_INTERVAL`). Clean shutdowns (MCP client disconnect, SIGTERM, SIGINT) also call `db_end_session` via server.py's atexit hooks. Only SIGKILL / power-loss leaves a stale row, and the agent cleans those up within one cycle.
+
+No TTL. No self-ping. Sessions doing long non-brain work stay visible as long as their server.py process is alive.
 
 ### `end_session`
 
@@ -395,7 +403,33 @@ Clean-shutdown path. Marks the session `ended` and clears the cached id.
 | `source` | string | **Yes** | Caller's source identifier. |
 | `session_id` | int | No | Defaults to the cached id. |
 
-Optional — the TTL sweeper handles crashed sessions — but calling this reduces noise in sibling queries right after exit.
+Optional — server.py's atexit hook and the heartbeat agent already handle clean shutdowns and crashed processes respectively — but calling this explicitly tightens the window between shutdown and the next sibling query.
+
+---
+
+## Action-Item Compliance Gate (v0.14.0+)
+
+Memories carry `action_items` in their metadata. At `boot_session`, the server scans memories surfaced in RECENT HISTORY and KNOWN ISSUES for action_items, populates a per-source pending list (deduped, capped at `OPEN_BRAIN_ACTION_ITEM_GATE_MAX`, default 10), and surfaces them as an `ACTION ITEMS PENDING` section. Write-set tools (`remember`, `capture_context`, `supersede`) are **BLOCKED** with `blocked_by: action_items_pending` until every item is acknowledged. Reads stay open so the session can investigate before deciding.
+
+Pinned guardrails are skipped — they're rules, not pending tasks.
+
+Pending state is ephemeral (in-memory, per-source). Re-ack is required on reboot, matching session-registry TTL semantics. A server restart drops the state; next `boot_session` re-surfaces unresolved items.
+
+Acks are logged to `logs/action_item_acks.jsonl` (append-only JSONL).
+
+### `acknowledge_action_item`
+
+Engage with one pending action_item. Call once per item; writes unlock when the pending list is empty.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `source` | string | **Yes** | Same source used at boot. |
+| `memory_id` | int | **Yes** | The id of the memory that carried this action_item. |
+| `text` | string | **Yes** | Exact text (from `pending_action_items` in the boot response). |
+| `decision` | string | **Yes** | One of `will_execute`, `already_done`, `not_relevant`. |
+| `reason` | string | Conditional | Required for `already_done` and `not_relevant` — explain why. |
+
+Returns `{success, decision, text, removed, remaining}`. Idempotent — acking a non-pending item returns success with `removed: 0`.
 
 ---
 

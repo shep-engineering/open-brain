@@ -5,6 +5,146 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - 2026-04-15
+
+### Changed — Session registry: replaced TTL with signoff + external heartbeat agent
+
+v0.13.0 shipped a 5-minute heartbeat TTL. That was a timer-based
+expiry mechanism, which memory #3719 and now memory #4929 explicitly
+flag as wrong: a session doing long non-brain work (Edit, Bash,
+WebFetch) stopped bumping its implicit heartbeat and vanished from
+the registry. Shep: "TIMEOUTS DO NOT WORK. Use a signoff instead.
+Consider a heartbeat agent."
+
+v0.14.0 replaces the model entirely:
+
+1. **Explicit signoff** — server.py now registers `atexit` +
+   SIGTERM/SIGINT handlers that call `db_end_session` for every
+   cached `session_id` on clean shutdown (MCP stdio close,
+   Ctrl+C, `kill`). Covers the common path.
+
+2. **External heartbeat agent** — new `scripts/heartbeat_agent.py`
+   runs as a separate process, periodically (`OPEN_BRAIN_HEARTBEAT_INTERVAL`,
+   default 60s) queries `active_sessions WHERE status='active'`,
+   and for each row pid-probes via `psutil.pid_exists`. Rows whose
+   process is gone → marked `status='ended'`. Also bumps
+   `heartbeat_at` on confirmed-alive rows so observers can see
+   when liveness was last verified. Catches SIGKILL / power-loss
+   cases that atexit can't. One agent per host; filters by
+   `active_sessions.host` column.
+
+3. **Supersede on reboot** — if a new `boot_session` arrives from
+   the same `(source, cwd, pid)` tuple as an existing active row,
+   the prior row is marked `ended` before the new one inserts.
+   Handles client reconnect / restart cleanly.
+
+4. **Default pid / host in `boot_session`** — if the caller omits
+   them, server defaults to `os.getpid()` and
+   `socket.gethostname()`. The owning server.py process IS the
+   session lifetime authority, so probing its pid is the correct
+   signal. Agents don't have to plumb these through.
+
+Gone:
+- `db_sweep_dead_sessions` — time-based sweep; deleted.
+- `_heartbeat_source` / implicit heartbeat in `_record_search` —
+  the mechanism that silently failed sessions doing long non-brain
+  work; deleted.
+- `OPEN_BRAIN_SESSION_TTL_MINUTES` env var — unused; removed.
+
+New:
+- `OPEN_BRAIN_HEARTBEAT_INTERVAL` env var (default 60s) — agent
+  probe cadence.
+- `db_supersede_previous_session(source, cwd, pid)` db helper.
+- `_signoff_all_sessions()` + `_install_session_signoff_hooks()`
+  in server.py.
+- `scripts/heartbeat_agent.py` standalone daemon — run with
+  `--once` for a single probe pass, `--interval N` to override,
+  `--host H` to filter, `-v` for verbose logs.
+- 5 new tests in `tests/test_heartbeat_agent.py` covering probe
+  alive / dead / other-host / null-pid / heartbeat-bump.
+
+Tests reflect the new model: `tests/test_session_registry.py`
+dropped TTL / implicit-heartbeat tests, added supersede + signoff
+tests (12 tests total). Full regression green.
+
+**Migration note:** schema is unchanged (v6 migration from v0.13.0
+still current). No data migration required. First run of v0.14.0
+against an existing DB will leave stale v0.13.0 rows as-is; the
+heartbeat agent cleans them on its first cycle.
+
+**Deploy:** launch `python scripts/heartbeat_agent.py` from your
+Open Brain startup (dashboard.py, `open-brain-on.cmd`, or systemd).
+Without the agent running, sessions from crashed/SIGKILLed clients
+stay `active` in the registry forever — cosmetic noise, not a
+correctness issue.
+
+---
+
+### Added — Action-item compliance gate
+
+Memories carry `action_items` in their metadata. Before v0.14.0 those
+were advisory — the booting session could read them and choose to
+ignore them, which is exactly the failure mode that produced the
+2026-04-14 Netflix SRE/DDoS-vs-CI/CD miss (memory #3719). The brain
+surfaced the action_item "Update flashcard app for correct role
+(SRE/Edge/DDoS EM)"; a sibling session built a CI/CD flashcard app
+anyway.
+
+v0.13.0 fixed the *visibility* gap (sibling sessions). v0.14.0 closes
+the *compliance* gap: write-set tools are now **BLOCKED** until the
+booting session explicitly engages with each surfaced action_item.
+
+**Behavior**
+
+On `boot_session`, the server scans memories surfaced in RECENT
+HISTORY (last 7 days) and KNOWN ISSUES & CORRECTIONS for
+`metadata.action_items`. Each item is pushed onto a per-source
+pending list, deduped by text, capped at
+`OPEN_BRAIN_ACTION_ITEM_GATE_MAX` (default 10). The response adds a
+new `pending_action_items` field and an `ACTION ITEMS PENDING`
+context section.
+
+Pinned guardrails are skipped intentionally — they're rules, not
+pending tasks. Their action_items are usually "how to apply"
+instructions that surface on every boot already.
+
+**Blocked write set** (when `pending_action_items` non-empty):
+`remember`, `capture_context`, `supersede`. Reads (`search`,
+`recall`, `list_recent`, `list_active_sessions`) stay open so the
+session can investigate before acknowledging.
+
+**New tool — `acknowledge_action_item(source, memory_id, text,
+decision, reason="")`**. `decision` ∈ `{will_execute, already_done,
+not_relevant}`. `reason` is required for `already_done` and
+`not_relevant` — explain *why* you're dismissing. Idempotent: acking
+an item not in the pending list returns success with `removed: 0`.
+
+**Audit log** at `logs/action_item_acks.jsonl` (append-only JSONL)
+records every ack: timestamp, source, memory_id, text, decision,
+reason. Not rotated by the server; no dashboard in v0.14.0.
+
+**No schema change.** Pure in-memory state (`_pending_action_items:
+dict[source, list[...]]`). Re-ack required on reboot — matches
+session-registry TTL semantics.
+
+**Backwards compatibility:** boots that surface no action_items are
+unchanged (no ACTION ITEMS PENDING section, no blocking, no new
+response fields populated).
+
+**Tool count:** 25 → 26.
+
+**Tests:** 14 in `tests/test_action_item_gate.py`. Full regression
+green (belief + pinned + skills + session_registry + action_item_gate).
+
+**Lineage:** follow-up to v0.13.0. Memory #3719 escalated the rule
+that action_items are BLOCKING — this release enforces it
+architecturally rather than behaviorally. Does NOT cover non-brain
+tools (Edit, Bash, WebFetch); that's Phase 4 hook-installer scope.
+
+**Design doc:** `docs/planning/ACTION_ITEM_GATE_DESIGN.md`.
+
+---
+
 ## [0.13.0] - 2026-04-14
 
 ### Added — Session registry (parallel-session visibility)

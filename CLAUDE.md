@@ -115,9 +115,15 @@ currently live. This block is **load-bearing**, not informational:
 - After the user's first substantive prompt, call
   `update_active_task(source, task)` with a concise description so
   the sibling sees what you're doing.
-- On clean exit, call `end_session(source)` — optional (TTL handles
-  crashes) but reduces noise for siblings that query right after you
-  finish.
+- On clean exit, call `end_session(source)` — optional. server.py's
+  atexit + signal handlers already call it on normal shutdown.
+  Explicit calls just tighten the window.
+- **Liveness model (v0.14.0+):** a session is alive iff its server.py
+  process is running. No timeouts, no self-ping. Dead sessions are
+  detected by the external heartbeat agent (`scripts/heartbeat_agent.py`)
+  which pid-probes each row. Long stretches of non-brain work no
+  longer cause the session to vanish — the owning server.py process
+  stays alive regardless of whether you're calling brain tools.
 
 Not surfacing OTHER_ACTIVE_SESSIONS when relevant is a
 correction-worthy miss. This is the same class of failure as ignoring
@@ -126,6 +132,37 @@ agent chose not to act on it.
 
 Sessions older than `OPEN_BRAIN_SESSION_TTL_MINUTES` (default 5) are
 swept automatically. No need to reap dead entries manually.
+
+## 1.8. Action-Item Compliance Gate (v0.14.0+): Acknowledge or Be Blocked
+
+`boot_session` now extracts `action_items` from memories in RECENT
+HISTORY (last 7 days) and KNOWN ISSUES & CORRECTIONS and puts them
+on a per-source pending list. The response carries a
+`pending_action_items` field and an `ACTION ITEMS PENDING` context
+section. Write tools (`remember`, `capture_context`, `supersede`)
+are **BLOCKED** until every pending item is acknowledged.
+
+Reads (`search`, `recall`, `list_recent`, `list_active_sessions`)
+stay open so you can investigate before deciding.
+
+For each pending item, call:
+```python
+acknowledge_action_item(
+    source="claude",
+    memory_id=<the memory's id>,
+    text="<exact action_item text>",
+    decision="will_execute" | "already_done" | "not_relevant",
+    reason="<required for already_done and not_relevant>",
+)
+```
+
+This is the architectural fix for the Netflix SRE/DDoS-vs-CI/CD miss
+(memory #3719): the brain surfaced the correct-role action_item; a
+sibling session ignored it anyway. A memory-side rule that
+"action_items are BLOCKING not advisory" kept getting violated, so
+v0.14.0 enforces it in code rather than trusting discipline.
+
+Ack is audited to `logs/action_item_acks.jsonl`.
 
 ## 2. Discover Before You Act
 

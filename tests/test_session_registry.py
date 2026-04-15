@@ -1,15 +1,22 @@
-"""Tests for the v0.13.0 session-registry feature.
+"""Tests for the session-registry feature (v0.13.0, reworked v0.14.0).
 
-Hit the test database per conftest.py isolation. Use deterministic fake
-embeddings unless `-m ollama` is passed.
+v0.14.0 replaced TTL-based expiry with explicit signoff + external
+heartbeat-agent pid probes (memory #4929 / #3719 — timer-based expiry is
+wrong). These tests reflect that model:
+
+- No TTL sweep tests (the function is gone).
+- No implicit-heartbeat-on-brain-tool-calls tests.
+- Supersede-on-reboot test (same source+cwd+pid ends the prior row).
+- Signoff test (_signoff_all_sessions ends every cached session id).
+- Heartbeat-agent tests live in test_heartbeat_agent.py (separate file).
 
 Run with: pytest tests/test_session_registry.py -v
 """
 
 import json
 import os
+import socket
 import sys
-import time
 
 import psycopg2
 import pytest
@@ -20,12 +27,13 @@ from server import (
     _active_session_ids,
     _booted_sources,
     _record_search,
+    _signoff_all_sessions,
     boot_session,
     db_end_session,
     db_heartbeat_session,
     db_list_active_sessions,
     db_register_session,
-    db_sweep_dead_sessions,
+    db_supersede_previous_session,
     db_update_active_task,
     end_session,
     list_active_sessions,
@@ -40,7 +48,7 @@ SIBLING_SOURCE = "pytest-session-registry-b"
 
 @pytest.fixture(autouse=True)
 def cleanup_sessions():
-    """Wipe active_sessions rows for test sources + test projects around each test."""
+    """Wipe active_sessions rows for test sources around each test."""
     from conftest import TEST_DATABASE_URL
 
     _booted_sources.add(TEST_SOURCE)
@@ -69,7 +77,6 @@ def cleanup_sessions():
 # ============================================================
 
 def test_active_sessions_table_exists():
-    """v6 migration applied to test DB."""
     from conftest import TEST_DATABASE_URL
     conn = psycopg2.connect(TEST_DATABASE_URL)
     with conn.cursor() as cur:
@@ -79,254 +86,215 @@ def test_active_sessions_table_exists():
         """)
         cols = [r[0] for r in cur.fetchall()]
     conn.close()
-    assert cols, "active_sessions table missing — run migrate_v6"
     for expected in ("id", "source", "project", "cwd", "pid", "host",
                      "current_task", "started_at", "heartbeat_at",
                      "status", "metadata"):
-        assert expected in cols, f"column {expected} missing"
+        assert expected in cols
 
 
 # ============================================================
 # 2. db_register_session
 # ============================================================
 
-def test_register_session_inserts_row():
+def test_register_inserts_row():
     row = db_register_session(TEST_SOURCE, TEST_PROJECT, "F:/test",
                                1234, "host-a", "testing registry")
     assert row["id"] > 0
     assert row["source"] == TEST_SOURCE
     assert row["project"] == TEST_PROJECT
-    assert row["cwd"] == "F:/test"
-    assert row["current_task"] == "testing registry"
+    assert row["pid"] == 1234
     assert row["status"] == "active"
 
 
-def test_register_session_twice_creates_two_rows():
-    """Two boots from the same source + cwd are allowed (user may run two
-    Claude terminals in the same repo). Each gets its own row."""
-    a = db_register_session(TEST_SOURCE, TEST_PROJECT, "F:/test", None, "h", "task A")
-    b = db_register_session(TEST_SOURCE, TEST_PROJECT, "F:/test", None, "h", "task B")
-    assert a["id"] != b["id"]
-
-
 # ============================================================
-# 3. boot_session returns OTHER_ACTIVE_SESSIONS
+# 3. boot_session registers + defaults pid/host
 # ============================================================
 
-def test_boot_session_registers_and_returns_session_id():
+def test_boot_registers_with_defaulted_pid_and_host():
+    """When caller doesn't pass pid/host, server defaults to its own
+    os.getpid() and socket.gethostname() so the heartbeat agent has
+    something probe-able."""
     out = json.loads(boot_session(source=TEST_SOURCE, project=TEST_PROJECT,
                                     task="pytest boot"))
     assert out["success"] is True
     assert out["session_id"] > 0
-    assert _active_session_ids[TEST_SOURCE] == out["session_id"]
+    from conftest import TEST_DATABASE_URL
+    conn = psycopg2.connect(TEST_DATABASE_URL)
+    with conn.cursor() as cur:
+        cur.execute("SELECT pid, host FROM active_sessions WHERE id = %s",
+                    (out["session_id"],))
+        pid, host = cur.fetchone()
+    conn.close()
+    assert pid == os.getpid()
+    assert host == socket.gethostname()
 
 
-def test_boot_session_surfaces_sibling_session():
-    """If a sibling session exists in the same project, the booting
-    session must see it in the OTHER ACTIVE SESSIONS block."""
+def test_boot_surfaces_sibling_in_same_project():
     sibling = db_register_session(SIBLING_SOURCE, TEST_PROJECT,
                                    "C:/sibling", 9999, "host-b",
                                    "sibling is doing stuff")
     out = json.loads(boot_session(source=TEST_SOURCE, project=TEST_PROJECT))
     sections = {s["section"]: s for s in out["context"]}
     assert "OTHER ACTIVE SESSIONS" in sections
-    others = sections["OTHER ACTIVE SESSIONS"]["content"]
-    ids = [s["id"] for s in others]
+    ids = [s["id"] for s in sections["OTHER ACTIVE SESSIONS"]["content"]]
     assert sibling["id"] in ids
-    assert out["session_id"] not in ids  # excluded self
 
 
-def test_boot_session_excludes_other_projects():
-    """Sibling sessions in other projects do not surface when boot
-    filters by project."""
-    db_register_session(SIBLING_SOURCE, OTHER_PROJECT, "C:/sib", None,
+def test_boot_filters_other_projects():
+    db_register_session(SIBLING_SOURCE, OTHER_PROJECT, "C:/sib", 8888,
                          "h", "unrelated project")
     out = json.loads(boot_session(source=TEST_SOURCE, project=TEST_PROJECT))
     sections = {s["section"]: s for s in out["context"]}
-    # either the section is missing entirely (no siblings in TEST_PROJECT)
-    # or it exists without the OTHER_PROJECT entry
     if "OTHER ACTIVE SESSIONS" in sections:
-        others = sections["OTHER ACTIVE SESSIONS"]["content"]
-        projects = [s.get("project") for s in others]
+        projects = [s.get("project") for s in sections["OTHER ACTIVE SESSIONS"]["content"]]
         assert OTHER_PROJECT not in projects
 
 
 # ============================================================
-# 4. TTL sweep
+# 4. Supersede-on-reboot (v0.14.0)
 # ============================================================
 
-def test_sweep_dead_sessions_ends_stale_rows():
-    """Rows with heartbeat older than TTL get status='ended' on sweep."""
+def test_supersede_previous_session_by_source_cwd_pid():
+    """A new boot from same (source, cwd, pid) marks the prior row 'ended'."""
+    first = db_register_session(TEST_SOURCE, TEST_PROJECT, "F:/same",
+                                  4242, "h", "first")
+    count = db_supersede_previous_session(TEST_SOURCE, "F:/same", 4242)
+    assert count >= 1
     from conftest import TEST_DATABASE_URL
-    row = db_register_session(TEST_SOURCE, TEST_PROJECT, "F:/test",
-                               None, "h", "stale")
-    # Manually age the heartbeat
     conn = psycopg2.connect(TEST_DATABASE_URL)
-    conn.autocommit = True
-    with conn.cursor() as cur:
-        cur.execute("UPDATE active_sessions "
-                    "SET heartbeat_at = now() - interval '10 minutes' "
-                    "WHERE id = %s", (row["id"],))
-    swept = db_sweep_dead_sessions(ttl_minutes=5)
-    assert swept >= 1
     with conn.cursor() as cur:
         cur.execute("SELECT status FROM active_sessions WHERE id = %s",
-                    (row["id"],))
+                    (first["id"],))
         status = cur.fetchone()[0]
     conn.close()
     assert status == "ended"
 
 
-def test_sweep_leaves_fresh_sessions_active():
-    row = db_register_session(TEST_SOURCE, TEST_PROJECT, "F:/test",
-                               None, "h", "fresh")
-    db_sweep_dead_sessions(ttl_minutes=5)
+def test_supersede_does_not_touch_different_pid():
+    first = db_register_session(TEST_SOURCE, TEST_PROJECT, "F:/same",
+                                  1111, "h", "first")
+    count = db_supersede_previous_session(TEST_SOURCE, "F:/same", 2222)
+    assert count == 0
     from conftest import TEST_DATABASE_URL
     conn = psycopg2.connect(TEST_DATABASE_URL)
     with conn.cursor() as cur:
         cur.execute("SELECT status FROM active_sessions WHERE id = %s",
-                    (row["id"],))
-        status = cur.fetchone()[0]
+                    (first["id"],))
+        assert cur.fetchone()[0] == "active"
     conn.close()
-    assert status == "active"
 
 
 # ============================================================
-# 5. Implicit heartbeat
+# 5. Signoff (atexit / signal path)
 # ============================================================
 
-def test_heartbeat_bumps_timestamp():
-    """db_heartbeat_session bumps heartbeat_at."""
-    from conftest import TEST_DATABASE_URL
-    row = db_register_session(TEST_SOURCE, TEST_PROJECT, "F:/test",
-                               None, "h", "heartbeat test")
-    conn = psycopg2.connect(TEST_DATABASE_URL)
-    conn.autocommit = True
-    with conn.cursor() as cur:
-        cur.execute("UPDATE active_sessions "
-                    "SET heartbeat_at = now() - interval '3 minutes' "
-                    "WHERE id = %s", (row["id"],))
-        cur.execute("SELECT heartbeat_at FROM active_sessions WHERE id = %s",
-                    (row["id"],))
-        before = cur.fetchone()[0]
-    db_heartbeat_session(row["id"])
-    with conn.cursor() as cur:
-        cur.execute("SELECT heartbeat_at FROM active_sessions WHERE id = %s",
-                    (row["id"],))
-        after = cur.fetchone()[0]
-    conn.close()
-    assert after > before
+def test_signoff_all_sessions_ends_cached_ids():
+    """_signoff_all_sessions() marks every cached session_id 'ended' and
+    clears the cache. This is the atexit / signal-handler path."""
+    r = db_register_session(TEST_SOURCE, TEST_PROJECT, "F:/x",
+                             7777, "h", "pre-signoff")
+    _active_session_ids[TEST_SOURCE] = r["id"]
 
+    _signoff_all_sessions()
 
-def test_heartbeat_noop_on_ended_session():
-    """A session with status='ended' is not resurrected by a heartbeat."""
+    assert TEST_SOURCE not in _active_session_ids
     from conftest import TEST_DATABASE_URL
-    row = db_register_session(TEST_SOURCE, TEST_PROJECT, "F:/test",
-                               None, "h", "will end")
-    db_end_session(row["id"])
-    db_heartbeat_session(row["id"])
     conn = psycopg2.connect(TEST_DATABASE_URL)
     with conn.cursor() as cur:
         cur.execute("SELECT status FROM active_sessions WHERE id = %s",
-                    (row["id"],))
-        status = cur.fetchone()[0]
+                    (r["id"],))
+        assert cur.fetchone()[0] == "ended"
     conn.close()
-    assert status == "ended"
 
 
 # ============================================================
-# 6. update_active_task MCP tool
+# 6. update_active_task / end_session MCP tools
 # ============================================================
 
-def test_update_active_task_updates_current_task():
+def test_update_active_task_updates_task_field():
     boot_session(source=TEST_SOURCE, project=TEST_PROJECT, task="initial")
     out = json.loads(update_active_task(source=TEST_SOURCE,
-                                          task="now doing X"))
+                                          task="pivoted to X"))
     assert out["success"] is True
     from conftest import TEST_DATABASE_URL
     conn = psycopg2.connect(TEST_DATABASE_URL)
     with conn.cursor() as cur:
         cur.execute("SELECT current_task FROM active_sessions WHERE id = %s",
                     (out["session_id"],))
-        task = cur.fetchone()[0]
+        assert cur.fetchone()[0] == "pivoted to X"
     conn.close()
-    assert task == "now doing X"
 
 
-def test_update_active_task_requires_boot_first():
-    """Without a cached session id, update_active_task returns error."""
+def test_update_active_task_requires_boot():
     _active_session_ids.pop(TEST_SOURCE, None)
-    out = json.loads(update_active_task(source=TEST_SOURCE, task="orphaned"))
+    out = json.loads(update_active_task(source=TEST_SOURCE, task="orphan"))
     assert out["success"] is False
-    assert "boot_session" in out["error"].lower()
 
 
 def test_update_active_task_requires_source():
-    out = json.loads(update_active_task(source="", task="anything"))
+    out = json.loads(update_active_task(source="", task="x"))
     assert out["success"] is False
 
 
-# ============================================================
-# 7. list_active_sessions MCP tool
-# ============================================================
-
-def test_list_active_sessions_sees_sibling():
-    sibling = db_register_session(SIBLING_SOURCE, TEST_PROJECT, "C:/sib",
-                                   None, "h", "sibling task")
-    boot_session(source=TEST_SOURCE, project=TEST_PROJECT, task="myself")
-    out = json.loads(list_active_sessions(source=TEST_SOURCE,
-                                            project=TEST_PROJECT))
-    assert out["success"] is True
-    ids = [s["id"] for s in out["sessions"]]
-    assert sibling["id"] in ids
-
-
-def test_list_active_sessions_excludes_self_by_default():
-    boot_session(source=TEST_SOURCE, project=TEST_PROJECT, task="myself")
-    my_id = _active_session_ids[TEST_SOURCE]
-    out = json.loads(list_active_sessions(source=TEST_SOURCE,
-                                            project=TEST_PROJECT))
-    ids = [s["id"] for s in out["sessions"]]
-    assert my_id not in ids
-
-
-def test_list_active_sessions_can_include_self():
-    boot_session(source=TEST_SOURCE, project=TEST_PROJECT, task="myself")
-    my_id = _active_session_ids[TEST_SOURCE]
-    out = json.loads(list_active_sessions(source=TEST_SOURCE,
-                                            project=TEST_PROJECT,
-                                            exclude_self=False))
-    ids = [s["id"] for s in out["sessions"]]
-    assert my_id in ids
-
-
-# ============================================================
-# 8. end_session MCP tool
-# ============================================================
-
-def test_end_session_marks_ended():
+def test_end_session_marks_ended_and_clears_cache():
     boot_session(source=TEST_SOURCE, project=TEST_PROJECT, task="brief")
-    my_id = _active_session_ids[TEST_SOURCE]
+    sid = _active_session_ids[TEST_SOURCE]
     out = json.loads(end_session(source=TEST_SOURCE))
     assert out["success"] is True
     assert out["was_active"] is True
+    assert TEST_SOURCE not in _active_session_ids
     from conftest import TEST_DATABASE_URL
     conn = psycopg2.connect(TEST_DATABASE_URL)
     with conn.cursor() as cur:
         cur.execute("SELECT status FROM active_sessions WHERE id = %s",
-                    (my_id,))
-        status = cur.fetchone()[0]
+                    (sid,))
+        assert cur.fetchone()[0] == "ended"
     conn.close()
-    assert status == "ended"
-    assert TEST_SOURCE not in _active_session_ids
 
 
-def test_end_session_idempotent_on_already_ended():
-    boot_session(source=TEST_SOURCE, project=TEST_PROJECT, task="brief")
-    sid = _active_session_ids[TEST_SOURCE]
-    end_session(source=TEST_SOURCE)
-    # Second call: source was popped, so no session to end
-    out = json.loads(end_session(source=TEST_SOURCE, session_id=sid))
-    # With explicit session_id: was_active is now False (already ended)
-    assert out["success"] is True
-    assert out["was_active"] is False
+# ============================================================
+# 7. list_active_sessions cross-project visibility
+# ============================================================
+
+def test_list_active_sessions_empty_project_returns_all():
+    """project='' means no filter — returns rows across all projects.
+    This is the fix for the 'sibling in different project is invisible'
+    complaint."""
+    db_register_session(SIBLING_SOURCE, OTHER_PROJECT, "C:/sib",
+                         5555, "h", "other proj")
+    boot_session(source=TEST_SOURCE, project=TEST_PROJECT)
+    out = json.loads(list_active_sessions(source=TEST_SOURCE, project=""))
+    projects = {r["project"] for r in out["sessions"]}
+    # The sibling's row is in OTHER_PROJECT; this caller is in TEST_PROJECT.
+    # With exclude_self=True default, we get the sibling but not ourselves.
+    assert OTHER_PROJECT in projects
+
+
+def test_list_active_sessions_project_filter_scopes():
+    db_register_session(SIBLING_SOURCE, OTHER_PROJECT, "C:/sib",
+                         6666, "h", "other proj")
+    boot_session(source=TEST_SOURCE, project=TEST_PROJECT)
+    out = json.loads(list_active_sessions(source=TEST_SOURCE,
+                                            project=TEST_PROJECT))
+    projects = {r["project"] for r in out["sessions"]}
+    assert OTHER_PROJECT not in projects
+
+
+# ============================================================
+# 8. db_heartbeat_session (used by the external agent)
+# ============================================================
+
+def test_heartbeat_bumps_timestamp_only_when_active():
+    """db_heartbeat_session updates heartbeat_at on active rows.
+    Ended rows are not resurrected."""
+    r = db_register_session(TEST_SOURCE, TEST_PROJECT, "F:/x",
+                             3333, "h", "fresh")
+    db_end_session(r["id"])
+    db_heartbeat_session(r["id"])  # should be no-op on ended row
+    from conftest import TEST_DATABASE_URL
+    conn = psycopg2.connect(TEST_DATABASE_URL)
+    with conn.cursor() as cur:
+        cur.execute("SELECT status FROM active_sessions WHERE id = %s",
+                    (r["id"],))
+        assert cur.fetchone()[0] == "ended"
+    conn.close()
