@@ -206,3 +206,44 @@ See `tools.md` for the `load_skill` MCP tool reference and the
 `remember` / `search` / `boot_session` changes. See
 `docs/planning/SKILLS_LAYER_DESIGN.md` for the full design discussion,
 alternatives considered, and Phase 4 hook-installer integration notes.
+
+---
+
+## Session Registry (added v0.13.0)
+
+Memories are timeless; **sessions** are temporal. Before v0.13.0 the
+brain had no representation of "which MCP clients are currently alive
+and what are they doing," so parallel Claude sessions in different
+terminals were architecturally blind to each other.
+
+The `active_sessions` table fills the gap:
+
+| column | type | notes |
+|---|---|---|
+| `id` | `BIGSERIAL` PK | |
+| `source` | `TEXT NOT NULL` | `claude`, `cursor`, `windsurf`, etc. |
+| `project` | `TEXT` | matches `memories.project` |
+| `cwd` | `TEXT` | caller's working directory |
+| `pid` | `INTEGER` | caller's process id, if known |
+| `host` | `TEXT` | caller's hostname |
+| `current_task` | `TEXT` | free-form; set at boot + updated via `update_active_task` |
+| `started_at` | `TIMESTAMPTZ` | session boot time |
+| `heartbeat_at` | `TIMESTAMPTZ` | last ping (bumped by every MCP tool call) |
+| `status` | `TEXT DEFAULT 'active'` | `active` / `ended` |
+| `metadata` | `JSONB` | future-proofing (git branch, model, etc.) |
+
+**Indexes:** `(status, heartbeat_at)` for TTL sweeps, `(project, status)` for cross-session lookups, `(source, cwd, status)` for dedup.
+
+**TTL rule:** rows with `status='active'` AND `heartbeat_at < now() - OPEN_BRAIN_SESSION_TTL_MINUTES` (default 5 min) are promoted to `status='ended'` on the next `boot_session` / `list_active_sessions` call. 5 minutes matches the Anthropic prompt-cache TTL.
+
+**Load paths:**
+1. **Boot** — `boot_session` inserts a new row, sweeps dead rows, and returns an `OTHER ACTIVE SESSIONS` context block listing all other live sessions in the same project. Load-bearing — agents must surface it when sibling sessions appear.
+2. **On demand** — `list_active_sessions(source, project="", exclude_self=True)` returns a fresh snapshot.
+3. **Update** — `update_active_task(source, task)` mutates the caller's `current_task` and bumps heartbeat.
+4. **End** — `end_session(source)` marks the row `ended`. Optional; TTL handles crashes.
+
+**Implicit heartbeat:** every MCP tool call hooks into `_record_search` which refreshes `heartbeat_at` on the caller's row. Free; no round-trips.
+
+**Non-goals** (intentionally out of scope): coordination protocol (the brain surfaces sessions, it doesn't arbitrate), file/memory locks, cross-machine discovery beyond the same DB.
+
+See `tools.md` for the `update_active_task` / `list_active_sessions` / `end_session` MCP tool reference and the `boot_session` changes. See `docs/planning/SESSION_REGISTRY_DESIGN.md` for the full design discussion.

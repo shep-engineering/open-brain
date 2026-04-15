@@ -101,6 +101,32 @@ Migrate existing over-pinned guardrails with
 carries the new `skill_trigger`. Pre-existing memories without a
 trigger keep current behavior — there is no forced migration.
 
+## 1.7. Session Registry (v0.13.0+): Surface Sibling Sessions
+
+`boot_session` now returns an `OTHER ACTIVE SESSIONS` context block
+listing sibling MCP sessions (same project or related cwd) that are
+currently live. This block is **load-bearing**, not informational:
+
+- If it appears and lists a session in the same project / cwd,
+  surface it to the user **before** starting overlapping work:
+  > "I see a {source} session started {relative_time} ago working on
+  > '{current_task}'. Should I coordinate with that, or is this
+  > independent?"
+- After the user's first substantive prompt, call
+  `update_active_task(source, task)` with a concise description so
+  the sibling sees what you're doing.
+- On clean exit, call `end_session(source)` — optional (TTL handles
+  crashes) but reduces noise for siblings that query right after you
+  finish.
+
+Not surfacing OTHER_ACTIVE_SESSIONS when relevant is a
+correction-worthy miss. This is the same class of failure as ignoring
+`action_items` on memories — the brain surfaced the information; the
+agent chose not to act on it.
+
+Sessions older than `OPEN_BRAIN_SESSION_TTL_MINUTES` (default 5) are
+swept automatically. No need to reap dead entries manually.
+
 ## 2. Discover Before You Act
 
 Before writing any code, know what rules apply to this task:

@@ -61,6 +61,7 @@ COMPLIANCE_MAX_STORES   = int(os.getenv("COMPLIANCE_MAX_STORES",              "5
 MERGE_LOWER_THRESHOLD   = float(os.getenv("OPEN_BRAIN_MERGE_LOWER_THRESHOLD", "0.70"))  # below this = unrelated
 CONSOLIDATION_INTERVAL  = int(os.getenv("OPEN_BRAIN_CONSOLIDATION_INTERVAL",  "0"))    # 0 = disabled
 SKILL_TRIGGER_MAX       = int(os.getenv("OPEN_BRAIN_SKILL_TRIGGER_MAX",      "5"))     # max skill auto-matches per search (v0.12.0+)
+SESSION_TTL_MINUTES     = int(os.getenv("OPEN_BRAIN_SESSION_TTL_MINUTES",    "5"))     # dead-session sweep window (v0.13.0+)
 
 # ─── Session Compliance Tracking ─────────────────────────────────────────────
 #
@@ -91,6 +92,15 @@ _correction_count: int = 0
 # Nothing is persisted to the database.
 
 _scratch: dict[str, str] = {}
+
+# ─── Active-Session Tracking (v0.13.0+) ──────────────────────────────────────
+#
+# Per-source cache of the active_sessions row id for the currently-booted
+# session. Populated on boot_session, consumed by the implicit-heartbeat path
+# so every tool call from the same source refreshes heartbeat_at cheaply.
+# Cleared on end_session.
+
+_active_session_ids: dict[str, int] = {}
 
 # ─── Uptime Tracking ──────────────────────────────────────────────────────────
 #
@@ -132,6 +142,14 @@ def _record_search(source: str, project: str) -> None:
         _session_tracker[source] = {"searches": 0, "stores_since_search": 0}
     _session_tracker[source]["searches"] += 1
     _session_tracker[source]["stores_since_search"] = 0
+    # v0.13.0: implicit heartbeat for the active_sessions registry.
+    # _record_search is called from every MCP tool handler, so using it as
+    # the heartbeat hook keeps the session alive as long as the agent is
+    # doing anything. Failures here must not break the caller.
+    try:
+        _heartbeat_source(source)
+    except Exception:
+        pass
 
 
 def _record_store(source: str) -> None:
@@ -650,6 +668,153 @@ def db_get_skill_by_name(name: str, project_filter: str | None) -> dict | None:
             if project_filter and project_filter in scope:
                 return _normalize_row(dict(row))
         return None
+
+
+# ─── Session Registry (v0.13.0) ──────────────────────────────────────────────
+#
+# Tracks live MCP-client sessions so booting sessions can SEE other sessions
+# working in the same project / cwd. Closes the parallel-session blind spot
+# that caused the Netflix prep mix-up (memory #3719). Design doc:
+# docs/planning/SESSION_REGISTRY_DESIGN.md
+
+
+def db_sweep_dead_sessions(ttl_minutes: int = None) -> int:
+    """Mark sessions that haven't heartbeat within the TTL as 'ended'.
+
+    Called inline from boot_session and list_active_sessions so there's no
+    separate cron. Returns the number of rows swept.
+    """
+    if ttl_minutes is None:
+        ttl_minutes = SESSION_TTL_MINUTES
+    conn = _get_conn()
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE active_sessions "
+            "SET status = 'ended' "
+            "WHERE status = 'active' "
+            "  AND heartbeat_at < now() - (%s || ' minutes')::interval",
+            (str(ttl_minutes),),
+        )
+        return cur.rowcount or 0
+
+
+def db_register_session(source: str, project: str, cwd: str, pid: int | None,
+                          host: str, current_task: str,
+                          metadata: dict | None = None) -> dict:
+    """Insert a new active_sessions row for this boot. Returns the row dict.
+
+    A new row is created every boot (even for the same source + cwd) so the
+    TTL sweep can age out crashed sessions cleanly. Callers should cache the
+    returned `id` in `_active_session_ids[source]` for fast heartbeat updates.
+    """
+    meta_json = json.dumps(metadata) if metadata else None
+    conn = _get_conn()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "INSERT INTO active_sessions "
+            "    (source, project, cwd, pid, host, current_task, metadata) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb) "
+            "RETURNING id, source, project, cwd, pid, host, current_task, "
+            "          started_at, heartbeat_at, status, metadata",
+            (source, project or None, cwd or None, pid, host or None,
+             current_task or None, meta_json),
+        )
+        return dict(cur.fetchone())
+
+
+def db_heartbeat_session(session_id: int) -> None:
+    """Bump heartbeat_at on a specific session row. Cheap single-row update.
+    Called from the implicit-heartbeat path on every tool use. Silent no-op if
+    the row doesn't exist (session was swept or ended)."""
+    if not session_id:
+        return
+    conn = _get_conn()
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE active_sessions SET heartbeat_at = now() "
+            "WHERE id = %s AND status = 'active'",
+            (session_id,),
+        )
+
+
+def db_update_active_task(session_id: int, task: str) -> bool:
+    """Update current_task on a session row and bump heartbeat_at.
+    Returns True if the row existed and was active."""
+    if not session_id:
+        return False
+    conn = _get_conn()
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE active_sessions "
+            "SET current_task = %s, heartbeat_at = now() "
+            "WHERE id = %s AND status = 'active'",
+            (task or None, session_id),
+        )
+        return (cur.rowcount or 0) > 0
+
+
+def db_end_session(session_id: int) -> bool:
+    """Mark a session ended. Clean-shutdown path. Returns True if the row
+    existed and was updated (idempotent: already-ended rows return False)."""
+    if not session_id:
+        return False
+    conn = _get_conn()
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE active_sessions SET status = 'ended' "
+            "WHERE id = %s AND status = 'active'",
+            (session_id,),
+        )
+        return (cur.rowcount or 0) > 0
+
+
+def db_list_active_sessions(project_filter: str | None = None,
+                              exclude_session_id: int | None = None) -> list[dict]:
+    """Return all live sessions, optionally filtered by project and
+    excluding one session id (usually the caller's own). Ordered by
+    started_at ASC so the oldest session appears first — closest to
+    "who was here before me?" reading order."""
+    conn = _get_conn()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        clauses = ["status = 'active'"]
+        params: list = []
+        if project_filter:
+            clauses.append("(project = %s OR project IS NULL)")
+            params.append(project_filter)
+        if exclude_session_id:
+            clauses.append("id <> %s")
+            params.append(exclude_session_id)
+        cur.execute(
+            "SELECT id, source, project, cwd, pid, host, current_task, "
+            "       started_at, heartbeat_at, status, metadata "
+            "FROM active_sessions "
+            f"WHERE {' AND '.join(clauses)} "
+            "ORDER BY started_at ASC",
+            params,
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
+def _heartbeat_source(source: str) -> None:
+    """Bump heartbeat for whatever active_session this source cached at boot.
+    Cheap wrapper for the implicit-heartbeat path; safe to call from any
+    MCP tool. Silent if the source never booted or already ended."""
+    sid = _active_session_ids.get(source)
+    if sid:
+        try:
+            db_heartbeat_session(sid)
+        except Exception:
+            pass
+
+
+def _serialize_session(s: dict) -> dict:
+    """Convert DB row timestamps to ISO strings for JSON serialization."""
+    out = dict(s)
+    for k in ("started_at", "heartbeat_at"):
+        v = out.get(k)
+        if isinstance(v, datetime):
+            out[k] = v.astimezone(timezone.utc).isoformat()
+    return out
 
 
 def db_get_memory(memory_id: int) -> dict | None:
@@ -1422,7 +1587,8 @@ def brain_startup_reminder() -> str:
 
 @mcp.tool()
 @instrument("boot_session")
-def boot_session(source: str, project: str = "") -> str:
+def boot_session(source: str, project: str = "", task: str = "",
+                  cwd: str = "", pid: int = 0, host: str = "") -> str:
     """Boot your brain for this session. MUST be called before any other tool.
 
     This loads your full project context so you can work effectively:
@@ -1430,6 +1596,9 @@ def boot_session(source: str, project: str = "") -> str:
     2. Project architecture and deployment context
     3. Recent session history (last 7 days)
     4. Known issues and corrections
+    5. OTHER ACTIVE SESSIONS — sibling MCP sessions live in the same brain
+       (v0.13.0+). If any appear, you MUST surface them to the user before
+       starting overlapping work.
 
     The context is also stored in working memory (scratchpad) for quick access
     throughout the session.
@@ -1440,11 +1609,32 @@ def boot_session(source: str, project: str = "") -> str:
         source: REQUIRED. Which agent is booting (e.g. 'claude', 'windsurf',
                 'cursor'). Session-compliance is tracked per-source.
         project: The project you're working on (e.g. 'open-brain', 'resume-harbor').
+        task:    Short free-form description of what this session is about to
+                 work on (usually the first user prompt, truncated). Optional.
+                 (v0.13.0+)
+        cwd:     Absolute path of the caller's working directory. Optional but
+                 strongly recommended — it's how sibling-session lookups
+                 distinguish "same repo, different window" from "unrelated."
+                 (v0.13.0+)
+        pid:     Process id of the MCP client, if known. Optional. (v0.13.0+)
+        host:    Hostname of the MCP client. Optional. (v0.13.0+)
     """
     try:
         if not source:
             return _source_required_error("boot_session")
         sections = []
+
+        # v0.13.0: session registry -- sweep dead rows and register ourselves
+        # first so OTHER_ACTIVE_SESSIONS reflects live state at boot time.
+        # Failures here must NOT break boot; degrade gracefully.
+        try:
+            db_sweep_dead_sessions()
+            my_session = db_register_session(source, project, cwd,
+                                              pid if pid else None,
+                                              host, task)
+            _active_session_ids[source] = my_session["id"]
+        except Exception:
+            my_session = {"id": None}
 
         # Step 1: Load pinned guardrails (full content, not previews)
         pinned = db_get_pinned(project) if project else []
@@ -1523,7 +1713,27 @@ def boot_session(source: str, project: str = "") -> str:
         except Exception:
             pass
 
-        # Step 6: Store summary in scratch pad and mark as booted
+        # Step 6: v0.13.0 -- OTHER ACTIVE SESSIONS. Surface sibling MCP
+        # sessions live in the same brain so this session can coordinate
+        # (or at least avoid duplicating work). This block is LOAD-BEARING,
+        # same as pinned guardrails: if any listed session is in the same
+        # project or a related cwd, the booting agent MUST surface it to
+        # the user before starting overlapping work.
+        try:
+            others = db_list_active_sessions(
+                project_filter=project or None,
+                exclude_session_id=my_session.get("id"),
+            )
+            if others:
+                sections.append({
+                    "section": "OTHER ACTIVE SESSIONS",
+                    "count": len(others),
+                    "content": [_serialize_session(s) for s in others],
+                })
+        except Exception:
+            pass
+
+        # Step 7: Store summary in scratch pad and mark as booted
         summary = json.dumps(sections, indent=2)
         _scratch["boot_context"] = summary
         _scratch["boot_project"] = project
@@ -1541,6 +1751,7 @@ def boot_session(source: str, project: str = "") -> str:
             "booted": True,
             "project": project,
             "source": source,
+            "session_id": my_session.get("id"),
             "sections_loaded": len(sections),
             "context": sections,
             "message": f"Brain booted for '{project}'. {len(sections)} context sections loaded. You may now proceed.",
@@ -1558,6 +1769,110 @@ def boot_session(source: str, project: str = "") -> str:
             "error": str(exc),
             "message": "Boot completed with errors. Context may be incomplete. Proceed with caution.",
         }, indent=2)
+
+
+@mcp.tool()
+@instrument("update_active_task")
+def update_active_task(source: str, task: str, session_id: int = 0) -> str:
+    """Update this session's current_task in the session registry.
+
+    Call when the user pivots, a task completes, or at natural checkpoints
+    so sibling sessions see an accurate snapshot of what you're doing.
+
+    Args:
+        source:     REQUIRED. The same source used at boot_session.
+        task:       New task description (free-form, keep it short).
+        session_id: Optional. If omitted, uses the session_id cached at
+                    boot for this source. Passing it explicitly is only
+                    needed when boot_session was called on a different
+                    process.
+    (v0.13.0+)
+    """
+    try:
+        if not source:
+            return _source_required_error("update_active_task")
+        sid = session_id or _active_session_ids.get(source, 0)
+        if not sid:
+            return json.dumps({"success": False,
+                "error": "No active session for this source. Call boot_session first."})
+        ok = db_update_active_task(sid, task)
+        if not ok:
+            return json.dumps({"success": False,
+                "error": f"Session {sid} is not active (expired or ended)."})
+        return json.dumps({"success": True, "session_id": sid, "task": task})
+    except Exception as exc:
+        return json.dumps({"success": False, "error": str(exc)})
+
+
+@mcp.tool()
+@instrument("list_active_sessions")
+def list_active_sessions(source: str, project: str = "",
+                          exclude_self: bool = True) -> str:
+    """Return all live MCP sessions, optionally filtered by project.
+
+    Dead sessions (heartbeat older than SESSION_TTL_MINUTES) are swept
+    to 'ended' before the read, so the result reflects current state.
+
+    Args:
+        source:       REQUIRED. Caller's source identifier.
+        project:      Filter to sessions matching this project (empty =
+                      all projects).
+        exclude_self: If true (default), omits the caller's own session
+                      from results.
+    (v0.13.0+)
+    """
+    try:
+        if not source:
+            return _source_required_error("list_active_sessions")
+        try:
+            db_sweep_dead_sessions()
+        except Exception:
+            pass
+        my_id = _active_session_ids.get(source, 0) if exclude_self else None
+        rows = db_list_active_sessions(
+            project_filter=project or None,
+            exclude_session_id=my_id or None,
+        )
+        _record_search(source, project)
+        return json.dumps({
+            "success": True,
+            "count": len(rows),
+            "sessions": [_serialize_session(r) for r in rows],
+        }, indent=2)
+    except Exception as exc:
+        return json.dumps({"success": False, "error": str(exc)})
+
+
+@mcp.tool()
+@instrument("end_session")
+def end_session(source: str, session_id: int = 0) -> str:
+    """Mark this session ended (clean shutdown). Optional — dead sessions
+    age out via TTL — but calling this reduces noise in
+    `list_active_sessions` for sibling sessions checking right after you
+    exit.
+
+    Args:
+        source:     REQUIRED. Same source used at boot_session.
+        session_id: Optional; defaults to the cached session id for this
+                    source.
+    (v0.13.0+)
+    """
+    try:
+        if not source:
+            return _source_required_error("end_session")
+        sid = session_id or _active_session_ids.get(source, 0)
+        if not sid:
+            return json.dumps({"success": False,
+                "error": "No active session for this source."})
+        ok = db_end_session(sid)
+        _active_session_ids.pop(source, None)
+        return json.dumps({
+            "success": True,
+            "session_id": sid,
+            "was_active": ok,
+        })
+    except Exception as exc:
+        return json.dumps({"success": False, "error": str(exc)})
 
 
 @mcp.tool()
