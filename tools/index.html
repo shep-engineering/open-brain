@@ -1006,6 +1006,56 @@
   
 </li>
         
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#session-registry-v0130" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Session Registry (v0.13.0+)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Session Registry (v0.13.0+)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#update_active_task" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        update_active_task
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#list_active_sessions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        list_active_sessions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#end_session" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        end_session
+      
+    </span>
+  </a>
+  
+</li>
+        
           <li class="md-nav__item">
   <a href="#brain_checkpoint" class="md-nav__link">
     <span class="md-ellipsis">
@@ -1713,6 +1763,56 @@
   
 </li>
         
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#session-registry-v0130" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Session Registry (v0.13.0+)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Session Registry (v0.13.0+)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#update_active_task" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        update_active_task
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#list_active_sessions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        list_active_sessions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#end_session" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        end_session
+      
+    </span>
+  </a>
+  
+</li>
+        
           <li class="md-nav__item">
   <a href="#brain_checkpoint" class="md-nav__link">
     <span class="md-ellipsis">
@@ -1786,7 +1886,7 @@
 
 
 <h1 id="tools-reference">Tools Reference</h1>
-<p>Open Brain exposes 22 MCP tools: 19 user-facing tools and 3 cognitive architecture tools for agent compliance enforcement.</p>
+<p>Open Brain exposes 25 MCP tools: 22 user-facing tools and 3 cognitive architecture tools for agent compliance enforcement.</p>
 <hr />
 <h2 id="core-tools">Core Tools</h2>
 <h3 id="remember"><code>remember</code></h3>
@@ -2488,11 +2588,131 @@
 <td>No</td>
 <td>Which agent is booting (e.g. "claude", "windsurf")</td>
 </tr>
+<tr>
+<td><code>task</code></td>
+<td>string</td>
+<td>No</td>
+<td>Short free-form description of the session's intent (typically the first user prompt, truncated). Populates <code>active_sessions.current_task</code> so sibling sessions see what you're doing. <em>(Added v0.13.0.)</em></td>
+</tr>
+<tr>
+<td><code>cwd</code></td>
+<td>string</td>
+<td>No</td>
+<td>Absolute path of the caller's working directory. Strongly recommended — it's how sibling-session lookups distinguish "same repo, different window" from "unrelated." <em>(Added v0.13.0.)</em></td>
+</tr>
+<tr>
+<td><code>pid</code></td>
+<td>int</td>
+<td>No</td>
+<td>Process id of the MCP client, if known. <em>(Added v0.13.0.)</em></td>
+</tr>
+<tr>
+<td><code>host</code></td>
+<td>string</td>
+<td>No</td>
+<td>Hostname of the MCP client. <em>(Added v0.13.0.)</em></td>
+</tr>
 </tbody>
 </table>
-<p><strong>Returns:</strong> Pinned guardrails (full content), project architecture context, recent session history (7 days), known issues/corrections, and repeated correction warnings. All stored in the session scratchpad.</p>
+<p><strong>Returns:</strong> Pinned guardrails (full content), project architecture context, recent session history (7 days), known issues/corrections, repeated correction warnings, and (v0.13.0+) an <code>OTHER ACTIVE SESSIONS</code> section listing sibling live MCP sessions. All stored in the session scratchpad. The response also includes <code>session_id</code> for later use with <code>update_active_task</code> / <code>end_session</code>.</p>
 <p><em>(v0.12.0)</em> The pinned-guardrails set returned at boot now excludes skill-tagged memories unless <code>skill_trigger.always_on</code> is <code>true</code>. Skill-triggered memories instead surface via <code>search</code> keyword auto-match or explicit <code>load_skill(name)</code>. See <a href="#skills-layer-v0120">Skills Layer</a>.</p>
+<p><em>(v0.13.0)</em> Registers an <code>active_sessions</code> row, sweeps dead rows (heartbeat older than <code>OPEN_BRAIN_SESSION_TTL_MINUTES</code>, default 5), and surfaces other live sessions in the same project as a load-bearing context block. See <a href="#session-registry-v0130">Session Registry</a>.</p>
 <p><strong>Enforcement:</strong> Server blocks <code>remember()</code> and <code>capture_context()</code> until <code>boot_session</code> has been called. Claude Code's PreToolUse hook blocks ALL non-brain tools until boot appears in the transcript.</p>
+<hr />
+<h2 id="session-registry-v0130">Session Registry (v0.13.0+)</h2>
+<p>Live MCP-client sessions are tracked in an <code>active_sessions</code> table so a booting session can see what sibling sessions are currently doing. Closes the parallel-session blind spot: before v0.13.0, a Claude session in one terminal had zero visibility into a Claude session in another terminal working on the same project, even though both were connected to the same brain.</p>
+<p>Three new tools manage session state; <code>boot_session</code> registers implicitly; every other tool call refreshes <code>heartbeat_at</code> through the compliance hook. Rows older than <code>OPEN_BRAIN_SESSION_TTL_MINUTES</code> (default 5, matches Anthropic prompt-cache TTL) are swept to <code>status='ended'</code> automatically.</p>
+<h3 id="update_active_task"><code>update_active_task</code></h3>
+<p>Update the caller's <code>current_task</code> and bump heartbeat. Call when the user pivots or a task completes.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>source</code></td>
+<td>string</td>
+<td><strong>Yes</strong></td>
+<td>Caller's source identifier (same as boot).</td>
+</tr>
+<tr>
+<td><code>task</code></td>
+<td>string</td>
+<td><strong>Yes</strong></td>
+<td>New task description.</td>
+</tr>
+<tr>
+<td><code>session_id</code></td>
+<td>int</td>
+<td>No</td>
+<td>Defaults to the session id cached at boot. Pass explicitly only when booting happened in a different process.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="list_active_sessions"><code>list_active_sessions</code></h3>
+<p>Read-only snapshot of live sessions. Sweeps dead rows first.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>source</code></td>
+<td>string</td>
+<td><strong>Yes</strong></td>
+<td>Caller's source identifier.</td>
+</tr>
+<tr>
+<td><code>project</code></td>
+<td>string</td>
+<td>No</td>
+<td>Filter to one project (empty = all).</td>
+</tr>
+<tr>
+<td><code>exclude_self</code></td>
+<td>bool</td>
+<td>No</td>
+<td>Default <code>true</code> — omits the caller's own session.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="end_session"><code>end_session</code></h3>
+<p>Clean-shutdown path. Marks the session <code>ended</code> and clears the cached id.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>source</code></td>
+<td>string</td>
+<td><strong>Yes</strong></td>
+<td>Caller's source identifier.</td>
+</tr>
+<tr>
+<td><code>session_id</code></td>
+<td>int</td>
+<td>No</td>
+<td>Defaults to the cached id.</td>
+</tr>
+</tbody>
+</table>
+<p>Optional — the TTL sweeper handles crashed sessions — but calling this reduces noise in sibling queries right after exit.</p>
 <hr />
 <h3 id="brain_checkpoint"><code>brain_checkpoint</code></h3>
 <p>Check the brain before a risky action. Searches for relevant memories and surfaces guardrails.</p>

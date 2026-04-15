@@ -680,6 +680,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#session-registry-added-v0130" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Session Registry (added v0.13.0)
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1132,6 +1143,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#session-registry-added-v0130" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Session Registry (added v0.13.0)
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1432,6 +1454,89 @@ load (active-only default, matching v0.11.0 belief-revision).</p>
 <code>remember</code> / <code>search</code> / <code>boot_session</code> changes. See
 <code>docs/planning/SKILLS_LAYER_DESIGN.md</code> for the full design discussion,
 alternatives considered, and Phase 4 hook-installer integration notes.</p>
+<hr />
+<h2 id="session-registry-added-v0130">Session Registry (added v0.13.0)</h2>
+<p>Memories are timeless; <strong>sessions</strong> are temporal. Before v0.13.0 the
+brain had no representation of "which MCP clients are currently alive
+and what are they doing," so parallel Claude sessions in different
+terminals were architecturally blind to each other.</p>
+<p>The <code>active_sessions</code> table fills the gap:</p>
+<table>
+<thead>
+<tr>
+<th>column</th>
+<th>type</th>
+<th>notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>id</code></td>
+<td><code>BIGSERIAL</code> PK</td>
+<td></td>
+</tr>
+<tr>
+<td><code>source</code></td>
+<td><code>TEXT NOT NULL</code></td>
+<td><code>claude</code>, <code>cursor</code>, <code>windsurf</code>, etc.</td>
+</tr>
+<tr>
+<td><code>project</code></td>
+<td><code>TEXT</code></td>
+<td>matches <code>memories.project</code></td>
+</tr>
+<tr>
+<td><code>cwd</code></td>
+<td><code>TEXT</code></td>
+<td>caller's working directory</td>
+</tr>
+<tr>
+<td><code>pid</code></td>
+<td><code>INTEGER</code></td>
+<td>caller's process id, if known</td>
+</tr>
+<tr>
+<td><code>host</code></td>
+<td><code>TEXT</code></td>
+<td>caller's hostname</td>
+</tr>
+<tr>
+<td><code>current_task</code></td>
+<td><code>TEXT</code></td>
+<td>free-form; set at boot + updated via <code>update_active_task</code></td>
+</tr>
+<tr>
+<td><code>started_at</code></td>
+<td><code>TIMESTAMPTZ</code></td>
+<td>session boot time</td>
+</tr>
+<tr>
+<td><code>heartbeat_at</code></td>
+<td><code>TIMESTAMPTZ</code></td>
+<td>last ping (bumped by every MCP tool call)</td>
+</tr>
+<tr>
+<td><code>status</code></td>
+<td><code>TEXT DEFAULT 'active'</code></td>
+<td><code>active</code> / <code>ended</code></td>
+</tr>
+<tr>
+<td><code>metadata</code></td>
+<td><code>JSONB</code></td>
+<td>future-proofing (git branch, model, etc.)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Indexes:</strong> <code>(status, heartbeat_at)</code> for TTL sweeps, <code>(project, status)</code> for cross-session lookups, <code>(source, cwd, status)</code> for dedup.</p>
+<p><strong>TTL rule:</strong> rows with <code>status='active'</code> AND <code>heartbeat_at &lt; now() - OPEN_BRAIN_SESSION_TTL_MINUTES</code> (default 5 min) are promoted to <code>status='ended'</code> on the next <code>boot_session</code> / <code>list_active_sessions</code> call. 5 minutes matches the Anthropic prompt-cache TTL.</p>
+<p><strong>Load paths:</strong>
+1. <strong>Boot</strong> — <code>boot_session</code> inserts a new row, sweeps dead rows, and returns an <code>OTHER ACTIVE SESSIONS</code> context block listing all other live sessions in the same project. Load-bearing — agents must surface it when sibling sessions appear.
+2. <strong>On demand</strong> — <code>list_active_sessions(source, project="", exclude_self=True)</code> returns a fresh snapshot.
+3. <strong>Update</strong> — <code>update_active_task(source, task)</code> mutates the caller's <code>current_task</code> and bumps heartbeat.
+4. <strong>End</strong> — <code>end_session(source)</code> marks the row <code>ended</code>. Optional; TTL handles crashes.</p>
+<p><strong>Implicit heartbeat:</strong> every MCP tool call hooks into <code>_record_search</code> which refreshes <code>heartbeat_at</code> on the caller's row. Free; no round-trips.</p>
+<p><strong>Non-goals</strong> (intentionally out of scope): coordination protocol (the brain surfaces sessions, it doesn't arbitrate), file/memory locks, cross-machine discovery beyond the same DB.</p>
+<p>See <code>tools.md</code> for the <code>update_active_task</code> / <code>list_active_sessions</code> / <code>end_session</code> MCP tool reference and the <code>boot_session</code> changes. See <code>docs/planning/SESSION_REGISTRY_DESIGN.md</code> for the full design discussion.</p>
 
 
 
