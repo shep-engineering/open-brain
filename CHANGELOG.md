@@ -5,6 +5,55 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0] - 2026-04-16
+
+### Added — brain_v2 P1 gaps closed: session registry + handoff protocol
+
+Closes Gaps 3 and 4 from `docs/planning/brain-v2-gap-analysis.md`. v2 now
+has sibling-session awareness and continuity across reboots.
+
+**New schema tables:**
+- `active_sessions` — per-source session registry (source, project, cwd,
+  pid, host, current_task, started_at, heartbeat_at, ended_at, status,
+  metadata). Process lifecycle is authoritative; NO timer-based TTL (v1
+  v0.14.0 lesson). New row with same (source, cwd, pid) ends the prior
+  active row (supersede on reboot).
+- `handoffs` — session-to-session continuity notes, 2000-char hard cap,
+  optionally linked to the writing session.
+
+**boot_session_v2 changes:**
+- Accepts optional `cwd` / `pid` / `host` args.
+- Registers a new `active_sessions` row on every boot.
+- Returns `session_id`, `other_active_sessions`, `handoff_source` in
+  the payload.
+- Auto-populates `handoff` from the latest handoff for the project
+  (excluding the caller's own session). Explicit handoff arg wins.
+
+**4 new MCP tools:**
+- `list_active_sessions_v2(project, exclude_self)` — surface siblings.
+- `update_active_task_v2(task, session_id)` — bump current_task + heartbeat.
+- `end_session_v2(handoff, session_id, source)` — clean exit; can write
+  a handoff in the same call.
+- `write_handoff_v2(content, source, project, session_id)` — mid-session
+  checkpoint.
+
+**Testing:** 27 new tests in `test_session_registry.py` covering register /
+end / list / update_task / handoff write+read / project filter / session
+exclusion / supersede-on-reboot / auto-populated handoff / explicit
+handoff override / register=False dry-run. All passing against real
+Postgres. Regression run on prior suites: 27/27 still pass.
+
+**Also fixed:** Gap 7 (dead `params` variable in store.search_headlines)
+was already cleaned up in v0.15.1 but the commit rolled it into this
+release.
+
+**Tool count:** 12 → 16 (new: list_active_sessions_v2,
+update_active_task_v2, end_session_v2, write_handoff_v2).
+
+**Still open (tracked for future work):**
+- Gap 5: Fact decay job (schema-only, no runtime)
+- Gap 6: Incident 90-day archive job (schema-only)
+
 ## [0.15.0] - 2026-04-15
 
 ### Added — Open Brain v2 bifurcation (Phase 1 scaffold)

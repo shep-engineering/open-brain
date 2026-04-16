@@ -330,6 +330,153 @@ def search_headlines(conn, *, query: str, kind: str | None = None,
     return [dict(r) for r in rows]
 
 
+# ── SESSION REGISTRY ─────────────────────────────────────────────────
+def register_session(conn, *, source: str, project: str = "", cwd: str = "",
+                     pid: int | None = None, host: str = "",
+                     current_task: str = "",
+                     metadata: dict | None = None) -> int:
+    """Register a new active session. If a row with the same
+    (source, cwd, pid) is already active, it is ENDED first (supersede
+    on reboot — process lifecycle is authoritative, no TTL).
+    """
+    with conn.cursor() as cur:
+        # End any prior active session from the same process
+        if pid is not None:
+            cur.execute(
+                """
+                UPDATE active_sessions
+                SET status = 'ended', ended_at = NOW()
+                WHERE status = 'active'
+                  AND source = %s
+                  AND cwd = %s
+                  AND pid = %s
+                """,
+                (source, cwd, pid),
+            )
+            if cur.rowcount:
+                log.info("register_session: superseded %d prior session(s) for source=%s pid=%s",
+                         cur.rowcount, source, pid)
+
+        cur.execute(
+            """
+            INSERT INTO active_sessions
+                (source, project, cwd, pid, host, current_task, metadata)
+            VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb)
+            RETURNING id
+            """,
+            (source, project, cwd, pid, host, current_task or None,
+             json.dumps(metadata) if metadata else None),
+        )
+        session_id = cur.fetchone()[0]
+    conn.commit()
+    log.info("register_session: source=%s project=%s pid=%s → session_id=%d",
+             source, project, pid, session_id)
+    return session_id
+
+
+def end_session(conn, *, session_id: int, source: str = "") -> bool:
+    """Mark a session as ended. Returns True if transitioned, False if
+    already ended or not found."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE active_sessions
+            SET status = 'ended', ended_at = NOW()
+            WHERE id = %s AND status = 'active'
+            """,
+            (session_id,),
+        )
+        changed = cur.rowcount > 0
+        if changed:
+            _audit(cur, "END", "session", session_id, {"source": source}, source)
+    conn.commit()
+    if changed:
+        log.info("end_session: id=%d ended by source=%s", session_id, source)
+    return changed
+
+
+def update_active_task(conn, *, session_id: int, task: str) -> bool:
+    """Update current_task + bump heartbeat_at for a live session."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE active_sessions
+            SET current_task = %s, heartbeat_at = NOW()
+            WHERE id = %s AND status = 'active'
+            """,
+            (task or None, session_id),
+        )
+        return cur.rowcount > 0
+
+
+def list_active_sessions(conn, *, project: str = "", exclude_id: int | None = None) -> list[dict]:
+    """Return all live sessions, optionally filtered to a project and
+    excluding a given id (typically the caller's own session)."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        sql = """
+            SELECT id, source, project, cwd, pid, host, current_task,
+                   started_at, heartbeat_at, status
+            FROM active_sessions
+            WHERE status = 'active'
+        """
+        params: list[Any] = []
+        if project:
+            sql += " AND project = %s"
+            params.append(project)
+        if exclude_id is not None:
+            sql += " AND id <> %s"
+            params.append(exclude_id)
+        sql += " ORDER BY started_at DESC"
+        cur.execute(sql, params)
+        return [dict(r) for r in cur.fetchall()]
+
+
+def write_handoff(conn, *, source: str, content: str, project: str = "",
+                  session_id: int | None = None) -> int:
+    """Write a handoff note. Returns the handoff id. Content is hard-
+    capped to 2000 chars on write to prevent boot payload blowup."""
+    content = content.strip()[:2000]
+    if not content:
+        raise ValueError("handoff content is empty")
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO handoffs (session_id, source, project, content)
+            VALUES (%s, %s, %s, %s)
+            RETURNING id
+            """,
+            (session_id, source, project, content),
+        )
+        hid = cur.fetchone()[0]
+        _audit(cur, "INSERT", "handoff", hid,
+               {"source": source, "project": project, "content_preview": content[:100]}, source)
+    conn.commit()
+    log.info("write_handoff: id=%d source=%s project=%s (%d chars)",
+             hid, source, project, len(content))
+    return hid
+
+
+def get_latest_handoff(conn, *, project: str = "",
+                       exclude_session_id: int | None = None) -> dict | None:
+    """Return the most recent handoff for a project, optionally excluding
+    one session's own handoffs (so boot doesn't echo back the current
+    session's last handoff)."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        sql = """
+            SELECT id, session_id, source, project, content, created_at
+            FROM handoffs
+            WHERE (project = %s OR project = '')
+        """
+        params: list[Any] = [project]
+        if exclude_session_id is not None:
+            sql += " AND (session_id IS NULL OR session_id <> %s)"
+            params.append(exclude_session_id)
+        sql += " ORDER BY created_at DESC LIMIT 1"
+        cur.execute(sql, params)
+        row = cur.fetchone()
+    return dict(row) if row else None
+
+
 # ── ACTION ITEMS ─────────────────────────────────────────────────────
 def create_action_item(conn, *, source_kind: str, source_id: int,
                        text: str, project: str = "") -> int:

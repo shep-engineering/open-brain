@@ -40,7 +40,10 @@ class BootPayload:
     active_tasks: list[dict] = field(default_factory=list)
     working_context: dict = field(default_factory=dict)
     pending_action_items: list[dict] = field(default_factory=list)
+    other_active_sessions: list[dict] = field(default_factory=list)
+    session_id: int | None = None
     handoff: str = ""
+    handoff_source: dict | None = None
     token_estimate: int = 0
     truncated: list[str] = field(default_factory=list)
 
@@ -52,7 +55,10 @@ class BootPayload:
             "working_context": self.working_context,
             "pending_action_items": self.pending_action_items,
             "writes_blocked": len(self.pending_action_items) > 0,
+            "other_active_sessions": self.other_active_sessions,
+            "session_id": self.session_id,
             "handoff": self.handoff,
+            "handoff_source": self.handoff_source,
             "token_estimate": self.token_estimate,
             "truncated": self.truncated,
             "caps": {
@@ -127,9 +133,15 @@ def _make_working_context(task: str, project: str, source: str) -> dict:
     }
 
 
-def build(conn, *, project: str, task: str, source: str, handoff: str = "") -> BootPayload:
+def build(conn, *, project: str, task: str, source: str, handoff: str = "",
+          cwd: str = "", pid: int | None = None, host: str = "",
+          register: bool = True) -> BootPayload:
     """Build the v2 boot payload. Embeds `task` ONCE for pattern
     retrieval. No per-section re-embedding. Caps applied in order.
+
+    If register=True (default), a new active_sessions row is written
+    and the returned payload includes session_id + other_active_sessions.
+    Set register=False for read-only boot inspections (tests, tooling).
     """
     task_embedding = embed_to_pgvector(task) if task.strip() else embed_to_pgvector(project or "open-brain")
 
@@ -142,13 +154,41 @@ def build(conn, *, project: str, task: str, source: str, handoff: str = "") -> B
     from . import store as _store
     pending_items = _store.get_pending_action_items(conn, project=project)
 
+    # Session registry: register new session, find siblings, fetch latest handoff
+    session_id: int | None = None
+    siblings: list[dict] = []
+    handoff_source: dict | None = None
+    if register and source:
+        session_id = _store.register_session(
+            conn, source=source, project=project, cwd=cwd,
+            pid=pid, host=host, current_task=task,
+        )
+        siblings = _store.list_active_sessions(
+            conn, project=project, exclude_id=session_id,
+        )
+        # Auto-populate handoff from latest if caller didn't supply one
+        if not handoff:
+            latest = _store.get_latest_handoff(
+                conn, project=project, exclude_session_id=session_id,
+            )
+            if latest:
+                handoff = latest["content"]
+                handoff_source = {
+                    "handoff_id": latest["id"],
+                    "source": latest["source"],
+                    "created_at": str(latest["created_at"]),
+                }
+
     payload = BootPayload(
         blockers=blockers,
         patterns=patterns,
         active_tasks=tasks,
         working_context=_make_working_context(task, project, source),
         pending_action_items=pending_items,
+        other_active_sessions=siblings,
+        session_id=session_id,
         handoff=handoff[: BOOT_HANDOFF_TOKEN_CAP * 4],  # hard char cut
+        handoff_source=handoff_source,
     )
 
     # Token accounting

@@ -132,6 +132,46 @@ CREATE TABLE IF NOT EXISTS action_items (
 CREATE INDEX IF NOT EXISTS action_items_pending_idx
     ON action_items (project, status) WHERE status = 'pending';
 
+-- ── ACTIVE SESSIONS ──────────────────────────────────────────────
+-- Per-source session registry. Liveness model: process lifecycle is
+-- authoritative (NO timer-based TTL — v1's v0.14.0 lesson). Rows are
+-- ended via explicit end_session call on clean exit, or superseded by
+-- a new row with the same (source, cwd, pid) tuple on reboot.
+CREATE TABLE IF NOT EXISTS active_sessions (
+    id             SERIAL      PRIMARY KEY,
+    source         TEXT        NOT NULL,
+    project        TEXT        NOT NULL DEFAULT '',
+    cwd            TEXT        NOT NULL DEFAULT '',
+    pid            INTEGER,
+    host           TEXT        NOT NULL DEFAULT '',
+    current_task   TEXT,
+    started_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    heartbeat_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    ended_at       TIMESTAMPTZ,
+    status         TEXT        NOT NULL DEFAULT 'active'
+                   CHECK (status IN ('active', 'ended')),
+    metadata       JSONB
+);
+CREATE INDEX IF NOT EXISTS active_sessions_project_status_idx
+    ON active_sessions (project, status) WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS active_sessions_dedup_idx
+    ON active_sessions (source, cwd, pid) WHERE status = 'active';
+
+-- ── HANDOFFS ─────────────────────────────────────────────────────
+-- Session-to-session continuity notes. A clean end_session may write
+-- a handoff; boot_session_v2 auto-populates its handoff field from the
+-- most recent one for the project.
+CREATE TABLE IF NOT EXISTS handoffs (
+    id             SERIAL      PRIMARY KEY,
+    session_id     INTEGER     REFERENCES active_sessions(id) ON DELETE SET NULL,
+    source         TEXT        NOT NULL,
+    project        TEXT        NOT NULL DEFAULT '',
+    content        TEXT        NOT NULL,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS handoffs_project_recency_idx
+    ON handoffs (project, created_at DESC);
+
 -- ── AUDIT LOG ────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS v2_audit (
     audit_id       SERIAL      PRIMARY KEY,

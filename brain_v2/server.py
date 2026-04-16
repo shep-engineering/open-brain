@@ -46,6 +46,7 @@ logging.basicConfig(
 _log = logging.getLogger("brain_v2.server")
 
 _SESSION_ID = f"pid{os.getpid()}-{uuid.uuid4().hex[:8]}"
+_DB_SESSION_ID: int | None = None  # set by boot_session_v2
 
 
 def _check_write_gate(project: str) -> str | None:
@@ -77,20 +78,45 @@ def _err(msg: str, **extra) -> str:
 
 @mcp.tool()
 def boot_session_v2(project: str = "", task: str = "", source: str = "",
-                    handoff: str = "") -> str:
+                    handoff: str = "", cwd: str = "", pid: int = 0,
+                    host: str = "") -> str:
     """Boot v2 — returns headline-only payload.
 
     5 BLOCKER max. 5 PATTERN max (task-relevance ranked). 2,000 token cap.
     Bodies are NOT included. Use recall_v2(kind, memory_id) to fetch a body.
     WORKING CONTEXT is regenerated from `task` each call — not stored.
+
+    Registers a row in active_sessions and returns other_active_sessions
+    so the caller can surface sibling work before overlapping. If handoff
+    is not supplied, the most recent handoff for the project (from a
+    different session) is auto-loaded.
+
+    Args:
+        project: Project name.
+        task:    Short description of what this session is doing.
+        source:  Agent name (claude/windsurf/cursor/etc).
+        handoff: Optional explicit handoff text. If empty, latest for
+                 the project is used.
+        cwd:     Absolute path of caller's working dir.
+        pid:     Caller's pid. Defaults to server.py's pid.
+        host:    Caller's hostname.
     """
+    global _DB_SESSION_ID
     ensure_schema()
+    actual_pid = pid if pid else os.getpid()
     try:
         with store.connect() as conn:
-            payload = boot.build(conn, project=project, task=task, source=source, handoff=handoff)
+            payload = boot.build(
+                conn, project=project, task=task, source=source,
+                handoff=handoff, cwd=cwd, pid=actual_pid, host=host,
+            )
     except Exception as exc:
+        _log.exception("boot_session_v2 failed")
         return _err(f"boot failed: {exc}")
-    return _ok({"session_id": _SESSION_ID, **payload.to_dict()})
+    _DB_SESSION_ID = payload.session_id
+    _log.info("boot_session_v2: source=%s project=%s session_id=%s siblings=%d",
+              source, project, payload.session_id, len(payload.other_active_sessions))
+    return _ok({"worker_session_id": _SESSION_ID, **payload.to_dict()})
 
 
 @mcp.tool()
@@ -297,6 +323,129 @@ def update_task_status_v2(task_id: int, status: str, source: str = "") -> str:
     except Exception as exc:
         return _err(f"update_task_status failed: {exc}")
     return _ok({"task_id": task_id, "status": status})
+
+
+@mcp.tool()
+def list_active_sessions_v2(project: str = "", exclude_self: bool = True) -> str:
+    """List all currently-active sessions, optionally filtered by project.
+
+    Args:
+        project:      Filter to a specific project (empty = all projects).
+        exclude_self: Hide this session from the result (default True).
+    """
+    ensure_schema()
+    try:
+        with store.connect() as conn:
+            exclude_id = _DB_SESSION_ID if exclude_self else None
+            sessions = store.list_active_sessions(
+                conn, project=project, exclude_id=exclude_id,
+            )
+    except Exception as exc:
+        _log.exception("list_active_sessions_v2 failed")
+        return _err(f"list failed: {exc}")
+    return _ok({"count": len(sessions), "sessions": sessions})
+
+
+@mcp.tool()
+def update_active_task_v2(task: str, session_id: int = 0) -> str:
+    """Update the current_task of a live session (+ bumps heartbeat_at).
+
+    Args:
+        task:       New task description.
+        session_id: Optional — defaults to this server's session_id from
+                    the most recent boot_session_v2 call.
+    """
+    ensure_schema()
+    sid = session_id if session_id else _DB_SESSION_ID
+    if not sid:
+        return _err("no session_id available — call boot_session_v2 first "
+                    "or pass session_id explicitly")
+    try:
+        with store.connect() as conn:
+            ok = store.update_active_task(conn, session_id=sid, task=task)
+    except Exception as exc:
+        _log.exception("update_active_task_v2 failed")
+        return _err(f"update failed: {exc}")
+    if not ok:
+        return _err(f"session_id={sid} not found or not active")
+    return _ok({"success": True, "session_id": sid, "task": task})
+
+
+@mcp.tool()
+def end_session_v2(handoff: str = "", session_id: int = 0, source: str = "") -> str:
+    """Cleanly end a session. Optionally writes a handoff note in the
+    same call for the next session on the project to pick up.
+
+    Args:
+        handoff:    Optional handoff note (≤2000 chars) to leave for the
+                    next session on this project.
+        session_id: Optional — defaults to this server's session_id.
+        source:     Optional — for audit.
+    """
+    global _DB_SESSION_ID
+    ensure_schema()
+    sid = session_id if session_id else _DB_SESSION_ID
+    if not sid:
+        return _err("no session_id available — call boot_session_v2 first "
+                    "or pass session_id explicitly")
+    handoff_id: int | None = None
+    try:
+        with store.connect() as conn:
+            # Find source + project to attach to the handoff
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT source, project FROM active_sessions WHERE id = %s",
+                    (sid,),
+                )
+                row = cur.fetchone()
+            if handoff and handoff.strip():
+                if row:
+                    handoff_id = store.write_handoff(
+                        conn, source=source or row[0], content=handoff,
+                        project=row[1] or "", session_id=sid,
+                    )
+                else:
+                    handoff_id = store.write_handoff(
+                        conn, source=source or "unknown", content=handoff,
+                        project="", session_id=sid,
+                    )
+            ended = store.end_session(conn, session_id=sid, source=source or (row[0] if row else ""))
+    except Exception as exc:
+        _log.exception("end_session_v2 failed")
+        return _err(f"end_session failed: {exc}")
+    if sid == _DB_SESSION_ID:
+        _DB_SESSION_ID = None
+    return _ok({
+        "success": True,
+        "session_id": sid,
+        "ended": ended,
+        "handoff_written": handoff_id,
+    })
+
+
+@mcp.tool()
+def write_handoff_v2(content: str, source: str = "", project: str = "",
+                     session_id: int = 0) -> str:
+    """Write a handoff note without ending the session. Use when you
+    want to leave a checkpoint mid-session. Content is hard-capped to
+    2000 chars.
+    """
+    ensure_schema()
+    if not content or not content.strip():
+        return _err("handoff content is empty")
+    sid = session_id if session_id else _DB_SESSION_ID
+    try:
+        with store.connect() as conn:
+            hid = store.write_handoff(
+                conn, source=source, content=content, project=project,
+                session_id=sid,
+            )
+    except ValueError as exc:
+        return _err(str(exc))
+    except Exception as exc:
+        _log.exception("write_handoff_v2 failed")
+        return _err(f"write_handoff failed: {exc}")
+    return _ok({"success": True, "handoff_id": hid, "session_id": sid})
 
 
 @mcp.tool()
