@@ -30,9 +30,8 @@ def _age_fact(conn, fid: int, days_ago: float) -> None:
     """Rewrite a fact's last_accessed to N days ago (for decay testing)."""
     with conn.cursor() as cur:
         cur.execute(
-            "UPDATE facts SET last_accessed = NOW() - INTERVAL '%s days' WHERE id = %%s"
-            % days_ago,
-            (fid,),
+            "UPDATE facts SET last_accessed = NOW() - make_interval(secs => %s) WHERE id = %s",
+            (float(days_ago) * 86400.0, fid),
         )
     conn.commit()
 
@@ -40,9 +39,8 @@ def _age_fact(conn, fid: int, days_ago: float) -> None:
 def _age_incident(conn, iid: int, days_ago: float) -> None:
     with conn.cursor() as cur:
         cur.execute(
-            "UPDATE incidents SET last_accessed = NOW() - INTERVAL '%s days' WHERE id = %%s"
-            % days_ago,
-            (iid,),
+            "UPDATE incidents SET last_accessed = NOW() - make_interval(secs => %s) WHERE id = %s",
+            (float(days_ago) * 86400.0, iid),
         )
     conn.commit()
 

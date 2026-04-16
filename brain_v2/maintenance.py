@@ -150,10 +150,10 @@ def archive_incidents(conn, *, archive_days: int = INCIDENT_ARCHIVE_DAYS) -> lis
             SET archived = TRUE
             WHERE archived = FALSE
               AND COALESCE(i.last_accessed, i.occurred_at)
-                  < NOW() - INTERVAL '%s days'
+                  < NOW() - make_interval(days => %s)
             RETURNING id
-            """
-            % archive_days,
+            """,
+            (int(archive_days),),
         )
         archived_ids = [r[0] for r in cur.fetchall()]
 
