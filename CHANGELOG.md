@@ -5,6 +5,54 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.0] - 2026-04-16
+
+### Added — brain_v2 P2 gaps closed: fact decay + incident archive
+
+Closes Gaps 5 and 6 from `docs/planning/brain-v2-gap-analysis.md`.
+Completes Windsurf synthesis §4.6 (decay by type).
+
+**New module `brain_v2/maintenance.py`:**
+- `decay_facts(conn, halflife_days, threshold)` — Ebbinghaus decay.
+  Score = `2^(-Δdays / halflife)` where Δdays is days since last access
+  (falls back to created_at if never accessed). Facts below threshold
+  are deactivated in `memory_index`; previously-deactivated facts that
+  recovered above threshold are reactivated. Hard-TTL facts whose ttl
+  is past are expired separately and never reactivate.
+- `archive_incidents(conn, archive_days)` — soft-archive after N days
+  of no access. Flips `archived=TRUE` on the incident row AND deactivates
+  the corresponding `memory_index` entry. Already-archived incidents
+  are skipped (idempotent).
+- `run_all(conn)` — runs both jobs, returns a unified `MaintenanceReport`.
+
+**3 new MCP tools:**
+- `run_maintenance_v2()` — unified trigger.
+- `decay_facts_v2()` — run only the fact-decay job.
+- `archive_incidents_v2()` — run only the incident-archive job.
+
+All three return affected id lists so callers can audit outcomes.
+
+**New config:**
+- `OPEN_BRAIN_V2_FACT_DECAY_THRESHOLD` (default 0.1) — score below
+  which a fact is deactivated. At halflife=7 and threshold=0.1,
+  deactivation happens at ~23 days no-access.
+
+**Testing:** 17 new tests in `test_maintenance.py` covering fresh /
+old / reactivate / custom-halflife / custom-threshold / past-TTL /
+future-TTL / TTL-exclusive / recent-incident / old-incident / already-
+archived / custom-archive-days / empty-DB / idempotency / rules-not-
+affected / tasks-not-affected. All passing against real Postgres.
+
+**Decay does NOT delete.** It deactivates the `memory_index` row only.
+Bodies preserved for `recall()` and audit. Un-decay happens automatically
+on the next maintenance run after a deactivated fact is recalled.
+
+**Tool count:** 16 → 19. Total v2 test count: 117.
+
+**All gap-analysis P0-P2 items are now closed.** Remaining: P3
+(cosmetic cleanup) and the maintenance scheduling decision (MCP
+trigger only vs. external cron) — deferred until usage signals it.
+
 ## [0.16.0] - 2026-04-16
 
 ### Added — brain_v2 P1 gaps closed: session registry + handoff protocol

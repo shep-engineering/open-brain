@@ -503,6 +503,65 @@ def create_action_item_v2(source_kind: str, source_id: int, text: str,
     return _ok({"success": True, "id": aid, "text": text})
 
 
+@mcp.tool()
+def run_maintenance_v2() -> str:
+    """Run all v2 maintenance jobs once: fact decay + incident archive.
+
+    Returns counts and affected IDs for audit. Safe to call repeatedly
+    (idempotent — rerunning will no-op if nothing has changed).
+
+    Jobs:
+      - Fact decay: Ebbinghaus score = 2^(-Δdays/halflife). Facts below
+        threshold are deactivated; facts that recovered above threshold
+        are reactivated. Hard-TTL facts whose ttl is past are expired.
+      - Incident archive: incidents with no access in the last
+        INCIDENT_ARCHIVE_DAYS (default 90) are flagged archived and
+        their memory_index row deactivates.
+    """
+    ensure_schema()
+    try:
+        from brain_v2 import maintenance
+        with store.connect() as conn:
+            report = maintenance.run_all(conn)
+    except Exception as exc:
+        _log.exception("run_maintenance_v2 failed")
+        return _err(f"maintenance failed: {exc}")
+    return _ok({"success": True, **report.to_dict()})
+
+
+@mcp.tool()
+def decay_facts_v2() -> str:
+    """Run only the fact-decay job. Returns deactivated + reactivated +
+    ttl_expired id lists. See run_maintenance_v2 for details."""
+    ensure_schema()
+    try:
+        from brain_v2 import maintenance
+        with store.connect() as conn:
+            result = maintenance.decay_facts(conn)
+    except Exception as exc:
+        _log.exception("decay_facts_v2 failed")
+        return _err(f"decay_facts failed: {exc}")
+    return _ok({"success": True, **result,
+                "deactivated_count": len(result["deactivated"]),
+                "reactivated_count": len(result["reactivated"]),
+                "ttl_expired_count": len(result["ttl_expired"])})
+
+
+@mcp.tool()
+def archive_incidents_v2() -> str:
+    """Run only the incident-archive job. Returns list of archived ids.
+    See run_maintenance_v2 for details."""
+    ensure_schema()
+    try:
+        from brain_v2 import maintenance
+        with store.connect() as conn:
+            archived = maintenance.archive_incidents(conn)
+    except Exception as exc:
+        _log.exception("archive_incidents_v2 failed")
+        return _err(f"archive_incidents failed: {exc}")
+    return _ok({"success": True, "archived": archived, "archived_count": len(archived)})
+
+
 _schema_applied = False
 
 

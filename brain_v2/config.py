@@ -35,6 +35,12 @@ DUPLICATE_COSINE_THRESHOLD = float(
 FACT_DECAY_HALFLIFE_DAYS = float(
     os.getenv("OPEN_BRAIN_V2_FACT_HALFLIFE_DAYS", "7.0")
 )
+# Ebbinghaus decay score threshold below which a FACT is deactivated from
+# memory_index. Score = 2^(-Δdays / halflife). At halflife=7 and
+# threshold=0.1, deactivation happens ~23 days after last access.
+FACT_DECAY_SCORE_THRESHOLD = float(
+    os.getenv("OPEN_BRAIN_V2_FACT_DECAY_THRESHOLD", "0.1")
+)
 INCIDENT_ARCHIVE_DAYS = int(os.getenv("OPEN_BRAIN_V2_INCIDENT_ARCHIVE_DAYS", "90"))
 
 SERVER_NAME = "open-brain-v2"
