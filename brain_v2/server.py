@@ -57,6 +57,7 @@ def boot_session_v2(project: str = "", task: str = "", source: str = "",
     Bodies are NOT included. Use recall_v2(kind, memory_id) to fetch a body.
     WORKING CONTEXT is regenerated from `task` each call — not stored.
     """
+    ensure_schema()
     try:
         with store.connect() as conn:
             payload = boot.build(conn, project=project, task=task, source=source, handoff=handoff)
@@ -215,11 +216,23 @@ def update_task_status_v2(task_id: int, status: str, source: str = "") -> str:
     return _ok({"task_id": task_id, "status": status})
 
 
+_schema_applied = False
+
+
 def ensure_schema() -> None:
-    with store.connect() as conn:
-        apply_schema(conn)
+    global _schema_applied
+    if _schema_applied:
+        return
+    try:
+        with store.connect() as conn:
+            apply_schema(conn)
+        _schema_applied = True
+    except Exception as exc:
+        import sys
+        print(f"[open-brain-v2] schema check deferred (DB not ready): {exc}",
+              file=sys.stderr)
 
 
 if __name__ == "__main__":
-    ensure_schema()
+    ensure_schema()  # best-effort at startup; retried on first tool call if needed
     mcp.run()
