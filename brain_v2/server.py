@@ -35,18 +35,85 @@ from brain_v2.write_gate import WriteGateError
 
 mcp = FastMCP(SERVER_NAME)
 
+# Auto-instrument every @mcp.tool() with timing + logging.
+# This wraps every tool function so we get entry/exit logs with
+# duration on every call — per the telemetry guardrail.
+_original_mcp_tool = mcp.tool
+
+def _instrumented_mcp_tool(*args, **kwargs):
+    """Wraps mcp.tool() so the decorated function gets _instrument applied."""
+    orig_decorator = _original_mcp_tool(*args, **kwargs)
+    def wrapper(fn):
+        return orig_decorator(_instrument(fn))
+    return wrapper
+
+mcp.tool = _instrumented_mcp_tool  # type: ignore[assignment]
+
 
 import logging
+import time as _time
+from functools import wraps as _wraps
+from pathlib import Path as _Path
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="[%(name)s] %(levelname)s %(message)s",
-    stream=sys.stderr,
+# ── Structured logging: file + stderr ────────────────────────────────
+_LOG_DIR = _Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) / "logs"
+_LOG_DIR.mkdir(exist_ok=True)
+_LOG_FILE = _LOG_DIR / "brain_v2.log"
+
+_formatter = logging.Formatter(
+    "%(asctime)s [%(name)s] %(levelname)s %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%S",
 )
-_log = logging.getLogger("brain_v2.server")
 
+# stderr handler (for MCP client visibility)
+_stderr_handler = logging.StreamHandler(sys.stderr)
+_stderr_handler.setLevel(logging.INFO)
+_stderr_handler.setFormatter(_formatter)
+
+# file handler (persistent, for monitoring + debugging)
+_file_handler = logging.FileHandler(str(_LOG_FILE), encoding="utf-8")
+_file_handler.setLevel(logging.DEBUG)
+_file_handler.setFormatter(_formatter)
+
+# Attach handlers to the brain_v2 namespace logger (NOT root — avoids
+# conflict with v1's conftest.py which calls basicConfig first).
+_ns_logger = logging.getLogger("brain_v2")
+_ns_logger.setLevel(logging.DEBUG)
+_ns_logger.addHandler(_stderr_handler)
+_ns_logger.addHandler(_file_handler)
+_ns_logger.propagate = False  # don't double-log via root
+
+_log = logging.getLogger("brain_v2.server")
+_log.info("server.py loading — pid=%d log_file=%s", os.getpid(), _LOG_FILE)
+
+_SERVER_START_TIME = _time.time()
 _SESSION_ID = f"pid{os.getpid()}-{uuid.uuid4().hex[:8]}"
 _DB_SESSION_ID: int | None = None  # set by boot_session_v2
+_TOOL_CALL_COUNT = 0
+
+
+def _instrument(fn):
+    """Decorator: logs entry/exit + duration for every MCP tool call."""
+    @_wraps(fn)
+    def wrapper(*args, **kwargs):
+        global _TOOL_CALL_COUNT
+        _TOOL_CALL_COUNT += 1
+        call_id = _TOOL_CALL_COUNT
+        name = fn.__name__
+        _log.info("TOOL_ENTRY #%d %s args=%s", call_id, name,
+                  {k: (str(v)[:80] if isinstance(v, str) else v)
+                   for k, v in kwargs.items()} if kwargs else "(positional)")
+        t0 = _time.time()
+        try:
+            result = fn(*args, **kwargs)
+            elapsed = _time.time() - t0
+            _log.info("TOOL_EXIT  #%d %s %.3fs ok", call_id, name, elapsed)
+            return result
+        except Exception as exc:
+            elapsed = _time.time() - t0
+            _log.error("TOOL_EXIT  #%d %s %.3fs ERROR: %s", call_id, name, elapsed, exc)
+            raise
+    return wrapper
 
 
 def _check_write_gate(project: str) -> str | None:
@@ -74,6 +141,60 @@ def _ok(data) -> str:
 
 def _err(msg: str, **extra) -> str:
     return json.dumps({"error": msg, **extra})
+
+
+@mcp.tool()
+def health_v2() -> str:
+    """Health check for brain_v2. Returns DB connectivity, table row
+    counts, Ollama reachability, server uptime, current session info,
+    and tool count. First thing to call when diagnosing issues."""
+    checks: dict = {
+        "server": {
+            "pid": os.getpid(),
+            "session_id": _SESSION_ID,
+            "db_session_id": _DB_SESSION_ID,
+            "uptime_seconds": round(_time.time() - _SERVER_START_TIME, 1),
+            "tool_calls_total": _TOOL_CALL_COUNT,
+            "log_file": str(_LOG_FILE),
+        },
+        "db": {"status": "unknown"},
+        "ollama": {"status": "unknown"},
+        "tables": {},
+    }
+    # DB connectivity + table counts
+    try:
+        with store.connect() as conn:
+            with conn.cursor() as cur:
+                for tbl in ("rules", "facts", "incidents", "tasks",
+                            "memory_index", "action_items", "active_sessions",
+                            "handoffs", "maintenance_runs", "v2_audit"):
+                    try:
+                        cur.execute(f"SELECT COUNT(*) FROM {tbl}")
+                        checks["tables"][tbl] = cur.fetchone()[0]
+                    except Exception:
+                        checks["tables"][tbl] = "error"
+        checks["db"]["status"] = "connected"
+        checks["db"]["url_masked"] = store.connect().dsn.split("@")[-1] if hasattr(store.connect(), "dsn") else "?"
+    except Exception as exc:
+        checks["db"]["status"] = f"unreachable: {exc}"
+
+    # Ollama reachability
+    try:
+        import urllib.request
+        from brain_v2.config import OLLAMA_BASE_URL
+        with urllib.request.urlopen(f"{OLLAMA_BASE_URL}/api/tags", timeout=5) as resp:
+            if resp.status == 200:
+                checks["ollama"]["status"] = "reachable"
+            else:
+                checks["ollama"]["status"] = f"HTTP {resp.status}"
+    except Exception as exc:
+        checks["ollama"]["status"] = f"unreachable: {exc}"
+
+    # Tool count
+    tool_names = sorted([t.name for t in mcp._tool_manager.list_tools()])
+    checks["tools"] = {"count": len(tool_names), "names": tool_names}
+
+    return _ok(checks)
 
 
 @mcp.tool()

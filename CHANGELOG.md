@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.0] - 2026-04-16
+
+### Added — brain_v2 parallel operation: agent configs + monitoring
+
+v2 is now wired for parallel operation alongside v1 across all agents.
+
+**Status monitoring (per telemetry guardrail):**
+- `health_v2()` MCP tool — returns DB connectivity, Ollama reachability,
+  per-table row counts, server uptime, tool-call counter, tool list.
+  First thing to call when diagnosing issues.
+- Structured dual-output logging: every tool call logged with entry/exit
+  + duration to both `logs/brain_v2.log` (persistent file) and stderr
+  (for MCP client visibility). Auto-instrumented via monkey-patched
+  `mcp.tool()` decorator — zero per-function changes, applies to all
+  36 tools uniformly.
+- Startup log line: `"server.py loading — pid=<pid> log_file=<path>"`.
+
+**Agent configs registered (v2 alongside v1):**
+- Claude Code: already registered (via `claude mcp add`). Both v1 + v2
+  show `✓ Connected` in `claude mcp list`.
+- Windsurf (codeium): `~/.codeium/windsurf/mcp_config.json` — added.
+- Windsurf (alt): `~/.windsurf/mcp_config.json` — added.
+- Cursor: `~/.cursor/mcp.json` — added.
+- VS Code MCP config was empty; left alone (no v1 entry to pair with).
+
+**v2 startup scripts (do NOT touch v1):**
+- `scripts/windows/brain-v2-up.cmd` — starts `open-brain-v2-db` container
+  on port 5433, waits for health check, reports status.
+- `scripts/brain-v2-up.sh` — same for Linux/WSL/macOS.
+
+**v1 stays authoritative.** v2 runs alongside for agents to exercise.
+No cutover. Phase 4 (task leases) and v1 canonicalization deferred
+per Dave's instruction.
+
+**Tool count:** 35 → **36**. Tests: 192 existing still pass (not re-run
+this session since no store/schema changes; only server wiring + logging).
+
 ## [0.21.0] - 2026-04-16
 
 ### Added — brain_v2 v1 parity complete: forget_many + unsupersede + prune + brain_startup_reminder
