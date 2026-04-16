@@ -95,17 +95,24 @@ CREATE INDEX IF NOT EXISTS tasks_status_project_idx ON tasks (status, project);
 -- Single embedding index across all types so boot/search can rank
 -- headlines without materializing bodies from four tables.
 CREATE TABLE IF NOT EXISTS memory_index (
-    kind           TEXT        NOT NULL CHECK (kind IN ('rule', 'fact', 'incident', 'task')),
-    memory_id      INTEGER     NOT NULL,
-    project        TEXT        NOT NULL DEFAULT '',
-    headline       TEXT        NOT NULL,
-    severity       TEXT,            -- NULL for non-rule
-    embedding      VECTOR({EMBEDDING_DIMS}),
-    pinned         BOOLEAN     NOT NULL DEFAULT FALSE,
-    active         BOOLEAN     NOT NULL DEFAULT TRUE,    -- FALSE when rule superseded, incident archived, task done/stale
-    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    kind             TEXT        NOT NULL CHECK (kind IN ('rule', 'fact', 'incident', 'task')),
+    memory_id        INTEGER     NOT NULL,
+    project          TEXT        NOT NULL DEFAULT '',
+    headline         TEXT        NOT NULL,
+    severity         TEXT,            -- NULL for non-rule
+    embedding        VECTOR({EMBEDDING_DIMS}),
+    pinned            BOOLEAN     NOT NULL DEFAULT FALSE,
+    active           BOOLEAN     NOT NULL DEFAULT TRUE,    -- FALSE when rule superseded, incident archived, task done/stale, forgotten, or decayed
+    forgotten_at     TIMESTAMPTZ,    -- NULL = not forgotten
+    forgotten_reason TEXT,
+    forgotten_by     TEXT,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (kind, memory_id)
 );
+-- Ensure columns exist on upgrades from earlier v2 schemas (pre-forget)
+ALTER TABLE memory_index ADD COLUMN IF NOT EXISTS forgotten_at TIMESTAMPTZ;
+ALTER TABLE memory_index ADD COLUMN IF NOT EXISTS forgotten_reason TEXT;
+ALTER TABLE memory_index ADD COLUMN IF NOT EXISTS forgotten_by TEXT;
 CREATE INDEX IF NOT EXISTS memory_index_embedding_hnsw
     ON memory_index USING hnsw (embedding vector_cosine_ops)
     WITH (m = 16, ef_construction = 64);

@@ -653,6 +653,208 @@ def capture_context(conn, *, context: str, source: str = "",
     return results
 
 
+# ── FORGET ───────────────────────────────────────────────────────────
+def forget(conn, *, kind: str, memory_id: int, reason: str = "",
+           source: str = "") -> dict[str, Any]:
+    """Soft-delete a memory. Deactivates the memory_index row and
+    records who forgot it + why. Body is preserved in the typed table
+    for audit + recall (with a forgotten banner).
+
+    Idempotent: forgetting an already-forgotten memory is a no-op.
+    Returns {kind, memory_id, already_forgotten: bool, forgotten_at}.
+    """
+    check_kind(kind)
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "SELECT active, forgotten_at FROM memory_index "
+            "WHERE kind = %s AND memory_id = %s",
+            (kind, memory_id),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise ValueError(f"{kind} id={memory_id} not found in memory_index")
+        if row["forgotten_at"] is not None:
+            return {
+                "kind": kind, "memory_id": memory_id,
+                "already_forgotten": True,
+                "forgotten_at": str(row["forgotten_at"]),
+            }
+
+        cur.execute(
+            """
+            UPDATE memory_index
+            SET active = FALSE,
+                forgotten_at = NOW(),
+                forgotten_reason = %s,
+                forgotten_by = %s
+            WHERE kind = %s AND memory_id = %s
+            RETURNING forgotten_at
+            """,
+            (reason or None, source or None, kind, memory_id),
+        )
+        forgotten_at = cur.fetchone()["forgotten_at"]
+        _audit(cur, "FORGET", kind, memory_id,
+               {"reason": reason, "source": source}, source)
+    conn.commit()
+    log.info("forget: %s id=%d by=%s reason=%s", kind, memory_id, source, reason[:60])
+    return {
+        "kind": kind, "memory_id": memory_id,
+        "already_forgotten": False,
+        "forgotten_at": str(forgotten_at),
+    }
+
+
+# ── STATS ────────────────────────────────────────────────────────────
+def stats(conn, *, project: str = "") -> dict[str, Any]:
+    """Return corpus stats.
+
+    If project is non-empty, stats are scoped to that project (plus
+    global/empty-project rows). If project is empty, returns global stats.
+    """
+    proj_filter = "project = %s OR project = ''" if project else "TRUE"
+    params = (project,) if project else ()
+
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        # Totals by kind (active + all)
+        cur.execute(
+            f"""
+            SELECT kind,
+                   COUNT(*)                                 AS total,
+                   SUM(CASE WHEN active THEN 1 ELSE 0 END)  AS active,
+                   SUM(CASE WHEN forgotten_at IS NOT NULL THEN 1 ELSE 0 END) AS forgotten
+            FROM memory_index
+            WHERE {proj_filter}
+            GROUP BY kind
+            ORDER BY kind
+            """,
+            params,
+        )
+        by_kind = {r["kind"]: {
+            "total": int(r["total"]),
+            "active": int(r["active"] or 0),
+            "forgotten": int(r["forgotten"] or 0),
+        } for r in cur.fetchall()}
+
+        # Rule severity breakdown (active only)
+        cur.execute(
+            f"""
+            SELECT severity, COUNT(*) AS n
+            FROM memory_index
+            WHERE kind = 'rule' AND active AND ({proj_filter})
+            GROUP BY severity
+            """,
+            params,
+        )
+        rule_by_severity = {r["severity"]: int(r["n"]) for r in cur.fetchall()}
+
+        # Task status breakdown
+        if project:
+            cur.execute(
+                "SELECT status, COUNT(*) AS n FROM tasks "
+                "WHERE project = %s OR project = '' GROUP BY status",
+                params,
+            )
+        else:
+            cur.execute("SELECT status, COUNT(*) AS n FROM tasks GROUP BY status")
+        task_by_status = {r["status"]: int(r["n"]) for r in cur.fetchall()}
+
+        # Incident archive
+        if project:
+            cur.execute(
+                "SELECT archived, COUNT(*) AS n FROM incidents "
+                "WHERE project = %s OR project = '' GROUP BY archived",
+                params,
+            )
+        else:
+            cur.execute("SELECT archived, COUNT(*) AS n FROM incidents GROUP BY archived")
+        inc = {r["archived"]: int(r["n"]) for r in cur.fetchall()}
+
+        # Pending action items
+        if project:
+            cur.execute(
+                "SELECT COUNT(*) AS n FROM action_items "
+                "WHERE status = 'pending' AND (project = %s OR project = '')",
+                params,
+            )
+        else:
+            cur.execute("SELECT COUNT(*) AS n FROM action_items WHERE status = 'pending'")
+        pending_action_items = int(cur.fetchone()["n"])
+
+        # Active sessions (project-scoped if requested)
+        if project:
+            cur.execute(
+                "SELECT COUNT(*) AS n FROM active_sessions "
+                "WHERE status = 'active' AND project = %s",
+                params,
+            )
+        else:
+            cur.execute("SELECT COUNT(*) AS n FROM active_sessions WHERE status = 'active'")
+        active_sessions = int(cur.fetchone()["n"])
+
+    return {
+        "project": project or "(global)",
+        "by_kind": by_kind,
+        "rules_by_severity": rule_by_severity,
+        "tasks_by_status": task_by_status,
+        "incidents_archived": int(inc.get(True, 0)),
+        "incidents_active": int(inc.get(False, 0)),
+        "pending_action_items": pending_action_items,
+        "active_sessions": active_sessions,
+    }
+
+
+# ── LIST RECENT ──────────────────────────────────────────────────────
+def list_recent(conn, *, limit: int = 20, days: int = 0,
+                kind: str | None = None, project: str | None = None,
+                include_forgotten: bool = False) -> list[dict]:
+    """Return recent memory_index entries (headline-only), newest first.
+
+    Args:
+        limit: max rows to return (default 20, hard-cap 200 server-side).
+        days: only include rows created in the last N days (0 = no limit).
+        kind: filter by memory kind (rule/fact/incident/task).
+        project: filter by project (empty-string project means global).
+        include_forgotten: include forgotten rows (default False).
+    """
+    limit = max(1, min(int(limit), 200))
+    where = ["1=1"]
+    params: list[Any] = []
+    if not include_forgotten:
+        where.append("forgotten_at IS NULL")
+    if kind:
+        check_kind(kind)
+        where.append("kind = %s")
+        params.append(kind)
+    if project is not None:
+        where.append("(project = %s OR project = '')")
+        params.append(project)
+    if days and days > 0:
+        where.append("created_at >= NOW() - make_interval(days => %s)")
+        params.append(int(days))
+    params.append(limit)
+
+    sql = f"""
+        SELECT kind, memory_id, project, headline, severity, active,
+               forgotten_at, created_at
+        FROM memory_index
+        WHERE {' AND '.join(where)}
+        ORDER BY created_at DESC
+        LIMIT %s
+    """
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(sql, params)
+        rows = cur.fetchall()
+    # Normalize datetimes to ISO strings for JSON transport
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["created_at"] = str(d["created_at"])
+        if d.get("forgotten_at"):
+            d["forgotten_at"] = str(d["forgotten_at"])
+        out.append(d)
+    return out
+
+
 # ── Duplicate hit (return value; not an exception) ───────────────────
 @dataclass
 class DuplicateHit:

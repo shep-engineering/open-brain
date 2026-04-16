@@ -121,11 +121,35 @@ def boot_session_v2(project: str = "", task: str = "", source: str = "",
 
 @mcp.tool()
 def recall_v2(kind: str, memory_id: int) -> str:
-    """Fetch the full body of a single memory by (kind, memory_id)."""
+    """Fetch the full body of a single memory by (kind, memory_id).
+
+    If the memory has been forgotten, the body is still returned (audit
+    semantics — "show me what used to be here") but a forgotten banner
+    is included so the caller knows it is no longer current truth.
+    """
     try:
         with store.connect() as conn:
             mem = store.recall(conn, kind=kind, memory_id=memory_id)
+            # Surface forgotten banner if applicable
+            forgotten_meta = None
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT forgotten_at, forgotten_reason, forgotten_by "
+                    "FROM memory_index WHERE kind = %s AND memory_id = %s",
+                    (kind, memory_id),
+                )
+                row = cur.fetchone()
+                if row and row[0] is not None:
+                    forgotten_meta = {
+                        "forgotten_at": str(row[0]),
+                        "forgotten_reason": row[1],
+                        "forgotten_by": row[2],
+                        "banner": "This memory has been FORGOTTEN. Content is "
+                                  "returned for audit only; do not treat it as "
+                                  "current truth.",
+                    }
     except Exception as exc:
+        _log.exception("recall_v2 failed")
         return _err(f"recall failed: {exc}")
     if mem is None:
         return _err(f"not found: {kind} id={memory_id}")
@@ -133,7 +157,10 @@ def recall_v2(kind: str, memory_id: int) -> str:
     cache.mark_retrieved(kind, memory_id, boost=1.0)
     if kind == "rule" and mem.supersedes:
         cache.apply_link_boost([("rule", mem.supersedes)])
-    return _ok(mem.to_dict())
+    out = mem.to_dict()
+    if forgotten_meta:
+        out["forgotten"] = forgotten_meta
+    return _ok(out)
 
 
 @mcp.tool()
@@ -583,6 +610,88 @@ def archive_incidents_v2() -> str:
         _log.exception("archive_incidents_v2 failed")
         return _err(f"archive_incidents failed: {exc}")
     return _ok({"success": True, "archived": archived, "archived_count": len(archived)})
+
+
+@mcp.tool()
+def forget_v2(kind: str, memory_id: int, reason: str = "", source: str = "") -> str:
+    """Soft-delete a memory. Deactivates its memory_index row and
+    records who forgot it + why. Body is preserved for audit; recall
+    still works but returns a forgotten banner.
+
+    Idempotent: forgetting an already-forgotten memory is a no-op.
+
+    Args:
+        kind:      'rule' | 'fact' | 'incident' | 'task'
+        memory_id: the id within that kind.
+        reason:    why this memory is being forgotten (strongly recommended).
+        source:    which agent initiated the forget.
+    """
+    ensure_schema()
+    blocked = _check_write_gate("")
+    if blocked:
+        return blocked
+    try:
+        with store.connect() as conn:
+            result = store.forget(
+                conn, kind=kind, memory_id=memory_id,
+                reason=reason, source=source,
+            )
+    except ValueError as exc:
+        return _err(str(exc))
+    except Exception as exc:
+        _log.exception("forget_v2 failed")
+        return _err(f"forget failed: {exc}")
+    return _ok({"success": True, **result})
+
+
+@mcp.tool()
+def stats_v2(project: str = "") -> str:
+    """Return corpus statistics for v2.
+
+    Includes per-kind totals (active/forgotten), rule severity breakdown,
+    task status breakdown, incident archive counts, pending action items,
+    and active session count.
+
+    Args:
+        project: scope to a project (empty = global stats).
+    """
+    ensure_schema()
+    try:
+        with store.connect() as conn:
+            data = store.stats(conn, project=project)
+    except Exception as exc:
+        _log.exception("stats_v2 failed")
+        return _err(f"stats failed: {exc}")
+    return _ok(data)
+
+
+@mcp.tool()
+def list_recent_v2(limit: int = 20, days: int = 0, kind: str = "",
+                   project: str = "", include_forgotten: bool = False) -> str:
+    """List recent memories (headline-only), newest first.
+
+    Args:
+        limit:             max rows (default 20, hard cap 200).
+        days:              only rows created in the last N days (0 = no limit).
+        kind:              filter by memory kind ('' = all).
+        project:           filter by project ('' = no filter; empty-string
+                           project memories are global).
+        include_forgotten: include forgotten rows (default False).
+    """
+    ensure_schema()
+    try:
+        with store.connect() as conn:
+            rows = store.list_recent(
+                conn,
+                limit=limit, days=days,
+                kind=kind or None,
+                project=project if project != "" else None,
+                include_forgotten=include_forgotten,
+            )
+    except Exception as exc:
+        _log.exception("list_recent_v2 failed")
+        return _err(f"list_recent failed: {exc}")
+    return _ok({"count": len(rows), "rows": rows})
 
 
 _schema_applied = False

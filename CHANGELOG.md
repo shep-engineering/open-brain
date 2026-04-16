@@ -5,6 +5,52 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0] - 2026-04-16
+
+### Added — brain_v2 operational completeness: forget + stats + list_recent
+
+Closes the "v1 tool parity for day-to-day ops" gap. Before this
+release, v2 had no mechanism to remove a bad memory, inspect the
+corpus, or review recent activity — all three are table stakes for a
+memory system meant to run alongside v1.
+
+**3 new MCP tools:**
+- `forget_v2(kind, memory_id, reason, source)` — soft-delete. Sets
+  `memory_index.active=FALSE` + records `forgotten_at`, `forgotten_reason`,
+  `forgotten_by`. Body preserved for audit. Idempotent.
+- `stats_v2(project)` — corpus stats: per-kind totals + active/forgotten
+  breakdown, rule severity counts, task status breakdown, incident
+  archive counts, pending action items, active sessions.
+- `list_recent_v2(limit, days, kind, project, include_forgotten)` —
+  recent memory_index rows (headline-only). Filters on kind, project,
+  age in days. Hard cap 200.
+
+**recall_v2 enhancement:** now surfaces a forgotten banner when
+recalling a forgotten memory. Body still returned (audit semantics)
+but with `forgotten: {forgotten_at, forgotten_reason, forgotten_by,
+banner}` metadata so agents know not to trust it as current truth.
+Mirrors v1's superseded-memory banner pattern.
+
+**Schema additions to memory_index:**
+- `forgotten_at TIMESTAMPTZ` (NULL = not forgotten)
+- `forgotten_reason TEXT`
+- `forgotten_by TEXT`
+
+Added via `ALTER TABLE … ADD COLUMN IF NOT EXISTS` for backward
+compatibility with pre-0.19 v2 databases.
+
+**Tests (20 new):**
+- `TestForget`: deactivation, idempotency, missing-id error, excluded
+  from search, recall still returns body, kind validation
+- `TestStats`: empty DB, per-kind counts, severity breakdown, forgotten
+  separation, task status, project filter
+- `TestListRecent`: newest-first ordering, limit, kind filter,
+  forgotten exclusion/inclusion, days filter, hard cap, headline-only
+
+All passing against real Postgres.
+
+**Tool count:** 20 → 23. Total v2 test count: 143.
+
 ## [0.18.0] - 2026-04-16
 
 ### Added — brain_v2 maintenance scheduling decision + rate-limited hook path
