@@ -5,6 +5,59 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.0] - 2026-04-16
+
+### Added — brain_v2 maintenance scheduling decision + rate-limited hook path
+
+Closes the P2 follow-up "scheduling decision" listed in v0.17.0.
+
+**Decision (see `brain_v2/MAINTENANCE_SCHEDULING.md`):** MCP-hook,
+rate-limited in code — not external cron. Rationale: services aren't
+always up on Dave's workstation (Open Brain OFF shortcut), cron would
+race service availability, MCP hook aligns with v2's process-lifecycle
+liveness model, maintenance is pure SQL (no infra-cost risk), and we
+don't want to add another daemon.
+
+**Implementation:**
+- New `maintenance_runs` table (id, started_at, finished_at, report
+  JSONB, source). One row per actual run; skipped calls do NOT insert.
+- `MaintenanceReport` dataclass extended with `skipped`, `skipped_reason`,
+  `last_run_at` fields for the skip path.
+- `run_all(conn, source)` now records start + finish in maintenance_runs.
+- `run_if_due(conn, hours=24.0, source)` — short-circuits if the last
+  successful run was within `hours`. Returns a skipped report instead.
+  Safe to fire on every boot via a PostToolUse hook.
+- `run_maintenance_if_due_v2(hours=24.0)` MCP tool.
+
+**Optional Claude Code hook** (user configures in `~/.claude/settings.json`):
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "mcp__open-brain-v2__boot_session_v2",
+        "hooks": [{"type": "mcp", "tool": "mcp__open-brain-v2__run_maintenance_if_due_v2"}]
+      }
+    ]
+  }
+}
+```
+
+With the 24h default, runs at most once per day per MCP-client host.
+
+**Tests:** 6 new tests in `TestRunIfDue` class (no-prior / within-window
+/ after-window / skipped-no-record / custom-window / counts-on-real-run).
+All passing. Full regression: 117 original + 6 new = 123 tests.
+
+**Docs updated:**
+- `brain_v2/MAINTENANCE_SCHEDULING.md` (new) — full rationale + hook config
+- `docs/planning/brain-v2-gap-analysis.md` — all P0–P3 closed, known
+  limitations documented (§7): heuristic classification caveat,
+  scheduling trade-off, cutover remains out of scope.
+
+**Tool count:** 19 → 20.
+
 ## [0.17.0] - 2026-04-16
 
 ### Added — brain_v2 P2 gaps closed: fact decay + incident archive

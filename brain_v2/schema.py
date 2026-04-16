@@ -172,6 +172,21 @@ CREATE TABLE IF NOT EXISTS handoffs (
 CREATE INDEX IF NOT EXISTS handoffs_project_recency_idx
     ON handoffs (project, created_at DESC);
 
+-- ── MAINTENANCE RUNS ─────────────────────────────────────────────
+-- Rate-limit ledger for run_maintenance_v2. A boot-time hook can
+-- fire the tool on every boot; the tool checks this table and
+-- short-circuits if the last run is within the rate-limit window.
+-- One row per actual run (skipped calls do NOT insert a row).
+CREATE TABLE IF NOT EXISTS maintenance_runs (
+    id             SERIAL      PRIMARY KEY,
+    started_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    finished_at    TIMESTAMPTZ,
+    report         JSONB,
+    source         TEXT        NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS maintenance_runs_recency_idx
+    ON maintenance_runs (started_at DESC);
+
 -- ── AUDIT LOG ────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS v2_audit (
     audit_id       SERIAL      PRIMARY KEY,

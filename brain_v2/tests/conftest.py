@@ -30,7 +30,7 @@ def conn():
     c = store.connect()
     with c.cursor() as cur:
         cur.execute("TRUNCATE memory_index, rules, facts, incidents, tasks, "
-                    "action_items, active_sessions, handoffs, v2_audit "
+                    "action_items, active_sessions, handoffs, maintenance_runs, v2_audit "
                     "RESTART IDENTITY CASCADE")
     c.commit()
     yield c

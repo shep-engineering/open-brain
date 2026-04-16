@@ -19,8 +19,9 @@ and reactivate the index row.
 """
 from __future__ import annotations
 
+import json
 import logging
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from typing import Any
 
 from .config import (
@@ -34,10 +35,13 @@ log = logging.getLogger("brain_v2.maintenance")
 
 @dataclass
 class MaintenanceReport:
-    facts_decayed: list[int]
-    facts_reactivated: list[int]
-    facts_ttl_expired: list[int]
-    incidents_archived: list[int]
+    facts_decayed: list[int] = field(default_factory=list)
+    facts_reactivated: list[int] = field(default_factory=list)
+    facts_ttl_expired: list[int] = field(default_factory=list)
+    incidents_archived: list[int] = field(default_factory=list)
+    skipped: bool = False
+    skipped_reason: str = ""
+    last_run_at: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -169,8 +173,47 @@ def archive_incidents(conn, *, archive_days: int = INCIDENT_ARCHIVE_DAYS) -> lis
     return archived_ids
 
 
-def run_all(conn) -> MaintenanceReport:
-    """Run every maintenance job once. Returns a single report."""
+def _record_run_start(conn, source: str) -> int:
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO maintenance_runs (source) VALUES (%s) RETURNING id",
+            (source,),
+        )
+        run_id = cur.fetchone()[0]
+    conn.commit()
+    return run_id
+
+
+def _record_run_finish(conn, run_id: int, report: MaintenanceReport) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE maintenance_runs SET finished_at = NOW(), report = %s::jsonb "
+            "WHERE id = %s",
+            (json.dumps(report.to_dict(), default=str), run_id),
+        )
+    conn.commit()
+
+
+def _get_last_run_at(conn) -> str | None:
+    """Return the most recent maintenance_runs.started_at as ISO string,
+    or None if no runs have happened yet."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT started_at FROM maintenance_runs "
+            "WHERE finished_at IS NOT NULL "
+            "ORDER BY started_at DESC LIMIT 1"
+        )
+        row = cur.fetchone()
+    return str(row[0]) if row else None
+
+
+def run_all(conn, *, source: str = "") -> MaintenanceReport:
+    """Run every maintenance job once. Returns a single report.
+
+    Also records the run in `maintenance_runs` so rate-limited callers
+    (see `run_if_due`) can short-circuit subsequent invocations.
+    """
+    run_id = _record_run_start(conn, source)
     decay = decay_facts(conn)
     archived = archive_incidents(conn)
     report = MaintenanceReport(
@@ -179,5 +222,38 @@ def run_all(conn) -> MaintenanceReport:
         facts_ttl_expired=decay["ttl_expired"],
         incidents_archived=archived,
     )
+    _record_run_finish(conn, run_id, report)
     log.info("run_all: %s", report.to_dict())
     return report
+
+
+def run_if_due(conn, *, hours: float = 24.0, source: str = "") -> MaintenanceReport:
+    """Run maintenance ONLY IF the last successful run was more than
+    `hours` ago. Otherwise return a skipped report.
+
+    Safe to call on every boot. Designed for Claude Code PostToolUse
+    hooks per `brain_v2/MAINTENANCE_SCHEDULING.md`.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT started_at,
+                   EXTRACT(EPOCH FROM (NOW() - started_at)) / 3600.0 AS hours_ago
+            FROM maintenance_runs
+            WHERE finished_at IS NOT NULL
+            ORDER BY started_at DESC LIMIT 1
+            """
+        )
+        row = cur.fetchone()
+
+    if row and row[1] < hours:
+        last_run_at, hours_ago = row
+        log.info("run_if_due: skipping (last run %.2fh ago, window=%.2fh)",
+                 hours_ago, hours)
+        return MaintenanceReport(
+            skipped=True,
+            skipped_reason=f"last run {float(hours_ago):.2f}h ago; window={hours}h",
+            last_run_at=str(last_run_at),
+        )
+
+    return run_all(conn, source=source)

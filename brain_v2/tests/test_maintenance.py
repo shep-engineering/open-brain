@@ -259,6 +259,98 @@ class TestRunAll:
         assert old.id not in r2.facts_decayed
 
 
+class TestRunIfDue:
+    def test_runs_when_no_prior(self, conn):
+        """First-ever call runs for real."""
+        report = maintenance.run_if_due(conn, hours=24.0, source="test")
+        assert report.skipped is False
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM maintenance_runs WHERE finished_at IS NOT NULL")
+            assert cur.fetchone()[0] == 1
+
+    def test_skips_when_within_window(self, conn):
+        """Second call within rate-limit window is a no-op."""
+        maintenance.run_if_due(conn, hours=24.0, source="test")
+        report = maintenance.run_if_due(conn, hours=24.0, source="test")
+        assert report.skipped is True
+        assert "last run" in report.skipped_reason
+        assert report.last_run_at is not None
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM maintenance_runs WHERE finished_at IS NOT NULL")
+            # Only one finished row, not two
+            assert cur.fetchone()[0] == 1
+
+    def test_runs_again_after_window_expires(self, conn):
+        """When the last-run timestamp is older than the window, run again."""
+        maintenance.run_if_due(conn, hours=24.0, source="test")
+        # Age the last run by 48 hours
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE maintenance_runs "
+                "SET started_at = NOW() - make_interval(hours => %s), "
+                "    finished_at = NOW() - make_interval(hours => %s) + make_interval(secs => 1)",
+                (48, 48),
+            )
+        conn.commit()
+        report = maintenance.run_if_due(conn, hours=24.0, source="test")
+        assert report.skipped is False
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM maintenance_runs WHERE finished_at IS NOT NULL")
+            # Now two finished runs
+            assert cur.fetchone()[0] == 2
+
+    def test_skipped_run_does_not_record(self, conn):
+        """A skipped run must not insert a maintenance_runs row."""
+        maintenance.run_if_due(conn, hours=24.0, source="test")
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM maintenance_runs")
+            before = cur.fetchone()[0]
+        maintenance.run_if_due(conn, hours=24.0, source="test")
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM maintenance_runs")
+            after = cur.fetchone()[0]
+        assert before == after
+
+    def test_custom_window(self, conn):
+        """A custom window hours arg affects the skip threshold."""
+        maintenance.run_if_due(conn, hours=24.0, source="test")
+        # Age last run by 2 hours
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE maintenance_runs "
+                "SET started_at = NOW() - make_interval(hours => %s), "
+                "    finished_at = NOW() - make_interval(hours => %s) + make_interval(secs => 1)",
+                (2, 2),
+            )
+        conn.commit()
+        # With hours=1, 2h-old run is past the window → should run
+        report = maintenance.run_if_due(conn, hours=1.0, source="test")
+        assert report.skipped is False
+        # With hours=24, 2h-old run is inside window → should skip
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE maintenance_runs "
+                "SET started_at = NOW() - make_interval(hours => %s), "
+                "    finished_at = NOW() - make_interval(hours => %s) + make_interval(secs => 1)",
+                (2, 2),
+            )
+        conn.commit()
+        report2 = maintenance.run_if_due(conn, hours=24.0, source="test")
+        assert report2.skipped is True
+
+    def test_report_populates_counts_on_real_run(self, conn):
+        """When run_if_due actually runs, it should produce the same
+        counts as run_all would."""
+        old = store.remember_fact(
+            conn, headline="Ancient fact scheduled for decay via if-due",
+            body="Not touched in a while.", project="test", source="test",
+        )
+        _age_fact(conn, old.id, days_ago=40)
+        report = maintenance.run_if_due(conn, hours=24.0, source="test")
+        assert report.skipped is False
+        assert old.id in report.facts_decayed
+
+
 class TestDecayExcludesOtherTypes:
     def test_rules_not_affected_by_decay(self, conn):
         r = store.remember_rule(

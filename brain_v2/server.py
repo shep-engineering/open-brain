@@ -530,6 +530,29 @@ def run_maintenance_v2() -> str:
 
 
 @mcp.tool()
+def run_maintenance_if_due_v2(hours: float = 24.0) -> str:
+    """Run maintenance ONLY IF the last successful run was more than
+    `hours` ago. Otherwise returns a skipped report immediately.
+
+    Safe to fire on every boot via a PostToolUse hook. See
+    brain_v2/MAINTENANCE_SCHEDULING.md for the hook config example.
+
+    Args:
+        hours: Rate-limit window. Default 24h. Any call inside this
+               window is a no-op and returns {skipped: true}.
+    """
+    ensure_schema()
+    try:
+        from brain_v2 import maintenance
+        with store.connect() as conn:
+            report = maintenance.run_if_due(conn, hours=hours, source="mcp")
+    except Exception as exc:
+        _log.exception("run_maintenance_if_due_v2 failed")
+        return _err(f"maintenance failed: {exc}")
+    return _ok({"success": True, **report.to_dict()})
+
+
+@mcp.tool()
 def decay_facts_v2() -> str:
     """Run only the fact-decay job. Returns deactivated + reactivated +
     ttl_expired id lists. See run_maintenance_v2 for details."""
