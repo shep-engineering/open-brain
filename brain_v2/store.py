@@ -19,9 +19,13 @@ from typing import Any
 import psycopg2
 import psycopg2.extras
 
+import logging
+
 from .config import DATABASE_URL, DUPLICATE_COSINE_THRESHOLD
 from .embedding import embed_to_pgvector
 from .write_gate import WriteGateError, run_gate, check_kind
+
+log = logging.getLogger("brain_v2.store")
 
 
 # ── Connection helper ───────────────────────────────────────────────
@@ -302,7 +306,7 @@ def search_headlines(conn, *, query: str, kind: str | None = None,
     materialize bodies by default."""
     embedding_vec = embed_to_pgvector(query)
     where = ["active = TRUE"]
-    params: list[Any] = []
+    params: list[Any] = [embedding_vec]  # for SELECT similarity expression
     if kind:
         check_kind(kind)
         where.append("kind = %s")
@@ -310,7 +314,8 @@ def search_headlines(conn, *, query: str, kind: str | None = None,
     if project is not None:
         where.append("(project = %s OR project = '')")
         params.append(project)
-    params += [embedding_vec, embedding_vec, limit]
+    params.append(embedding_vec)  # for ORDER BY
+    params.append(limit)
     sql = f"""
         SELECT kind, memory_id, headline, severity, project,
                1 - (embedding <=> %s::vector) AS similarity
@@ -319,19 +324,186 @@ def search_headlines(conn, *, query: str, kind: str | None = None,
         ORDER BY embedding <=> %s::vector ASC
         LIMIT %s
     """
-    # params ordering: where params first, then embedding for SELECT, then embedding for ORDER, then limit
-    # need to re-layout:
-    final_params: list[Any] = [embedding_vec]  # SELECT similarity
-    if kind:
-        final_params.append(kind)
-    if project is not None:
-        final_params.append(project)
-    final_params.append(embedding_vec)  # ORDER BY
-    final_params.append(limit)
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute(sql, final_params)
+        cur.execute(sql, params)
         rows = cur.fetchall()
     return [dict(r) for r in rows]
+
+
+# ── ACTION ITEMS ─────────────────────────────────────────────────────
+def create_action_item(conn, *, source_kind: str, source_id: int,
+                       text: str, project: str = "") -> int:
+    """Create a pending action item linked to a memory."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO action_items (source_kind, source_id, text, project)
+            VALUES (%s, %s, %s, %s)
+            RETURNING id
+            """,
+            (source_kind, source_id, text, project),
+        )
+        aid = cur.fetchone()[0]
+        _audit(cur, "INSERT", "action_item", aid,
+               {"source_kind": source_kind, "source_id": source_id, "text": text[:100]}, "system")
+    conn.commit()
+    log.info("action_item created id=%d for %s:%d: %s", aid, source_kind, source_id, text[:60])
+    return aid
+
+
+def get_pending_action_items(conn, *, project: str = "") -> list[dict]:
+    """Return all pending (unacknowledged) action items for a project."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            """
+            SELECT id, source_kind, source_id, text, project, created_at
+            FROM action_items
+            WHERE status = 'pending'
+              AND (project = %s OR project = '')
+            ORDER BY created_at ASC
+            """,
+            (project,),
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
+def acknowledge_action_item(conn, *, item_id: int, decision: str,
+                            source: str = "", reason: str = "") -> dict:
+    """Acknowledge a pending action item. Returns the updated item.
+
+    decision must be one of: 'will_execute', 'already_done', 'not_relevant'.
+    reason is required for 'already_done' and 'not_relevant'.
+    """
+    valid_decisions = ("will_execute", "already_done", "not_relevant")
+    if decision not in valid_decisions:
+        raise ValueError(f"decision must be one of {valid_decisions}, got {decision!r}")
+    if decision in ("already_done", "not_relevant") and not reason:
+        raise ValueError(f"reason is required for decision={decision!r}")
+
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("SELECT id, status, text FROM action_items WHERE id = %s", (item_id,))
+        row = cur.fetchone()
+        if not row:
+            raise ValueError(f"action_item id={item_id} not found")
+        if row["status"] != "pending":
+            # Idempotent: already acked
+            return {"success": True, "id": item_id, "status": row["status"],
+                    "text": row["text"], "already_acked": True}
+
+        cur.execute(
+            """
+            UPDATE action_items
+            SET status = %s, ack_reason = %s, ack_source = %s, ack_at = NOW()
+            WHERE id = %s
+            """,
+            (decision, reason, source, item_id),
+        )
+        _audit(cur, "ACK", "action_item", item_id,
+               {"decision": decision, "reason": reason}, source)
+    conn.commit()
+    log.info("action_item id=%d acknowledged: %s (source=%s)", item_id, decision, source)
+    return {"success": True, "id": item_id, "status": decision,
+            "text": row["text"], "already_acked": False}
+
+
+def count_pending_action_items(conn, *, project: str = "") -> int:
+    """Return count of pending action items for a project."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT COUNT(*) FROM action_items WHERE status = 'pending' "
+            "AND (project = %s OR project = '')",
+            (project,),
+        )
+        return cur.fetchone()[0]
+
+
+# ── CAPTURE CONTEXT ──────────────────────────────────────────────────
+def capture_context(conn, *, context: str, source: str = "",
+                    project: str = "") -> list[dict]:
+    """Auto-decompose raw text into typed atomic memories and store each.
+
+    Returns a list of dicts, one per stored memory, with keys:
+        kind, id, headline, action ('stored' | 'duplicate')
+
+    Uses heuristic classification (no metadata LLM) per
+    infra-cost-addendum: the metadata LLM stays out of the write path.
+    Each chunk routes through the typed remember_* functions which run
+    the full write gate.
+    """
+    from .decompose import decompose
+
+    chunks = decompose(context)
+    results: list[dict] = []
+
+    for chunk in chunks:
+        try:
+            if chunk.kind == "rule":
+                mem = remember_rule(
+                    conn, headline=chunk.headline, body=chunk.text,
+                    severity=chunk.severity or "PATTERN",
+                    project=project, source=source,
+                )
+            elif chunk.kind == "incident":
+                mem = remember_incident(
+                    conn, headline=chunk.headline, body=chunk.text,
+                    project=project, source=source,
+                )
+            elif chunk.kind == "task":
+                mem = remember_task(
+                    conn, content=chunk.text,
+                    project=project, source=source,
+                )
+            else:  # fact
+                mem = remember_fact(
+                    conn, headline=chunk.headline, body=chunk.text,
+                    project=project, source=source,
+                )
+
+            if isinstance(mem, DuplicateHit):
+                results.append({
+                    "kind": chunk.kind,
+                    "id": mem.existing_id,
+                    "headline": mem.existing_headline,
+                    "action": "duplicate",
+                    "similarity": round(mem.similarity, 4),
+                })
+                log.info("capture_context: duplicate %s (id=%d, sim=%.3f): %s",
+                         chunk.kind, mem.existing_id, mem.similarity, chunk.headline[:60])
+            else:
+                results.append({
+                    "kind": mem.kind,
+                    "id": mem.id,
+                    "headline": mem.headline,
+                    "action": "stored",
+                })
+                log.info("capture_context: stored %s id=%d: %s",
+                         mem.kind, mem.id, mem.headline[:60])
+
+        except WriteGateError as exc:
+            log.warning("capture_context: write gate rejected chunk (%s): %s",
+                        chunk.kind, exc)
+            results.append({
+                "kind": chunk.kind,
+                "headline": chunk.headline,
+                "action": "rejected",
+                "reason": str(exc),
+            })
+        except Exception as exc:
+            log.error("capture_context: failed to store chunk (%s): %s",
+                      chunk.kind, exc)
+            results.append({
+                "kind": chunk.kind,
+                "headline": chunk.headline,
+                "action": "error",
+                "reason": str(exc),
+            })
+
+    log.info("capture_context: %d chunks processed, %d stored, %d duplicates, %d rejected/errors",
+             len(results),
+             sum(1 for r in results if r["action"] == "stored"),
+             sum(1 for r in results if r["action"] == "duplicate"),
+             sum(1 for r in results if r["action"] in ("rejected", "error")))
+    return results
 
 
 # ── Duplicate hit (return value; not an exception) ───────────────────

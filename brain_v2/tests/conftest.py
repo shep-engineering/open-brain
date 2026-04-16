@@ -29,7 +29,7 @@ def conn():
     """Fresh connection with truncated tables."""
     c = store.connect()
     with c.cursor() as cur:
-        cur.execute("TRUNCATE memory_index, rules, facts, incidents, tasks, v2_audit "
+        cur.execute("TRUNCATE memory_index, rules, facts, incidents, tasks, action_items, v2_audit "
                     "RESTART IDENTITY CASCADE")
     c.commit()
     yield c

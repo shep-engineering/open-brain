@@ -112,6 +112,26 @@ CREATE INDEX IF NOT EXISTS memory_index_embedding_hnsw
 CREATE INDEX IF NOT EXISTS memory_index_active_idx ON memory_index (active, project);
 CREATE INDEX IF NOT EXISTS memory_index_severity_idx ON memory_index (severity) WHERE severity IS NOT NULL;
 
+-- ── ACTION ITEMS ─────────────────────────────────────────────────
+-- Separate from tasks. Action items are obligations surfaced at boot
+-- that BLOCK writes until acknowledged. Modeled on v1's per-source
+-- pending_action_items pattern.
+CREATE TABLE IF NOT EXISTS action_items (
+    id             SERIAL      PRIMARY KEY,
+    source_kind    TEXT        NOT NULL,   -- 'rule', 'fact', 'incident', 'task'
+    source_id      INTEGER     NOT NULL,   -- id of the memory that produced this item
+    text           TEXT        NOT NULL,   -- the action item text
+    project        TEXT        NOT NULL DEFAULT '',
+    status         TEXT        NOT NULL DEFAULT 'pending'
+                   CHECK (status IN ('pending', 'will_execute', 'already_done', 'not_relevant')),
+    ack_reason     TEXT,
+    ack_source     TEXT,                   -- which agent acked it
+    ack_at         TIMESTAMPTZ,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS action_items_pending_idx
+    ON action_items (project, status) WHERE status = 'pending';
+
 -- ── AUDIT LOG ────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS v2_audit (
     audit_id       SERIAL      PRIMARY KEY,

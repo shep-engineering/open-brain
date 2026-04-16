@@ -39,6 +39,7 @@ class BootPayload:
     patterns: list[dict] = field(default_factory=list)
     active_tasks: list[dict] = field(default_factory=list)
     working_context: dict = field(default_factory=dict)
+    pending_action_items: list[dict] = field(default_factory=list)
     handoff: str = ""
     token_estimate: int = 0
     truncated: list[str] = field(default_factory=list)
@@ -49,6 +50,8 @@ class BootPayload:
             "patterns": self.patterns,
             "active_tasks": self.active_tasks,
             "working_context": self.working_context,
+            "pending_action_items": self.pending_action_items,
+            "writes_blocked": len(self.pending_action_items) > 0,
             "handoff": self.handoff,
             "token_estimate": self.token_estimate,
             "truncated": self.truncated,
@@ -135,11 +138,16 @@ def build(conn, *, project: str, task: str, source: str, handoff: str = "") -> B
         patterns = _fetch_patterns(cur, project, task_embedding)
         tasks = _fetch_active_tasks(cur, project)
 
+    # Fetch pending action items (no embedding needed — direct table query)
+    from . import store as _store
+    pending_items = _store.get_pending_action_items(conn, project=project)
+
     payload = BootPayload(
         blockers=blockers,
         patterns=patterns,
         active_tasks=tasks,
         working_context=_make_working_context(task, project, source),
+        pending_action_items=pending_items,
         handoff=handoff[: BOOT_HANDOFF_TOKEN_CAP * 4],  # hard char cut
     )
 
