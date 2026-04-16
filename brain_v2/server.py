@@ -913,6 +913,155 @@ def brain_checkpoint_v2(action: str, source: str, context: str = "",
     })
 
 
+@mcp.tool()
+def forget_many_v2(kinds: list[str], memory_ids: list[int],
+                   reason: str = "", source: str = "") -> str:
+    """Batch soft-delete. Accepts parallel lists: kinds[i] + memory_ids[i]
+    identify one memory each. Both lists must have the same length.
+
+    Partial success allowed — failing one item does not abort the batch.
+    Returns a summary with newly-forgotten, already-forgotten, and
+    not-found lists plus counts.
+
+    Args:
+        kinds:      list of memory kinds, same length as memory_ids.
+        memory_ids: list of memory ids within their respective kinds.
+        reason:     applied to every item.
+        source:     which agent initiated the forget.
+    """
+    ensure_schema()
+    blocked = _check_write_gate("")
+    if blocked:
+        return blocked
+    if len(kinds) != len(memory_ids):
+        return _err(
+            f"kinds and memory_ids must have the same length "
+            f"({len(kinds)} vs {len(memory_ids)})"
+        )
+    items = [{"kind": k, "memory_id": mid}
+             for k, mid in zip(kinds, memory_ids)]
+    try:
+        with store.connect() as conn:
+            result = store.forget_many(
+                conn, items=items, reason=reason, source=source,
+            )
+    except Exception as exc:
+        _log.exception("forget_many_v2 failed")
+        return _err(f"forget_many failed: {exc}")
+    return _ok({"success": True, **result})
+
+
+@mcp.tool()
+def unsupersede_v2(old_id: int, source: str) -> str:
+    """Reverse a rule supersession. Clears superseded_by on the
+    original rule, restores its severity, and reactivates its
+    memory_index row. The corrector rule stays active — call
+    forget_v2(kind='rule', memory_id=<corrector>) for full undo.
+
+    Args:
+        old_id: id of the rule whose supersession to reverse.
+        source: REQUIRED. Which agent is unsupersedeing.
+    """
+    ensure_schema()
+    if not source:
+        return _err("source is required for unsupersede_v2",
+                    blocked_by="source_required")
+    try:
+        with store.connect() as conn:
+            result = store.unsupersede_rule(
+                conn, old_id=old_id, source=source,
+            )
+    except ValueError as exc:
+        return _err(str(exc))
+    except Exception as exc:
+        _log.exception("unsupersede_v2 failed")
+        return _err(f"unsupersede failed: {exc}")
+    return _ok({"success": True, **result})
+
+
+@mcp.tool()
+def brain_startup_reminder_v2() -> str:
+    """Return the v2 startup reminder as a structured system message.
+
+    Clients should display this prominently at session start. It
+    describes the v2 mandatory workflow and the tools an agent must
+    call first.
+
+    Mirrors v1's brain_startup_reminder, adjusted for v2 tool names.
+    """
+    return _ok({
+        "type": "system_message",
+        "level": "mandatory",
+        "title": "Open Brain v2: Boot-First Enforcement Active",
+        "message": (
+            "MANDATORY WORKFLOW: You must call boot_session_v2 FIRST "
+            "before any other v2 tool.\n\n"
+            "Why? Open Brain v2 enforces a 'boot first' policy so every "
+            "session starts with full project context:\n"
+            "  - Pinned BLOCKER-severity rules for this project\n"
+            "  - Task-relevant PATTERN rules (top 5 by semantic match)\n"
+            "  - Pending action items that BLOCK writes until acknowledged\n"
+            "  - Other active sessions (so you don't overlap sibling work)\n"
+            "  - Auto-loaded handoff from the last session on this project\n\n"
+            "What happens if you skip the boot?\n"
+            "  - Writes (remember_*, capture_context_v2, supersede_rule_v2) "
+            "may block on pending action items you never saw\n"
+            "  - Your session is not registered in active_sessions, so "
+            "sibling sessions can't see you\n"
+            "  - You lose the handoff continuity from the previous session\n\n"
+            "How to comply:\n"
+            "  1. Call boot_session_v2(project, task, source, cwd, pid, host).\n"
+            "  2. If it returns pending_action_items, acknowledge each via "
+            "acknowledge_action_item_v2 BEFORE writing.\n"
+            "  3. If other_active_sessions shows a sibling on the same "
+            "project, surface it to the user before overlapping their work.\n"
+            "  4. At session end, call end_session_v2(handoff=...) so the "
+            "next session picks up where you left off.\n\n"
+            "This is a hard requirement, not a suggestion."
+        ),
+        "action": "display_at_session_start",
+    })
+
+
+@mcp.tool()
+def prune_v2(days: int = 90, min_access: int = 0,
+             dry_run: bool = True) -> str:
+    """Permanently delete stale memories with v1 safeguards.
+
+    SAFETY: hard floor days>=30 (OPEN_BRAIN_V2_PRUNE_MIN_DAYS),
+    hard cap 50 rows/call (OPEN_BRAIN_V2_PRUNE_MAX_DELETE), dry_run
+    defaults to True. Pinned memories are NEVER pruned. Rules are
+    NEVER pruned (immutable in v2 design).
+
+    Targets (must be older than `days`):
+      - Facts with access_count <= min_access
+      - Incidents with archived = TRUE
+      - Tasks with status in ('done', 'stale')
+
+    Use dry_run=True to preview; set False to execute. Every deletion
+    is audited via v2_audit BEFORE the row is removed.
+
+    Args:
+        days:       age threshold in days (minimum 30).
+        min_access: facts with access_count > this are NOT pruned.
+        dry_run:    True (default) previews only.
+    """
+    ensure_schema()
+    # Note: prune is HARD DELETE — do NOT gate on pending action items
+    # because pruning stale inactive rows is an administrative cleanup.
+    try:
+        with store.connect() as conn:
+            result = store.prune(
+                conn, days=days, min_access=min_access, dry_run=dry_run,
+            )
+    except ValueError as exc:
+        return _err(str(exc), blocked_by="prune_safeguard")
+    except Exception as exc:
+        _log.exception("prune_v2 failed")
+        return _err(f"prune failed: {exc}")
+    return _ok({"success": True, **result})
+
+
 _schema_applied = False
 
 

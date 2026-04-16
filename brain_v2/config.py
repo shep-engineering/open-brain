@@ -43,4 +43,11 @@ FACT_DECAY_SCORE_THRESHOLD = float(
 )
 INCIDENT_ARCHIVE_DAYS = int(os.getenv("OPEN_BRAIN_V2_INCIDENT_ARCHIVE_DAYS", "90"))
 
+# Prune safeguards (mirrors v1 PRUNE_MIN_DAYS / PRUNE_MAX_DELETE exactly).
+# Hard floor: never prune anything newer than this. Hard cap: never delete
+# more than this many rows per call. These prevent the class of failure
+# documented in guardrail #827 (2026-03-31 prune wipe of 730 memories).
+PRUNE_MIN_DAYS = int(os.getenv("OPEN_BRAIN_V2_PRUNE_MIN_DAYS", "30"))
+PRUNE_MAX_DELETE = int(os.getenv("OPEN_BRAIN_V2_PRUNE_MAX_DELETE", "50"))
+
 SERVER_NAME = "open-brain-v2"

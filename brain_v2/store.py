@@ -841,6 +841,249 @@ def forget(conn, *, kind: str, memory_id: int, reason: str = "",
     }
 
 
+# ── FORGET MANY ──────────────────────────────────────────────────────
+def forget_many(conn, *, items: list[dict], reason: str = "",
+                source: str = "") -> dict[str, Any]:
+    """Batch soft-delete. `items` is a list of {kind, memory_id} dicts.
+
+    Returns a summary:
+      {
+        "forgotten": [(kind, memory_id), ...],         # newly forgotten
+        "already_forgotten": [(kind, memory_id), ...], # idempotent hits
+        "not_found": [(kind, memory_id), ...],         # invalid targets
+        "forgotten_count": int,
+        "total_requested": int,
+      }
+
+    Partial success allowed: failing one item does NOT abort the batch.
+    """
+    forgotten: list[tuple[str, int]] = []
+    already: list[tuple[str, int]] = []
+    not_found: list[tuple[str, int]] = []
+
+    for item in items or []:
+        kind = (item or {}).get("kind")
+        memory_id = (item or {}).get("memory_id")
+        if not kind or memory_id is None:
+            continue
+        try:
+            result = forget(conn, kind=kind, memory_id=int(memory_id),
+                            reason=reason, source=source)
+            if result.get("already_forgotten"):
+                already.append((kind, int(memory_id)))
+            else:
+                forgotten.append((kind, int(memory_id)))
+        except ValueError:
+            not_found.append((kind, int(memory_id)))
+        except Exception as exc:
+            log.error("forget_many: unexpected error on %s:%s — %s",
+                      kind, memory_id, exc)
+            not_found.append((kind, int(memory_id)))
+
+    return {
+        "forgotten": forgotten,
+        "already_forgotten": already,
+        "not_found": not_found,
+        "forgotten_count": len(forgotten),
+        "total_requested": len(items or []),
+    }
+
+
+# ── UNSUPERSEDE ──────────────────────────────────────────────────────
+def unsupersede_rule(conn, *, old_id: int, source: str = "") -> dict[str, Any]:
+    """Reverse a supersession on a rule. Clears superseded_by on the
+    original rule, restores its severity from DEPRECATED (or PATTERN as
+    fallback), and reactivates its memory_index row.
+
+    The corrector rule stays active — both memories end up active. If
+    full undo is desired, caller should forget() the corrector.
+
+    Returns {old_id, former_corrector, note}. Raises ValueError if the
+    rule was not superseded.
+    """
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "SELECT superseded_by, severity FROM rules WHERE id = %s",
+            (old_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise ValueError(f"rule id={old_id} not found")
+        if row["superseded_by"] is None:
+            raise ValueError(
+                f"rule id={old_id} was not superseded; nothing to undo."
+            )
+        former_corrector = row["superseded_by"]
+
+        # Restore severity from corrector's chain if possible, else PATTERN
+        cur.execute(
+            "SELECT severity FROM rules WHERE id = %s",
+            (former_corrector,),
+        )
+        corr_row = cur.fetchone()
+        restored_severity = "PATTERN"
+        if corr_row and corr_row["severity"] in ("BLOCKER", "PATTERN"):
+            restored_severity = corr_row["severity"]
+
+        # Clear supersession + restore severity on the original
+        cur.execute(
+            """
+            UPDATE rules
+            SET superseded_by = NULL,
+                supersede_reason = NULL,
+                severity = %s
+            WHERE id = %s
+            """,
+            (restored_severity, old_id),
+        )
+        # Reactivate its memory_index row
+        cur.execute(
+            """
+            UPDATE memory_index
+            SET active = TRUE, severity = %s
+            WHERE kind = 'rule' AND memory_id = %s
+            """,
+            (restored_severity, old_id),
+        )
+        _audit(cur, "UNSUPERSEDE", "rule", old_id,
+               {"former_corrector": former_corrector, "restored_severity": restored_severity},
+               source)
+    conn.commit()
+    log.info("unsupersede_rule: id=%d former_corrector=%d severity=%s",
+             old_id, former_corrector, restored_severity)
+    return {
+        "old_id": old_id,
+        "former_corrector": former_corrector,
+        "restored_severity": restored_severity,
+        "note": f"Both memories are now active. Call forget({former_corrector}) "
+                "to also remove the corrector if you want full undo.",
+    }
+
+
+# ── PRUNE ────────────────────────────────────────────────────────────
+def prune(conn, *, days: int, min_access: int = 0,
+          dry_run: bool = True) -> dict[str, Any]:
+    """HARD delete of stale memories with v1 safeguards.
+
+    Criteria:
+      - memory_index.created_at < NOW() - INTERVAL '{days} days'
+      - memory_index.pinned = FALSE
+      - kind != 'rule' (rules are immutable in v2 design)
+      - For facts: access_count <= min_access
+      - For incidents: archived = TRUE (must be maintenance-archived first)
+      - For tasks: status IN ('done', 'stale')
+
+    Safeguards:
+      - days must be >= PRUNE_MIN_DAYS (default 30). ValueError if below.
+      - Hard cap of PRUNE_MAX_DELETE (default 50) rows per call.
+      - dry_run defaults to True. Must be explicitly False to actually delete.
+
+    Returns {dry_run, eligible_count, deleted, deleted_ids: {kind:[ids]}}.
+    """
+    from .config import PRUNE_MIN_DAYS, PRUNE_MAX_DELETE
+
+    if days < PRUNE_MIN_DAYS:
+        raise ValueError(
+            f"Refusing to prune: days={days} is below the hard minimum "
+            f"of {PRUNE_MIN_DAYS}. This safeguard prevents accidental "
+            "mass deletion."
+        )
+
+    # Build candidate list from memory_index joined against typed tables.
+    # Using a single SELECT across LEFT JOINs keeps the caps honest.
+    sql = """
+        SELECT mi.kind, mi.memory_id
+        FROM memory_index mi
+        LEFT JOIN facts     f ON mi.kind = 'fact'     AND mi.memory_id = f.id
+        LEFT JOIN incidents i ON mi.kind = 'incident' AND mi.memory_id = i.id
+        LEFT JOIN tasks     t ON mi.kind = 'task'     AND mi.memory_id = t.id
+        WHERE mi.created_at < NOW() - make_interval(days => %s)
+          AND mi.pinned = FALSE
+          AND mi.kind != 'rule'
+          AND (
+                (mi.kind = 'fact'     AND f.access_count <= %s)
+             OR (mi.kind = 'incident' AND i.archived = TRUE)
+             OR (mi.kind = 'task'     AND t.status IN ('done', 'stale'))
+          )
+        ORDER BY mi.created_at ASC
+        LIMIT %s
+    """
+    with conn.cursor() as cur:
+        cur.execute(sql, (int(days), int(min_access), PRUNE_MAX_DELETE))
+        candidates = cur.fetchall()
+
+    eligible_count = len(candidates)
+    deleted_ids: dict[str, list[int]] = {"fact": [], "incident": [], "task": []}
+
+    if not dry_run and eligible_count == 0:
+        # Real execution but nothing to delete — return the
+        # consistent "deleted=0" shape instead of the dry-run shape.
+        return {
+            "dry_run": False,
+            "deleted": 0,
+            "deleted_ids": deleted_ids,
+            "max_per_call": PRUNE_MAX_DELETE,
+            "message": "Nothing to prune — no memories matched the criteria.",
+        }
+
+    if dry_run:
+        # Count how many more there'd be if we lifted the cap (for the
+        # operator to know how many calls they'd need). Same WHERE minus LIMIT.
+        with conn.cursor() as cur:
+            cur.execute(
+                sql.replace("LIMIT %s", ""),
+                (int(days), int(min_access)),
+            )
+            would_total = len(cur.fetchall())
+        result = {
+            "dry_run": True,
+            "would_delete_this_call": eligible_count,
+            "would_delete_total": would_total,
+            "max_per_call": PRUNE_MAX_DELETE,
+            "criteria": f"older than {days} days, pinned=False, kind in "
+                        f"(fact[access<={min_access}], incident[archived], "
+                        "task[done|stale])",
+            "message": f"Would delete {eligible_count} of {would_total} "
+                       f"eligible memories this call (cap {PRUNE_MAX_DELETE}). "
+                       "Set dry_run=False to execute.",
+        }
+        return result
+
+    # Real delete. Audit BEFORE the row goes away.
+    with conn.cursor() as cur:
+        for kind, memory_id in candidates:
+            _audit(cur, "PRUNE", kind, memory_id,
+                   {"days": days, "min_access": min_access}, "")
+            deleted_ids[kind].append(memory_id)
+
+        # Delete from memory_index first (FK reference safety)
+        for kind, memory_id in candidates:
+            cur.execute(
+                "DELETE FROM memory_index WHERE kind = %s AND memory_id = %s",
+                (kind, memory_id),
+            )
+        # Delete from typed tables
+        for kind in ("fact", "incident", "task"):
+            if deleted_ids[kind]:
+                tbl = {"fact": "facts", "incident": "incidents", "task": "tasks"}[kind]
+                cur.execute(
+                    f"DELETE FROM {tbl} WHERE id = ANY(%s)",
+                    (deleted_ids[kind],),
+                )
+    conn.commit()
+    total_deleted = sum(len(v) for v in deleted_ids.values())
+    log.warning("prune: HARD DELETED %d memories (days=%d, min_access=%d): %s",
+                total_deleted, days, min_access, deleted_ids)
+    return {
+        "dry_run": False,
+        "deleted": total_deleted,
+        "deleted_ids": deleted_ids,
+        "max_per_call": PRUNE_MAX_DELETE,
+        "message": f"Pruned {total_deleted} stale memories (max "
+                   f"{PRUNE_MAX_DELETE} per call).",
+    }
+
+
 # ── STATS ────────────────────────────────────────────────────────────
 def stats(conn, *, project: str = "") -> dict[str, Any]:
     """Return corpus stats.

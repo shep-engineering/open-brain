@@ -5,6 +5,60 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.0] - 2026-04-16
+
+### Added — brain_v2 v1 parity complete: forget_many + unsupersede + prune + brain_startup_reminder
+
+Closes the FINAL v1 tool-parity gap. v2 now has functional equivalents
+for every v1 tool except `load_skill` (explicitly deferred — requires
+skill_trigger schema, tracked as a separate feature).
+
+**4 new MCP tools:**
+- `forget_many_v2(kinds, memory_ids, reason, source)` — batch
+  soft-delete via parallel lists. Partial success allowed; returns
+  per-item outcome (forgotten / already_forgotten / not_found).
+- `unsupersede_v2(old_id, source)` — reverse a rule supersession.
+  Restores severity, reactivates memory_index row, clears
+  superseded_by. Corrector rule stays active (caller can forget it
+  for full undo). Mirrors v1's unsupersede exactly.
+- `prune_v2(days, min_access, dry_run)` — HARD delete of stale
+  memories with v1 safeguards: 30-day floor, 50-row cap, dry_run
+  default True, pinned never pruned, rules never pruned. Targets
+  facts (by access_count), archived incidents, and done/stale tasks.
+  Every deletion audited via v2_audit BEFORE the row is removed.
+- `brain_startup_reminder_v2()` — mandatory session-start system
+  message, adjusted for v2 tool names. Same structure as v1.
+
+**Prune safeguards (mirrors v1 exactly):**
+- `OPEN_BRAIN_V2_PRUNE_MIN_DAYS` (default 30) — hard floor
+- `OPEN_BRAIN_V2_PRUNE_MAX_DELETE` (default 50) — hard cap per call
+- Rules are NEVER pruned (immutable in v2 design)
+- Pinned memories are NEVER pruned
+
+**Bug fix:** `store.prune()` now returns `{dry_run: False, deleted: 0}`
+when dry_run=False but no candidates match (previously returned a
+dry_run-shaped response, causing KeyError on `result["deleted"]`).
+
+**Tests (24 new in `test_parity_final.py`):**
+- TestForgetMany (5): batch, partial-not-found, idempotent, empty,
+  mixed-kinds
+- TestUnsupersede (4): reverses-chain, corrector-remains-active,
+  not-superseded-raises, missing-raises
+- TestBrainStartupReminder (3): structured message, mentions
+  boot_session_v2, mentions action_item ack
+- TestPruneSafeguards (12): below-min-raises, dry-run-default,
+  hard-delete-execution, pinned-never-pruned, rules-never-pruned,
+  access-count-filter, archived-incidents-eligible, non-archived-
+  not-pruned, done-tasks-eligible, open-tasks-not-pruned, hard-cap-
+  per-call (monkeypatched), dry-run-reports-would-total
+
+**Full regression:** 192/192 passing against real Postgres + real
+Ollama (~61 min full-suite runtime, no mocks).
+
+**Tool count:** 31 → **35**. Total v2 test count: 168 → **192**.
+
+**v1 tool parity is now COMPLETE** (except load_skill, deferred).
+
 ## [0.20.0] - 2026-04-16
 
 ### Added — brain_v2 v1 tool parity: annotate / rate / pin / unpin / scratch / brain_checkpoint
