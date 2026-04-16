@@ -653,6 +653,143 @@ def capture_context(conn, *, context: str, source: str = "",
     return results
 
 
+# ── ANNOTATE ─────────────────────────────────────────────────────────
+def annotate(conn, *, kind: str, memory_id: int,
+             note: str | None = None, clear: bool = False) -> dict[str, Any]:
+    """Attach or clear a persistent note on a memory. Mirrors v1's
+    annotate semantics exactly.
+
+    Modes:
+      - clear=True:  remove the annotation
+      - note=None + clear=False: read-only, return current annotation
+      - note="..." + clear=False: set the annotation
+
+    Raises ValueError if the memory is not found in memory_index.
+    """
+    check_kind(kind)
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "SELECT annotation, headline FROM memory_index "
+            "WHERE kind = %s AND memory_id = %s",
+            (kind, memory_id),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise ValueError(f"{kind} id={memory_id} not found")
+
+        if clear:
+            cur.execute(
+                "UPDATE memory_index SET annotation = NULL "
+                "WHERE kind = %s AND memory_id = %s",
+                (kind, memory_id),
+            )
+            _audit(cur, "ANNOTATE_CLEAR", kind, memory_id, {}, "")
+            conn.commit()
+            log.info("annotate: cleared %s id=%d", kind, memory_id)
+            return {"kind": kind, "memory_id": memory_id, "annotation": None,
+                    "cleared": True}
+
+        if note is None:
+            # Read-only
+            return {"kind": kind, "memory_id": memory_id,
+                    "annotation": row["annotation"] or "",
+                    "headline": row["headline"]}
+
+        # Set
+        cur.execute(
+            "UPDATE memory_index SET annotation = %s "
+            "WHERE kind = %s AND memory_id = %s",
+            (note, kind, memory_id),
+        )
+        _audit(cur, "ANNOTATE_SET", kind, memory_id,
+               {"note_preview": note[:100]}, "")
+    conn.commit()
+    log.info("annotate: set %s id=%d (%d chars)", kind, memory_id, len(note))
+    return {"kind": kind, "memory_id": memory_id, "annotation": note,
+            "cleared": False}
+
+
+# ── RATE ─────────────────────────────────────────────────────────────
+def rate(conn, *, kind: str, memory_id: int, direction: str) -> dict[str, Any]:
+    """Upvote or downvote a memory. Mirrors v1's rate semantics.
+
+    Args:
+        direction: 'up' or 'down' (any other value raises ValueError).
+
+    Returns {kind, memory_id, upvotes, downvotes, score}.
+    Raises ValueError if the memory is not found.
+    """
+    if direction not in ("up", "down"):
+        raise ValueError(f"direction must be 'up' or 'down', got {direction!r}")
+    check_kind(kind)
+
+    col = "upvotes" if direction == "up" else "downvotes"
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            f"UPDATE memory_index SET {col} = {col} + 1 "
+            "WHERE kind = %s AND memory_id = %s "
+            "RETURNING upvotes, downvotes",
+            (kind, memory_id),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise ValueError(f"{kind} id={memory_id} not found")
+        _audit(cur, "RATE", kind, memory_id, {"direction": direction}, "")
+    conn.commit()
+    log.info("rate: %s id=%d %s (now %d/%d)",
+             kind, memory_id, direction, row["upvotes"], row["downvotes"])
+    return {
+        "kind": kind,
+        "memory_id": memory_id,
+        "upvotes": row["upvotes"],
+        "downvotes": row["downvotes"],
+        "score": row["upvotes"] - row["downvotes"],
+    }
+
+
+# ── PIN / UNPIN ──────────────────────────────────────────────────────
+def set_pinned(conn, *, kind: str, memory_id: int, pinned: bool) -> dict[str, Any]:
+    """Pin or unpin a memory. Mirrors v1's semantics:
+      - Global memories (empty project) CANNOT be pinned; attempting to
+        pin raises ValueError without state change.
+      - Unpinning a global memory is always a no-op success.
+    """
+    check_kind(kind)
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "SELECT project, pinned, headline FROM memory_index "
+            "WHERE kind = %s AND memory_id = %s",
+            (kind, memory_id),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise ValueError(f"{kind} id={memory_id} not found")
+
+        if pinned and not (row["project"] or "").strip():
+            raise ValueError(
+                "Cannot pin a global memory. Pinning only works for "
+                "project-scoped memories. Re-store this memory with a "
+                "project parameter first."
+            )
+
+        cur.execute(
+            "UPDATE memory_index SET pinned = %s "
+            "WHERE kind = %s AND memory_id = %s",
+            (pinned, kind, memory_id),
+        )
+        _audit(cur, "PIN" if pinned else "UNPIN", kind, memory_id,
+               {"project": row["project"]}, "")
+    conn.commit()
+    log.info("set_pinned: %s id=%d pinned=%s", kind, memory_id, pinned)
+    return {
+        "kind": kind,
+        "memory_id": memory_id,
+        "pinned": pinned,
+        "project": row["project"],
+        "headline": row["headline"],
+    }
+
+
 # ── FORGET ───────────────────────────────────────────────────────────
 def forget(conn, *, kind: str, memory_id: int, reason: str = "",
            source: str = "") -> dict[str, Any]:

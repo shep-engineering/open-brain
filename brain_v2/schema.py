@@ -113,6 +113,10 @@ CREATE TABLE IF NOT EXISTS memory_index (
 ALTER TABLE memory_index ADD COLUMN IF NOT EXISTS forgotten_at TIMESTAMPTZ;
 ALTER TABLE memory_index ADD COLUMN IF NOT EXISTS forgotten_reason TEXT;
 ALTER TABLE memory_index ADD COLUMN IF NOT EXISTS forgotten_by TEXT;
+-- v1 tool parity columns (v0.20.0): annotations + ratings
+ALTER TABLE memory_index ADD COLUMN IF NOT EXISTS annotation TEXT;
+ALTER TABLE memory_index ADD COLUMN IF NOT EXISTS upvotes INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE memory_index ADD COLUMN IF NOT EXISTS downvotes INTEGER NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS memory_index_embedding_hnsw
     ON memory_index USING hnsw (embedding vector_cosine_ops)
     WITH (m = 16, ef_construction = 64);

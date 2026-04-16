@@ -694,6 +694,225 @@ def list_recent_v2(limit: int = 20, days: int = 0, kind: str = "",
     return _ok({"count": len(rows), "rows": rows})
 
 
+# ── In-process ephemeral state (scratchpad + checkpoint cooldown) ───
+# Mirrors v1's `_scratch` dict and `_checkpoint_tracker`. Cleared on
+# server restart — NOT persisted to the DB (intentional, per v1).
+import time as _time
+_scratch: dict[str, str] = {}
+_checkpoint_tracker: dict[str, dict[str, float]] = {}
+
+# Default cooldown between identical brain_checkpoint calls (seconds).
+# v1 uses COMPLIANCE_WINDOW from env; matching that default.
+CHECKPOINT_COOLDOWN = int(os.getenv("OPEN_BRAIN_V2_CHECKPOINT_COOLDOWN", "300"))
+
+
+@mcp.tool()
+def annotate_v2(kind: str, memory_id: int, note: str = "",
+                clear: bool = False) -> str:
+    """Attach a persistent note to an existing memory, or clear it.
+
+    Modes (mirrors v1 exactly):
+      - clear=True: remove the annotation.
+      - clear=False and note="": read-only, returns current annotation.
+      - clear=False and note="...": set the annotation.
+
+    Args:
+        kind:      'rule' | 'fact' | 'incident' | 'task'
+        memory_id: id within that kind.
+        note:      the annotation text (ignored if clear=True).
+        clear:     True to remove the annotation.
+    """
+    ensure_schema()
+    try:
+        with store.connect() as conn:
+            result = store.annotate(
+                conn, kind=kind, memory_id=memory_id,
+                note=(note if note or clear else None), clear=clear,
+            )
+    except ValueError as exc:
+        return _err(str(exc))
+    except Exception as exc:
+        _log.exception("annotate_v2 failed")
+        return _err(f"annotate failed: {exc}")
+    return _ok({"success": True, **result})
+
+
+@mcp.tool()
+def rate_v2(kind: str, memory_id: int, direction: str) -> str:
+    """Rate a memory as useful (up) or not useful (down). Bumps the
+    persistent counter on memory_index.
+
+    Args:
+        kind:      'rule' | 'fact' | 'incident' | 'task'
+        memory_id: id within that kind.
+        direction: 'up' or 'down'.
+    """
+    ensure_schema()
+    try:
+        with store.connect() as conn:
+            result = store.rate(conn, kind=kind, memory_id=memory_id,
+                                direction=direction)
+    except ValueError as exc:
+        return _err(str(exc))
+    except Exception as exc:
+        _log.exception("rate_v2 failed")
+        return _err(f"rate failed: {exc}")
+    return _ok({"success": True, **result})
+
+
+@mcp.tool()
+def pin_v2(kind: str, memory_id: int) -> str:
+    """Pin a memory so it surfaces prominently in boot + search for its
+    project. Global memories (empty project) cannot be pinned — call
+    will return an error explaining how to re-store with a project.
+
+    Args:
+        kind:      'rule' | 'fact' | 'incident' | 'task'
+        memory_id: id within that kind.
+    """
+    ensure_schema()
+    try:
+        with store.connect() as conn:
+            result = store.set_pinned(conn, kind=kind, memory_id=memory_id,
+                                       pinned=True)
+    except ValueError as exc:
+        return _err(str(exc))
+    except Exception as exc:
+        _log.exception("pin_v2 failed")
+        return _err(f"pin failed: {exc}")
+    return _ok({"success": True, **result})
+
+
+@mcp.tool()
+def unpin_v2(kind: str, memory_id: int) -> str:
+    """Remove the pin from a memory. No-op on global memories (which
+    cannot be pinned in the first place).
+
+    Args:
+        kind:      'rule' | 'fact' | 'incident' | 'task'
+        memory_id: id within that kind.
+    """
+    ensure_schema()
+    try:
+        with store.connect() as conn:
+            result = store.set_pinned(conn, kind=kind, memory_id=memory_id,
+                                       pinned=False)
+    except ValueError as exc:
+        return _err(str(exc))
+    except Exception as exc:
+        _log.exception("unpin_v2 failed")
+        return _err(f"unpin failed: {exc}")
+    return _ok({"success": True, **result})
+
+
+@mcp.tool()
+def scratch_set_v2(key: str, value: str) -> str:
+    """Store a value in session scratchpad (ephemeral in-memory dict).
+    Cleared on server restart. Use remember_* for persistent storage.
+    """
+    _scratch[key] = value
+    return _ok({"success": True, "key": key, "stored": True})
+
+
+@mcp.tool()
+def scratch_get_v2(key: str) -> str:
+    """Read a value from the session scratchpad. Returns found=False
+    with value=null if the key isn't set."""
+    value = _scratch.get(key)
+    return _ok({"key": key, "value": value, "found": value is not None})
+
+
+@mcp.tool()
+def scratch_list_v2() -> str:
+    """List all current scratchpad key/value pairs."""
+    return _ok({"count": len(_scratch), "entries": dict(_scratch)})
+
+
+@mcp.tool()
+def brain_checkpoint_v2(action: str, source: str, context: str = "",
+                        project: str = "") -> str:
+    """Check the brain before a risky action.
+
+    Surfaces pinned (BLOCKER-severity) rules for the project plus
+    task-relevant PATTERN rules ranked by cosine similarity to the
+    action+context. Rate-limited per-source per-action via an
+    in-process cooldown (default 5 minutes, env-configurable).
+
+    Args:
+        action:  what you're about to do.
+        source:  REQUIRED. Which agent is calling.
+        context: additional context about the specific change.
+        project: project scope (empty = global).
+    """
+    ensure_schema()
+    if not source:
+        return _err("source is required for brain_checkpoint_v2",
+                    blocked_by="source_required")
+    if not action:
+        return _err("action is required")
+
+    # Cooldown
+    tracker = _checkpoint_tracker.setdefault(source, {})
+    last = tracker.get(action)
+    now = _time.time()
+    if last and (now - last) < CHECKPOINT_COOLDOWN:
+        return _ok({
+            "success": True,
+            "skipped": True,
+            "reason": f"Already checked '{action}' {int(now - last)}s ago. "
+                      f"Cooldown is {CHECKPOINT_COOLDOWN}s.",
+        })
+
+    query = f"{action} {context} {project}".strip()
+    try:
+        with store.connect() as conn:
+            # Pinned + BLOCKER rules (scoped to project or global)
+            with conn.cursor() as cur:
+                proj_filter = "project = %s OR project = ''" if project else "TRUE"
+                params: list = [project] if project else []
+                cur.execute(
+                    f"""
+                    SELECT kind, memory_id, headline, severity, project, pinned
+                    FROM memory_index
+                    WHERE active = TRUE
+                      AND (severity = 'BLOCKER' OR pinned = TRUE)
+                      AND kind = 'rule'
+                      AND ({proj_filter})
+                    ORDER BY pinned DESC, created_at DESC
+                    LIMIT 10
+                    """,
+                    params,
+                )
+                guardrails = [dict(zip(("kind", "memory_id", "headline",
+                                         "severity", "project", "pinned"), r))
+                              for r in cur.fetchall()]
+
+            # Task-relevant PATTERN rules + facts
+            relevant = store.search_headlines(
+                conn, query=query,
+                project=project if project != "" else None,
+                limit=5,
+            )
+
+        tracker[action] = now
+    except Exception as exc:
+        _log.exception("brain_checkpoint_v2 failed")
+        return _err(f"checkpoint failed: {exc}")
+
+    return _ok({
+        "success": True,
+        "action": action,
+        "context": context,
+        "project": project,
+        "guardrails_count": len(guardrails),
+        "relevant_count": len(relevant),
+        "guardrails": guardrails,
+        "relevant": relevant,
+        "message": f"Checkpoint complete. {len(guardrails)} guardrails, "
+                   f"{len(relevant)} relevant. Review before proceeding.",
+    })
+
+
 _schema_applied = False
 
 

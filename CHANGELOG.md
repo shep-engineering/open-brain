@@ -5,6 +5,58 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.0] - 2026-04-16
+
+### Added — brain_v2 v1 tool parity: annotate / rate / pin / unpin / scratch / brain_checkpoint
+
+Closes the last major v1-to-v2 tool-parity gap. Agents moving from v1
+to v2 now have equivalent day-to-day affordances.
+
+**8 new MCP tools, each modeled exactly on the v1 equivalent:**
+
+| v1 tool | v2 equivalent | Notes |
+|---|---|---|
+| `annotate` | `annotate_v2(kind, memory_id, note, clear)` | Set/clear/read modes |
+| `rate` | `rate_v2(kind, memory_id, direction)` | 'up' or 'down' |
+| `pin` | `pin_v2(kind, memory_id)` | Project-scoped only (global refused) |
+| `unpin` | `unpin_v2(kind, memory_id)` | No-op success on never-pinned |
+| `scratch_set` | `scratch_set_v2(key, value)` | In-process dict; ephemeral |
+| `scratch_get` | `scratch_get_v2(key)` | Returns {key, value, found} |
+| `scratch_list` | `scratch_list_v2()` | Returns {count, entries} |
+| `brain_checkpoint` | `brain_checkpoint_v2(action, source, context, project)` | Per-source cooldown |
+
+**Behavioral parity with v1:**
+- `pin_v2` enforces the "no pinning global memories" rule (returns
+  an error if the memory has an empty project).
+- `brain_checkpoint_v2` uses an in-process cooldown keyed by
+  `(source, action)`. Default 5 min (env `OPEN_BRAIN_V2_CHECKPOINT_COOLDOWN`).
+- Scratchpad state is in-process only, intentionally not persisted
+  (mirrors v1's `_scratch` dict).
+
+**Schema additions to `memory_index`** (via `ALTER TABLE … ADD COLUMN
+IF NOT EXISTS`, backward-compatible):
+- `annotation TEXT`
+- `upvotes INTEGER NOT NULL DEFAULT 0`
+- `downvotes INTEGER NOT NULL DEFAULT 0`
+
+**Tests (25 new in `test_parity.py`):**
+- TestAnnotate (3): set, clear, missing-raises
+- TestRate (5): upvote, downvote, accumulation, invalid direction,
+  missing-raises
+- TestPinUnpin (6): project-scoped success, global-rejected, unpin,
+  unpin-noop, pin-fact, missing-raises
+- TestScratchpad (4): set+get, get-missing, list, overwrite
+- TestBrainCheckpoint (5): source-required, action-required,
+  surfaces-blocker-rules, cooldown-skips-repeat, different-actions-
+  not-skipped
+- TestIntegration (2): annotation persists across connections, vote
+  counts persist across connections
+
+**Full regression:** 168/168 passing against real Postgres + real
+Ollama (no mocks). Full-suite runtime: ~53 minutes.
+
+**Tool count:** 23 → 31. Total v2 test count: 143 → **168**.
+
 ## [0.19.0] - 2026-04-16
 
 ### Added — brain_v2 operational completeness: forget + stats + list_recent
