@@ -1,0 +1,14 @@
+{
+  "_comment": "Add this block to the mcpServers map in ~/.claude/settings.json (or the equivalent MCP config for Cursor/Windsurf). Claude Code refused to edit global settings directly during the brain-v2 build session. Paste alongside the existing open-brain entry — v1 stays active, v2 loads alongside it with its own tool namespace.",
+  "open-brain-v2": {
+    "command": "F:\\open-brain\\.venv\\Scripts\\python.exe",
+    "args": [
+      "F:\\open-brain\\brain_v2\\server.py"
+    ],
+    "env": {
+      "OPEN_BRAIN_V2_DATABASE_URL": "postgresql://postgres:password@localhost:5433/open_brain_v2",
+      "OLLAMA_BASE_URL": "http://localhost:11434",
+      "OLLAMA_EMBEDDING_MODEL": "nomic-embed-text"
+    }
+  }
+}

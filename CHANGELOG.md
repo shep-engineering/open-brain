@@ -5,6 +5,63 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0] - 2026-04-15
+
+### Added — Open Brain v2 bifurcation (Phase 1 scaffold)
+
+Parallel v2 memory architecture per `docs/planning/windsurf-memory-architecture-synthesis.md`
+(best-of-breed synthesis) + `docs/planning/infra-cost-addendum.md`
+(Ollama-runtime falsifiable check).
+
+Code lives in a new package `brain_v2/` on branch `feat/brain-v2-bifurcation`.
+V1 (`server.py`, `openbrain` DB on port 5432) is untouched. V2 runs alongside:
+
+- **New Postgres container** `open-brain-v2-db` on port **5433**, DB `open_brain_v2`
+  (`docker-compose.v2.yml`). Full physical isolation from v1's container.
+- **New MCP server** `open-brain-v2` with tool namespace `mcp__open-brain-v2__*`.
+  Registration snippet at `brain_v2/mcp_registration_snippet.json`.
+- **Pre-v2 backup** of the live brain at `backups/brain-pre-v2-20260415.sql`
+  (28 MB) per guardrail #827.
+
+**Phase 1 contracts (Windsurf §4.3 + §4.4):**
+
+- Four atomic memory types: `RULE`, `FACT`, `INCIDENT`, `TASK` — each in its
+  own table with type-specific retrieval policies. No unified `memories` table.
+- Shared `memory_index` holds the embedding + headline projection so boot
+  and search can rank headlines without materializing bodies.
+- Write gate (`brain_v2/write_gate.py`): (1) type declared,
+  (2) atomicity (≤400 words, no stacked `GUARDRAIL 20xx-` markers),
+  (3) headline ≤15 words, (4) cosine >0.75 duplicate detection against
+  same-kind active entries, (5) supersede-only for RULE bodies.
+- `remember_rule` refuses to merge — returns `DuplicateHit` so the caller
+  routes to `supersede_rule_v2`. RULE bodies are immutable after creation.
+- Boot payload: headline-only, 5 BLOCKER cap, 5 PATTERN task-relevance cap,
+  2K token total cap, truncate TASKs → PATTERNs → BLOCKERs if over.
+  WORKING CONTEXT regenerated from the `task` arg at every boot; not stored.
+- In-session temporal cache for recency boost + link-traversal boost on recall.
+- Audit log `v2_audit` for every INSERT / SUPERSEDE / UPDATE.
+
+**Falsifiable infra check** (`brain_v2/infra_check.py`) per infra-cost-
+addendum §4: verifies no `METADATA_LLM_MODEL` reload line appears in
+`ollama.log` between a `boot_session` and a `remember_rule` call. Current
+run: PASS (token estimate 12, no Qwen eviction, nomic-embed only).
+
+**Test coverage** (`brain_v2/tests/`, 39 tests, all passing against real
+Postgres + real Ollama):
+
+- `test_write_gate.py` — 18 tests, all 5 gate steps
+- `test_boot_payload.py` — 11 tests, cap enforcement + truncation order +
+  headline-only + project scoping + superseded-rule exclusion
+- `test_recall_search_cache.py` — 10 tests, body fetch + access-count bump +
+  headline-only search + temporal cache + task lifecycle
+
+**Out of scope for this commit** (future phases per Windsurf §6):
+Phase 3 decay beyond session cache, Phase 4 parallel-session coordination,
+Phase 5 compaction, canonicalization of v1's merged blockers into v2 atomic
+form, and `~/.claude/settings.json` MCP registration (permission-blocked
+during this session; snippet provided in `brain_v2/mcp_registration_snippet.json`
+for manual paste).
+
 ## [0.14.0] - 2026-04-15
 
 ### Changed — Session registry: replaced TTL with signoff + external heartbeat agent

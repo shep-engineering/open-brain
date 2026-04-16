@@ -1,0 +1,40 @@
+"""Open Brain v2 configuration.
+
+All values are environment-overridable. Defaults target the v2 container
+on port 5433 (separate from v1's 5432).
+"""
+from __future__ import annotations
+
+import os
+
+from dotenv import load_dotenv
+
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
+
+DATABASE_URL = os.getenv(
+    "OPEN_BRAIN_V2_DATABASE_URL",
+    "postgresql://postgres:password@localhost:5433/open_brain_v2",
+)
+
+EMBEDDING_DIMS = int(os.getenv("OPEN_BRAIN_V2_EMBEDDING_DIMS", "768"))
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
+OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")
+
+BOOT_TOKEN_CAP = int(os.getenv("OPEN_BRAIN_V2_BOOT_TOKEN_CAP", "2000"))
+BOOT_BLOCKER_COUNT_CAP = int(os.getenv("OPEN_BRAIN_V2_BOOT_BLOCKER_CAP", "5"))
+BOOT_PATTERN_COUNT_CAP = int(os.getenv("OPEN_BRAIN_V2_BOOT_PATTERN_CAP", "5"))
+BOOT_HANDOFF_TOKEN_CAP = int(os.getenv("OPEN_BRAIN_V2_BOOT_HANDOFF_CAP", "200"))
+
+HEADLINE_WORD_CAP = int(os.getenv("OPEN_BRAIN_V2_HEADLINE_WORD_CAP", "15"))
+BODY_WORD_CAP = int(os.getenv("OPEN_BRAIN_V2_BODY_WORD_CAP", "200"))
+
+DUPLICATE_COSINE_THRESHOLD = float(
+    os.getenv("OPEN_BRAIN_V2_DUPLICATE_COSINE", "0.75")
+)
+
+FACT_DECAY_HALFLIFE_DAYS = float(
+    os.getenv("OPEN_BRAIN_V2_FACT_HALFLIFE_DAYS", "7.0")
+)
+INCIDENT_ARCHIVE_DAYS = int(os.getenv("OPEN_BRAIN_V2_INCIDENT_ARCHIVE_DAYS", "90"))
+
+SERVER_NAME = "open-brain-v2"
