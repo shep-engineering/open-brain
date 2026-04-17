@@ -120,10 +120,17 @@ def _index_deactivate(cur, kind: str, memory_id: int) -> None:
 
 # ── RULE ─────────────────────────────────────────────────────────────
 def remember_rule(conn, *, headline: str, body: str, severity: str = "PATTERN",
-                  project: str = "", source: str = "", pinned: bool = False) -> Memory | DuplicateHit:
+                  project: str = "", source: str = "",
+                  pinned: bool = False,
+                  skill_trigger: dict | None = None) -> Memory | DuplicateHit:
     """Insert a new RULE. If a >0.75-cosine duplicate exists, DOES NOT
     insert; returns DuplicateHit so caller can route to supersede.
-    Refuses to merge."""
+    Refuses to merge.
+
+    skill_trigger: optional dict tagging this rule as a skill. Shape:
+        {"name": "<unique-name>", "keywords": ["k1", "k2"],
+         "projects": [], "always_on": false}
+    """
     embedding_vec = embed_to_pgvector(f"{headline}. {body}")
     dup = run_gate(conn, kind="rule", headline=headline, body=body,
                    severity=severity, embedding_vec=embedding_vec)
@@ -131,21 +138,30 @@ def remember_rule(conn, *, headline: str, body: str, severity: str = "PATTERN",
         return DuplicateHit(kind="rule", existing_id=dup.memory_id,
                             similarity=dup.similarity, existing_headline=dup.headline)
 
+    st_json = json.dumps(skill_trigger) if skill_trigger else None
     with conn.cursor() as cur:
         cur.execute(
             """
-            INSERT INTO rules (headline, body, severity, project, source)
-            VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO rules (headline, body, severity, project, source, skill_trigger)
+            VALUES (%s, %s, %s, %s, %s, %s::jsonb)
             RETURNING id, created_at
             """,
-            (headline, body, severity, project, source),
+            (headline, body, severity, project, source, st_json),
         )
         rid, created = cur.fetchone()
         _index_insert(cur, kind="rule", memory_id=rid, project=project,
                       headline=headline, severity=severity,
                       embedding_vec=embedding_vec, pinned=pinned)
+        # Store skill_trigger on memory_index for fast boot-time filtering
+        if st_json:
+            cur.execute(
+                "UPDATE memory_index SET skill_trigger = %s::jsonb "
+                "WHERE kind = 'rule' AND memory_id = %s",
+                (st_json, rid),
+            )
         _audit(cur, "INSERT", "rule", rid,
-               {"headline": headline, "severity": severity, "project": project}, source)
+               {"headline": headline, "severity": severity, "project": project,
+                "skill_trigger": skill_trigger}, source)
     conn.commit()
     return Memory(kind="rule", id=rid, headline=headline, body=body, project=project,
                   severity=severity, created_at=str(created))
@@ -367,7 +383,98 @@ def search_headlines(conn, *, query: str, kind: str | None = None,
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(sql, params)
         rows = cur.fetchall()
-    return [dict(r) for r in rows]
+    results = [dict(r) for r in rows]
+
+    # Merge skill keyword matches (cheap string match, no Ollama call)
+    from .config import SKILL_TRIGGER_MAX
+    skills = get_skills_by_keywords(conn, query=query,
+                                     project_filter=project, limit=SKILL_TRIGGER_MAX)
+    # Annotate cosine results that also matched by keyword, add new ones
+    seen_ids = {r["memory_id"]: i for i, r in enumerate(results)}
+    for skill in skills:
+        idx = seen_ids.get(skill["memory_id"])
+        if idx is not None:
+            # Already in results from cosine — annotate with skill trigger info
+            results[idx]["via_skill_trigger"] = skill["via_skill_trigger"]
+            results[idx]["skill_trigger"] = skill.get("skill_trigger")
+        else:
+            results.append(skill)
+            seen_ids[skill["memory_id"]] = len(results) - 1
+    return results[:limit]
+
+
+# ── SKILLS LAYER ────────────────────────────────────────────────────
+def get_skills_by_keywords(conn, query: str, project_filter: str | None,
+                            limit: int = 5) -> list[dict]:
+    """Return rules whose skill_trigger keywords match the query string.
+
+    Keyword matching is case-insensitive substring (not embedding similarity).
+    Respects project scope: empty projects array = global, populated = scoped.
+    Only active (non-superseded) skills are returned.
+    """
+    query_lower = query.lower()
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT r.id, r.headline, r.body, r.project, r.skill_trigger, "
+            "       r.created_at, mi.memory_id, mi.kind, mi.pinned "
+            "FROM rules r JOIN memory_index mi ON mi.kind = 'rule' AND mi.memory_id = r.id "
+            "WHERE r.skill_trigger IS NOT NULL "
+            "  AND mi.active = TRUE "
+            "ORDER BY r.created_at ASC"
+        )
+        matches = []
+        for row in cur.fetchall():
+            trig = row[4] or {}
+            keywords = [kw for kw in (trig.get("keywords") or []) if kw]
+            if not keywords or not any(kw.lower() in query_lower for kw in keywords):
+                continue
+            scope = trig.get("projects") or []
+            if scope and (not project_filter or project_filter not in scope):
+                continue
+            d = {"kind": "rule", "memory_id": row[6], "headline": row[1],
+                 "project": row[3], "skill_trigger": trig,
+                 "via_skill_trigger": trig.get("name", "unknown")}
+            matches.append(d)
+            if len(matches) >= limit:
+                break
+    return matches
+
+
+def get_skill_by_name(conn, name: str,
+                       project_filter: str | None = None) -> dict | None:
+    """Fetch a specific skill by its trigger name.
+
+    Returns None if not found or out of scope for the given project.
+    Only active (non-superseded) skills are returned.
+    """
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "SELECT r.id, r.headline, r.body, r.project, r.severity, "
+            "       r.skill_trigger, r.created_at "
+            "FROM rules r JOIN memory_index mi ON mi.kind = 'rule' AND mi.memory_id = r.id "
+            "WHERE r.skill_trigger->>'name' = %s "
+            "  AND mi.active = TRUE "
+            "LIMIT 1",
+            (name,),
+        )
+        row = cur.fetchone()
+    if not row:
+        return None
+    trig = row["skill_trigger"] or {}
+    scope = trig.get("projects") or []
+    if scope and (not project_filter or project_filter not in scope):
+        return None
+    return {
+        "kind": "rule",
+        "memory_id": row["id"],
+        "headline": row["headline"],
+        "body": row["body"],
+        "project": row["project"],
+        "severity": row["severity"],
+        "skill_trigger": trig,
+        "via_skill_trigger": trig.get("name", "unknown"),
+        "created_at": str(row["created_at"]),
+    }
 
 
 # ── SESSION REGISTRY ─────────────────────────────────────────────────
