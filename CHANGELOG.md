@@ -5,6 +5,69 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-04-17
+
+### brain_v2 — major revision, production-ready
+
+Ground-up memory architecture redesign. Runs alongside v1 as a separate
+MCP server (`open-brain-v2`) on its own Postgres database (`open_brain_v2`,
+port 5433). v1 remains untouched and authoritative until explicit cutover.
+
+**Architecture:**
+- Four atomic memory types (RULE / FACT / INCIDENT / TASK) replacing
+  the single `memories` table. Each type has its own table, retrieval
+  policy, and lifecycle.
+- Shared `memory_index` table with pgvector HNSW embedding index for
+  cross-type headline search without materializing bodies.
+- Headline-only boot payload (5 BLOCKER cap, 5 PATTERN cap, 2000 token
+  cap). Bodies fetched on demand via `recall_v2`.
+- Immutable RULE bodies — supersede-only modification path.
+- Five-step write gate: type + severity + headline + atomicity + duplicate
+  detection. Merge is an invalid operation for RULE type.
+- In-session temporal cache with LRU eviction (cap 100 sessions).
+- Session registry with handoff protocol for cross-session continuity.
+- Action-item gate: pending items BLOCK writes until acknowledged.
+
+**Observability (ported from v1 + new):**
+- `brain_v2/observability.py` — JSONL rotating log (5MB x 5), in-memory
+  ring buffer (500 entries), per-tool call counts / error counts / avg+p99
+  latency, Windows desktop toast alerts on errors.
+- `tool_events` table — persistent telemetry for every MCP tool call
+  (reads AND writes) with session_id, duration_ms, success/error.
+  Pre-boot events buffered to JSONL on disk, flushed with real session_id
+  on `boot_session_v2`. `ON CONFLICT (event_id) DO NOTHING` for crash
+  recovery. `session_id` is NOT NULL — guaranteed.
+- `metrics_v2` MCP tool — per-tool call counts, error rates, avg/p99 ms.
+- `recent_errors_v2` MCP tool — last N errors from ring buffer.
+- `health_v2` MCP tool — DB connectivity, Ollama reachability (socket-level
+  connect test, not urlopen — respects 5s timeout on Windows), table row
+  counts, server uptime, tool list.
+- psycopg2 auto-instrumentation via OpenTelemetry (silent fail if not installed).
+- Configurable slow-call threshold (`OPEN_BRAIN_V2_SLOW_CALL_MS`, default 10s).
+
+**Maintenance:**
+- Ebbinghaus fact decay (configurable halflife + threshold). Hard TTL support.
+- Incident archive (90-day default, configurable).
+- Rate-limited maintenance hook (`run_maintenance_if_due_v2`).
+- Prune with v1 safeguards (30-day floor, 50-row cap, dry_run default).
+
+**Audit findings addressed (3 rounds, 26 total fixes):**
+- Transaction atomicity (autocommit removed, conn.commit at boundaries).
+- Connection reuse (21s DNS overhead eliminated).
+- HNSW index preservation (CTE rewrite reverted to direct ORDER BY).
+- Schema constraint alignment (CONTEXT severity removed, migration blocks).
+- Missing commits, silent exception swallowing, dead code, redundant
+  indexes, unbounded queries, wrong file paths, duplicate imports.
+
+**Config:** All constants env-overridable. `BOOT_TASK_COUNT_CAP`,
+`SLOW_CALL_THRESHOLD_MS`, `OLLAMA_EMBED_TIMEOUT` added.
+
+**Tests:** 192 tests against real Postgres + real Ollama, ~3 minutes.
+Verbose output + short tracebacks by default (`pyproject.toml addopts`).
+
+**Version:** `2.0.0` per semver — this is a major revision, not an
+incremental update to v1.
+
 ## [0.22.0] - 2026-04-16
 
 ### Added — brain_v2 parallel operation: agent configs + monitoring
