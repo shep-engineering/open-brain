@@ -346,7 +346,7 @@ def search_headlines(conn, *, query: str, kind: str | None = None,
     materialize bodies by default."""
     embedding_vec = embed_to_pgvector(query)
     where = ["active = TRUE"]
-    params: list[Any] = [embedding_vec]  # for CTE
+    params: list[Any] = [embedding_vec]  # for SELECT similarity
     if kind:
         check_kind(kind)
         where.append("kind = %s")
@@ -354,16 +354,14 @@ def search_headlines(conn, *, query: str, kind: str | None = None,
     if project is not None:
         where.append("(project = %s OR project = '')")
         params.append(project)
+    params.append(embedding_vec)  # for ORDER BY (same value; pgvector CSE handles it)
     params.append(limit)
     sql = f"""
-        WITH scored AS (
-            SELECT kind, memory_id, headline, severity, project,
-                   1 - (embedding <=> %s::vector) AS similarity
-            FROM memory_index
-            WHERE {' AND '.join(where)}
-        )
-        SELECT * FROM scored
-        ORDER BY similarity DESC
+        SELECT kind, memory_id, headline, severity, project,
+               1 - (embedding <=> %s::vector) AS similarity
+        FROM memory_index
+        WHERE {' AND '.join(where)}
+        ORDER BY embedding <=> %s::vector ASC
         LIMIT %s
     """
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:

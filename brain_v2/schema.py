@@ -45,7 +45,11 @@ DO $$ BEGIN
     ALTER TABLE rules DROP CONSTRAINT IF EXISTS rules_severity_check;
     ALTER TABLE rules ADD CONSTRAINT rules_severity_check
         CHECK (severity IN ('BLOCKER', 'PATTERN', 'DEPRECATED'));
-EXCEPTION WHEN OTHERS THEN NULL;
+EXCEPTION WHEN check_violation THEN
+    RAISE WARNING 'brain_v2 schema: rules_severity_check constraint could not be applied '
+                  '— existing rows may have severity=CONTEXT. Run: '
+                  'UPDATE rules SET severity = ''PATTERN'' WHERE severity = ''CONTEXT''; '
+                  'then re-apply the schema.';
 END $$;
 DROP INDEX IF EXISTS rules_severity_project_idx;  -- superseded by the partial index below
 DROP INDEX IF EXISTS rules_active_idx;

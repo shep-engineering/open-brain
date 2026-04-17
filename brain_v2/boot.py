@@ -22,6 +22,7 @@ from .config import (
     BOOT_BLOCKER_COUNT_CAP,
     BOOT_HANDOFF_TOKEN_CAP,
     BOOT_PATTERN_COUNT_CAP,
+    BOOT_TASK_COUNT_CAP,
     BOOT_TOKEN_CAP,
 )
 from .embedding import embed_to_pgvector
@@ -64,6 +65,7 @@ class BootPayload:
             "caps": {
                 "blocker_count": BOOT_BLOCKER_COUNT_CAP,
                 "pattern_count": BOOT_PATTERN_COUNT_CAP,
+                "task_count": BOOT_TASK_COUNT_CAP,
                 "token_total": BOOT_TOKEN_CAP,
                 "handoff_tokens": BOOT_HANDOFF_TOKEN_CAP,
             },
@@ -96,24 +98,21 @@ def _fetch_patterns(cur, project: str, task_embedding: str | None) -> list[dict]
         return []
     cur.execute(
         """
-        WITH scored AS (
-            SELECT kind, memory_id, headline, project,
-                   1 - (embedding <=> %s::vector) AS similarity
-            FROM memory_index
-            WHERE active = TRUE
-              AND severity = 'PATTERN'
-              AND (project = %s OR project = '')
-        )
-        SELECT * FROM scored
-        ORDER BY similarity DESC
+        SELECT kind, memory_id, headline, project,
+               1 - (embedding <=> %s::vector) AS similarity
+        FROM memory_index
+        WHERE active = TRUE
+          AND severity = 'PATTERN'
+          AND (project = %s OR project = '')
+        ORDER BY embedding <=> %s::vector ASC
         LIMIT %s
         """,
-        (task_embedding, project, BOOT_PATTERN_COUNT_CAP),
+        (task_embedding, project, task_embedding, BOOT_PATTERN_COUNT_CAP),
     )
     return [dict(r) for r in cur.fetchall()]
 
 
-def _fetch_active_tasks(cur, project: str, limit: int = 20) -> list[dict]:
+def _fetch_active_tasks(cur, project: str) -> list[dict]:
     cur.execute(
         """
         SELECT id, content, priority, status
@@ -125,7 +124,7 @@ def _fetch_active_tasks(cur, project: str, limit: int = 20) -> list[dict]:
           created_at DESC
         LIMIT %s
         """,
-        (project, limit),
+        (project, BOOT_TASK_COUNT_CAP),
     )
     return [dict(r) for r in cur.fetchall()]
 

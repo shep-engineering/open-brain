@@ -94,18 +94,14 @@ def find_duplicate(conn, kind: str, embedding_vec: str, threshold: float = DUPLI
     with conn.cursor() as cur:
         cur.execute(
             """
-            WITH scored AS (
-                SELECT memory_id, headline,
-                       1 - (embedding <=> %s::vector) AS similarity
-                FROM memory_index
-                WHERE kind = %s AND active = TRUE
-            )
-            SELECT memory_id, headline, similarity
-            FROM scored
-            ORDER BY similarity DESC
+            SELECT memory_id, headline,
+                   1 - (embedding <=> %s::vector) AS similarity
+            FROM memory_index
+            WHERE kind = %s AND active = TRUE
+            ORDER BY embedding <=> %s::vector ASC
             LIMIT 1
             """,
-            (embedding_vec, kind),
+            (embedding_vec, kind, embedding_vec),
         )
         row = cur.fetchone()
     if not row:
