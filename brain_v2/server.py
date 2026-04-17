@@ -106,10 +106,17 @@ def _init_db_instrumentation():
 
 _init_db_instrumentation()
 
+import atexit as _atexit
+
 _SERVER_START_TIME = _time.time()
 _SESSION_ID = f"pid{os.getpid()}-{uuid.uuid4().hex[:8]}"
 _DB_SESSION_ID: int | None = None  # set by boot_session_v2
 _TOOL_CALL_COUNT = 0
+
+# Pre-session tool event buffer: events before boot_session_v2 flush to DB on boot
+_BUFFER_FILE = _Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) / "logs" / "tool_events_buffer.jsonl"
+_BUFFER_MAX_LINES     = 1000   # drop silently when full
+_BUFFER_MAX_AGE_HOURS = 24     # discard stale rows on flush
 
 
 def _instrument(fn):
@@ -144,23 +151,100 @@ def _instrument(fn):
 
 def _persist_tool_event(name: str, elapsed_ms: float, success: bool,
                         error_msg: str | None, kwargs: dict | None) -> None:
-    """Write a tool_events row. Never raises — telemetry must not block."""
+    """Write to DB if session active, else buffer to JSONL on disk. Never raises."""
+    import json as _json
+    from datetime import datetime, timezone
+
+    event_id = str(uuid.uuid4())
+    proj = (kwargs or {}).get("project", "")
+    proj = proj if isinstance(proj, str) else ""
+    src = (kwargs or {}).get("source", "")
+    src = src if isinstance(src, str) else ""
+    ts = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+
+    if _DB_SESSION_ID is not None:
+        try:
+            store.log_tool_event(
+                store.connect(), event_id=event_id, tool_name=name,
+                session_id=_DB_SESSION_ID, project=proj, source=src,
+                duration_ms=int(elapsed_ms), success=success,
+                error_msg=error_msg[:500] if error_msg else None)
+        except Exception:
+            pass
+    else:
+        try:
+            _BUFFER_FILE.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                with open(_BUFFER_FILE, encoding="utf-8") as bf:
+                    n = sum(1 for _ in bf)
+            except FileNotFoundError:
+                n = 0
+            if n >= _BUFFER_MAX_LINES:
+                return
+            with open(_BUFFER_FILE, "a", encoding="utf-8") as f:
+                f.write(_json.dumps({
+                    "event_id": event_id, "tool_name": name,
+                    "project": proj, "source": src,
+                    "duration_ms": int(elapsed_ms), "success": success,
+                    "error_msg": error_msg[:500] if error_msg else None,
+                    "occurred_at": ts,
+                }, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+
+
+def _flush_tool_event_buffer(session_id: int) -> None:
+    """Flush buffered pre-session tool events into the DB. Safe to call multiple times."""
+    import json as _json
+    from datetime import datetime, timezone, timedelta
+
+    if not _BUFFER_FILE.exists():
+        return
     try:
-        proj = (kwargs or {}).get("project", "")
-        src = (kwargs or {}).get("source", "")
+        lines = _BUFFER_FILE.read_text(encoding="utf-8").splitlines()
+    except Exception as exc:
+        _log.warning("_flush_tool_event_buffer: read failed: %s", exc)
+        return
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=_BUFFER_MAX_AGE_HOURS)
+    inserted = skipped = 0
+    try:
         conn = store.connect()
-        store.log_tool_event(
-            conn,
-            tool_name=name,
-            session_id=_DB_SESSION_ID,
-            project=proj if isinstance(proj, str) else "",
-            source=src if isinstance(src, str) else "",
-            duration_ms=int(elapsed_ms),
-            success=success,
-            error_msg=error_msg[:500] if error_msg else None,
-        )
-    except Exception:
-        pass  # telemetry must NEVER block tool execution
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = _json.loads(line)
+            except Exception:
+                skipped += 1
+                continue
+            try:
+                row_ts = datetime.fromisoformat(row.get("occurred_at", ""))
+                if row_ts.tzinfo is None:
+                    row_ts = row_ts.replace(tzinfo=timezone.utc)
+                if row_ts < cutoff:
+                    skipped += 1
+                    continue
+            except Exception:
+                pass
+            store.log_tool_event(
+                conn,
+                event_id=row.get("event_id", str(uuid.uuid4())),
+                tool_name=row.get("tool_name", "unknown"),
+                session_id=session_id,
+                project=row.get("project", ""),
+                source=row.get("source", ""),
+                duration_ms=row.get("duration_ms"),
+                success=row.get("success", True),
+                error_msg=row.get("error_msg"),
+                occurred_at=row.get("occurred_at"),
+            )
+            inserted += 1
+        _BUFFER_FILE.unlink(missing_ok=True)
+        _log.info("_flush_tool_event_buffer: flushed=%d skipped=%d", inserted, skipped)
+    except Exception as exc:
+        _log.warning("_flush_tool_event_buffer: flush failed: %s — buffer retained", exc)
 
 
 def _check_write_gate(project: str) -> str | None:
@@ -288,6 +372,7 @@ def boot_session_v2(project: str = "", task: str = "", source: str = "",
         _log.exception("boot_session_v2 failed")
         return _err(f"boot failed: {exc}")
     _DB_SESSION_ID = payload.session_id
+    _flush_tool_event_buffer(_DB_SESSION_ID)
     _log.info("boot_session_v2: source=%s project=%s session_id=%s siblings=%d",
               source, project, payload.session_id, len(payload.other_active_sessions))
     return _ok({"worker_session_id": _SESSION_ID, **payload.to_dict()})
@@ -1268,6 +1353,14 @@ def ensure_schema() -> None:
         import sys
         print(f"[open-brain-v2] schema check deferred (DB not ready): {exc}",
               file=sys.stderr)
+
+
+def _on_shutdown():
+    if _DB_SESSION_ID is not None:
+        _flush_tool_event_buffer(_DB_SESSION_ID)
+    obs.shutdown()
+
+_atexit.register(_on_shutdown)
 
 
 if __name__ == "__main__":

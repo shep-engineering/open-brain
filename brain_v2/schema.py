@@ -227,16 +227,21 @@ CREATE INDEX IF NOT EXISTS v2_audit_ts_idx ON v2_audit (changed_at DESC);
 -- Every tool call (reads AND writes) with timing. v2_audit covers
 -- write mutations only; tool_events covers the full picture for
 -- observability: which tools are called, how often, how fast, errors.
+-- session_id is NOT NULL — pre-boot events are buffered to a JSONL
+-- file on disk and flushed into this table once boot_session_v2
+-- establishes a session.
 CREATE TABLE IF NOT EXISTS tool_events (
     id          BIGSERIAL    PRIMARY KEY,
-    session_id  INTEGER      REFERENCES active_sessions(id) ON DELETE SET NULL,
+    event_id    UUID         NOT NULL DEFAULT gen_random_uuid(),
+    session_id  INTEGER      NOT NULL REFERENCES active_sessions(id) ON DELETE CASCADE,
     tool_name   TEXT         NOT NULL,
     project     TEXT         NOT NULL DEFAULT '',
     source      TEXT         NOT NULL DEFAULT '',
     duration_ms INTEGER,
     success     BOOLEAN      NOT NULL DEFAULT TRUE,
     error_msg   TEXT,
-    occurred_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    occurred_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    CONSTRAINT tool_events_event_id_unique UNIQUE (event_id)
 );
 CREATE INDEX IF NOT EXISTS tool_events_session_time_idx
     ON tool_events (session_id, occurred_at DESC);
@@ -245,6 +250,22 @@ CREATE INDEX IF NOT EXISTS tool_events_tool_time_idx
 CREATE INDEX IF NOT EXISTS tool_events_project_time_idx
     ON tool_events (project, occurred_at DESC)
     WHERE project != '';
+-- Migration for existing deployments
+-- 1. Delete orphaned rows with NULL session_id (pre-buffer era)
+DELETE FROM tool_events WHERE session_id IS NULL;
+-- 2. Add event_id column + unique constraint
+DO $$ BEGIN
+    ALTER TABLE tool_events ADD COLUMN IF NOT EXISTS event_id UUID NOT NULL DEFAULT gen_random_uuid();
+    ALTER TABLE tool_events ADD CONSTRAINT tool_events_event_id_unique UNIQUE (event_id);
+EXCEPTION WHEN duplicate_table OR duplicate_object THEN NULL;
+END $$;
+-- 3. Make session_id NOT NULL + update FK to CASCADE (safe after orphan cleanup)
+DO $$ BEGIN
+    ALTER TABLE tool_events ALTER COLUMN session_id SET NOT NULL;
+EXCEPTION WHEN not_null_violation THEN
+    RAISE WARNING 'brain_v2 schema: tool_events.session_id has NULL rows — '
+                  'run DELETE FROM tool_events WHERE session_id IS NULL; then re-apply.';
+END $$;
 """
 
 

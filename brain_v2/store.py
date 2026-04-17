@@ -1294,25 +1294,31 @@ def list_recent(conn, *, limit: int = 20, days: int = 0,
 def log_tool_event(
     conn,
     *,
+    event_id: str,
     tool_name: str,
-    session_id: int | None = None,
+    session_id: int,
     project: str = "",
     source: str = "",
     duration_ms: int | None = None,
     success: bool = True,
     error_msg: str | None = None,
+    occurred_at: str | None = None,
 ) -> None:
-    """Persist one tool_events row. Never raises — telemetry must not block callers."""
+    """Persist one tool_events row. ON CONFLICT DO NOTHING makes re-flush safe. Never raises."""
     try:
+        cols = "(event_id, session_id, tool_name, project, source, duration_ms, success, error_msg"
+        vals: list[Any] = [event_id, session_id, tool_name, project or "", source or "",
+                           duration_ms, success, error_msg]
+        if occurred_at:
+            cols += ", occurred_at"
+            vals.append(occurred_at)
+        cols += ")"
+        placeholders = ", ".join(["%s"] * len(vals))
         with conn.cursor() as cur:
             cur.execute(
-                """
-                INSERT INTO tool_events
-                    (session_id, tool_name, project, source, duration_ms, success, error_msg)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-                """,
-                (session_id, tool_name, project or "", source or "",
-                 duration_ms, success, error_msg),
+                f"INSERT INTO tool_events {cols} VALUES ({placeholders}) "
+                f"ON CONFLICT (event_id) DO NOTHING",
+                vals,
             )
         conn.commit()
     except Exception as exc:
