@@ -1288,3 +1288,32 @@ def list_recent(conn, *, limit: int = 20, days: int = 0,
             d["forgotten_at"] = str(d["forgotten_at"])
         out.append(d)
     return out
+
+
+# ── TOOL EVENTS (observability) ─────────────────────────────────────
+def log_tool_event(
+    conn,
+    *,
+    tool_name: str,
+    session_id: int | None = None,
+    project: str = "",
+    source: str = "",
+    duration_ms: int | None = None,
+    success: bool = True,
+    error_msg: str | None = None,
+) -> None:
+    """Persist one tool_events row. Never raises — telemetry must not block callers."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO tool_events
+                    (session_id, tool_name, project, source, duration_ms, success, error_msg)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """,
+                (session_id, tool_name, project or "", source or "",
+                 duration_ms, success, error_msg),
+            )
+        conn.commit()
+    except Exception as exc:
+        log.warning("log_tool_event: failed to persist: %s", exc)

@@ -55,6 +55,9 @@ import time as _time
 from functools import wraps as _wraps
 from pathlib import Path as _Path
 
+from brain_v2.observability import obs
+from brain_v2.config import SLOW_CALL_THRESHOLD_MS
+
 # ── Structured logging: file + stderr ────────────────────────────────
 _LOG_DIR = _Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) / "logs"
 _LOG_DIR.mkdir(exist_ok=True)
@@ -86,6 +89,23 @@ _ns_logger.propagate = False  # don't double-log via root
 _log = logging.getLogger("brain_v2.server")
 _log.info("server.py loading — pid=%d log_file=%s", os.getpid(), _LOG_FILE)
 
+# Initialize observability layer (JSONL logging, metrics, toast alerts)
+import brain_v2 as _brain_v2_pkg
+obs.startup(version=_brain_v2_pkg.__version__)
+
+# psycopg2 auto-instrumentation for DB query timing (silent fail if unavailable)
+def _init_db_instrumentation():
+    try:
+        from opentelemetry.instrumentation.psycopg2 import Psycopg2Instrumentor
+        Psycopg2Instrumentor().instrument()
+        _log.info("psycopg2 auto-instrumentation active")
+    except ImportError:
+        _log.debug("opentelemetry-instrumentation-psycopg2 not installed, skipping")
+    except Exception as exc:
+        _log.warning("psycopg2 instrumentation failed: %s", exc)
+
+_init_db_instrumentation()
+
 _SERVER_START_TIME = _time.time()
 _SESSION_ID = f"pid{os.getpid()}-{uuid.uuid4().hex[:8]}"
 _DB_SESSION_ID: int | None = None  # set by boot_session_v2
@@ -93,7 +113,7 @@ _TOOL_CALL_COUNT = 0
 
 
 def _instrument(fn):
-    """Decorator: logs entry/exit + duration for every MCP tool call."""
+    """Decorator: logs entry/exit + duration, records metrics + persistent telemetry."""
     @_wraps(fn)
     def wrapper(*args, **kwargs):
         global _TOOL_CALL_COUNT
@@ -103,17 +123,44 @@ def _instrument(fn):
         _log.info("TOOL_ENTRY #%d %s args=%s", call_id, name,
                   {k: (str(v)[:80] if isinstance(v, str) else v)
                    for k, v in kwargs.items()} if kwargs else "(positional)")
-        t0 = _time.time()
+        t0 = _time.perf_counter()
         try:
             result = fn(*args, **kwargs)
-            elapsed = _time.time() - t0
-            _log.info("TOOL_EXIT  #%d %s %.3fs ok", call_id, name, elapsed)
+            elapsed_ms = (_time.perf_counter() - t0) * 1000
+            _log.info("TOOL_EXIT  #%d %s %.1fms ok", call_id, name, elapsed_ms)
+            obs.record_call(name, elapsed_ms, success=True)
+            obs.record_slow_call(name, elapsed_ms, threshold_ms=SLOW_CALL_THRESHOLD_MS)
+            _persist_tool_event(name, elapsed_ms, True, None, kwargs)
             return result
         except Exception as exc:
-            elapsed = _time.time() - t0
-            _log.error("TOOL_EXIT  #%d %s %.3fs ERROR: %s", call_id, name, elapsed, exc)
+            elapsed_ms = (_time.perf_counter() - t0) * 1000
+            _log.error("TOOL_EXIT  #%d %s %.1fms ERROR: %s", call_id, name, elapsed_ms, exc)
+            obs.record_call(name, elapsed_ms, success=False,
+                            error=f"{type(exc).__name__}: {exc}")
+            _persist_tool_event(name, elapsed_ms, False, str(exc), kwargs)
             raise
     return wrapper
+
+
+def _persist_tool_event(name: str, elapsed_ms: float, success: bool,
+                        error_msg: str | None, kwargs: dict | None) -> None:
+    """Write a tool_events row. Never raises — telemetry must not block."""
+    try:
+        proj = (kwargs or {}).get("project", "")
+        src = (kwargs or {}).get("source", "")
+        conn = store.connect()
+        store.log_tool_event(
+            conn,
+            tool_name=name,
+            session_id=_DB_SESSION_ID,
+            project=proj if isinstance(proj, str) else "",
+            source=src if isinstance(src, str) else "",
+            duration_ms=int(elapsed_ms),
+            success=success,
+            error_msg=error_msg[:500] if error_msg else None,
+        )
+    except Exception:
+        pass  # telemetry must NEVER block tool execution
 
 
 def _check_write_gate(project: str) -> str | None:
@@ -167,7 +214,8 @@ def health_v2() -> str:
             with conn.cursor() as cur:
                 for tbl in ("rules", "facts", "incidents", "tasks",
                             "memory_index", "action_items", "active_sessions",
-                            "handoffs", "maintenance_runs", "v2_audit"):
+                            "handoffs", "maintenance_runs", "v2_audit",
+                            "tool_events"):
                     try:
                         cur.execute(f"SELECT COUNT(*) FROM {tbl}")
                         checks["tables"][tbl] = cur.fetchone()[0]
@@ -1185,6 +1233,24 @@ def prune_v2(days: int = 90, min_access: int = 0,
         _log.exception("prune_v2 failed")
         return _err(f"prune failed: {exc}")
     return _ok({"success": True, **result})
+
+
+@mcp.tool()
+def metrics_v2() -> str:
+    """Return per-tool call counts, error rates, and latency percentiles
+    for the current server process lifetime.
+
+    Useful for diagnosing which tools are slow or failing frequently.
+    """
+    return _ok(obs.get_metrics())
+
+
+@mcp.tool()
+def recent_errors_v2(n: int = 20) -> str:
+    """Return the last N error events from the in-memory log ring buffer.
+    Useful for diagnosing recent failures without reading log files.
+    """
+    return _ok({"errors": obs.get_recent_errors(n=n)})
 
 
 _schema_applied = False

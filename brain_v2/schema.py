@@ -222,6 +222,29 @@ CREATE TABLE IF NOT EXISTS v2_audit (
     changed_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS v2_audit_ts_idx ON v2_audit (changed_at DESC);
+
+-- ── TOOL EVENTS ─────────────────────────────────────────────────────
+-- Every tool call (reads AND writes) with timing. v2_audit covers
+-- write mutations only; tool_events covers the full picture for
+-- observability: which tools are called, how often, how fast, errors.
+CREATE TABLE IF NOT EXISTS tool_events (
+    id          BIGSERIAL    PRIMARY KEY,
+    session_id  INTEGER      REFERENCES active_sessions(id) ON DELETE SET NULL,
+    tool_name   TEXT         NOT NULL,
+    project     TEXT         NOT NULL DEFAULT '',
+    source      TEXT         NOT NULL DEFAULT '',
+    duration_ms INTEGER,
+    success     BOOLEAN      NOT NULL DEFAULT TRUE,
+    error_msg   TEXT,
+    occurred_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS tool_events_session_time_idx
+    ON tool_events (session_id, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS tool_events_tool_time_idx
+    ON tool_events (tool_name, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS tool_events_project_time_idx
+    ON tool_events (project, occurred_at DESC)
+    WHERE project != '';
 """
 
 
