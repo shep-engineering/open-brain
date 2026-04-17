@@ -110,24 +110,35 @@ class TestSearchSkillKeywords:
         assert skill_results[0]["via_skill_trigger"] == "ollama-shutdown"
 
     def test_skill_trigger_max_caps_results(self, conn):
-        for i in range(8):
+        # Use highly distinct headlines/bodies to avoid duplicate detection
+        topics = [
+            ("Database backup procedures", "Always run pg_dump before schema changes."),
+            ("Python virtual environment setup", "Use python -m venv to create isolated environments."),
+            ("Docker container networking", "Bridge networks connect containers on the same host."),
+            ("Git branch naming conventions", "Use feat/ fix/ docs/ chore/ prefixes consistently."),
+            ("Ollama model management tips", "Use ollama list to see installed models."),
+            ("Windows service configuration", "Use sc.exe to manage Windows services."),
+            ("PostgreSQL index tuning guide", "Partial indexes reduce storage for filtered queries."),
+            ("API rate limiting strategies", "Token bucket algorithm provides burst tolerance."),
+        ]
+        for i, (headline, body) in enumerate(topics):
             store.remember_rule(
-                conn, headline=f"Skill number {i}",
-                body=f"Body for skill {i}.",
+                conn, headline=headline, body=body,
                 severity="PATTERN", project="test", source="test",
                 skill_trigger={
-                    "name": f"bulk-skill-{i}",
-                    "keywords": ["bulktest"],
+                    "name": f"cap-test-skill-{i}",
+                    "keywords": ["bulkcaptest"],
                     "projects": [],
                     "always_on": False,
                 },
             )
-        results = store.search_headlines(
-            conn, query="bulktest query", project="test", limit=20,
-        )
-        skill_results = [r for r in results if r.get("via_skill_trigger")]
         from brain_v2.config import SKILL_TRIGGER_MAX
-        assert len(skill_results) <= SKILL_TRIGGER_MAX
+        skills = store.get_skills_by_keywords(
+            conn, query="bulkcaptest query", project_filter="test",
+            limit=SKILL_TRIGGER_MAX,
+        )
+        assert len(skills) == SKILL_TRIGGER_MAX
+        assert SKILL_TRIGGER_MAX < len(topics)  # cap must be below inserted count
 
 
 class TestLoadSkill:

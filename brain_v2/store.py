@@ -425,8 +425,8 @@ def get_skills_by_keywords(conn, query: str, project_filter: str | None,
         matches = []
         for row in cur.fetchall():
             trig = row[4] or {}
-            keywords = trig.get("keywords") or []
-            if not any(kw.lower() in query_lower for kw in keywords):
+            keywords = [kw for kw in (trig.get("keywords") or []) if kw]
+            if not keywords or not any(kw.lower() in query_lower for kw in keywords):
                 continue
             scope = trig.get("projects") or []
             if scope and (not project_filter or project_filter not in scope):
