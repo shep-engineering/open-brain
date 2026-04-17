@@ -5,6 +5,465 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-04-17
+
+### brain_v2 — major revision, production-ready
+
+Ground-up memory architecture redesign. Runs alongside v1 as a separate
+MCP server (`open-brain-v2`) on its own Postgres database (`open_brain_v2`,
+port 5433). v1 remains untouched and authoritative until explicit cutover.
+
+**Architecture:**
+- Four atomic memory types (RULE / FACT / INCIDENT / TASK) replacing
+  the single `memories` table. Each type has its own table, retrieval
+  policy, and lifecycle.
+- Shared `memory_index` table with pgvector HNSW embedding index for
+  cross-type headline search without materializing bodies.
+- Headline-only boot payload (5 BLOCKER cap, 5 PATTERN cap, 2000 token
+  cap). Bodies fetched on demand via `recall_v2`.
+- Immutable RULE bodies — supersede-only modification path.
+- Five-step write gate: type + severity + headline + atomicity + duplicate
+  detection. Merge is an invalid operation for RULE type.
+- In-session temporal cache with LRU eviction (cap 100 sessions).
+- Session registry with handoff protocol for cross-session continuity.
+- Action-item gate: pending items BLOCK writes until acknowledged.
+
+**Observability (ported from v1 + new):**
+- `brain_v2/observability.py` — JSONL rotating log (5MB x 5), in-memory
+  ring buffer (500 entries), per-tool call counts / error counts / avg+p99
+  latency, Windows desktop toast alerts on errors.
+- `tool_events` table — persistent telemetry for every MCP tool call
+  (reads AND writes) with session_id, duration_ms, success/error.
+  Pre-boot events buffered to JSONL on disk, flushed with real session_id
+  on `boot_session_v2`. `ON CONFLICT (event_id) DO NOTHING` for crash
+  recovery. `session_id` is NOT NULL — guaranteed.
+- `metrics_v2` MCP tool — per-tool call counts, error rates, avg/p99 ms.
+- `recent_errors_v2` MCP tool — last N errors from ring buffer.
+- `health_v2` MCP tool — DB connectivity, Ollama reachability (socket-level
+  connect test, not urlopen — respects 5s timeout on Windows), table row
+  counts, server uptime, tool list.
+- psycopg2 auto-instrumentation via OpenTelemetry (silent fail if not installed).
+- Configurable slow-call threshold (`OPEN_BRAIN_V2_SLOW_CALL_MS`, default 10s).
+
+**Maintenance:**
+- Ebbinghaus fact decay (configurable halflife + threshold). Hard TTL support.
+- Incident archive (90-day default, configurable).
+- Rate-limited maintenance hook (`run_maintenance_if_due_v2`).
+- Prune with v1 safeguards (30-day floor, 50-row cap, dry_run default).
+
+**Audit findings addressed (3 rounds, 26 total fixes):**
+- Transaction atomicity (autocommit removed, conn.commit at boundaries).
+- Connection reuse (21s DNS overhead eliminated).
+- HNSW index preservation (CTE rewrite reverted to direct ORDER BY).
+- Schema constraint alignment (CONTEXT severity removed, migration blocks).
+- Missing commits, silent exception swallowing, dead code, redundant
+  indexes, unbounded queries, wrong file paths, duplicate imports.
+
+**Config:** All constants env-overridable. `BOOT_TASK_COUNT_CAP`,
+`SLOW_CALL_THRESHOLD_MS`, `OLLAMA_EMBED_TIMEOUT` added.
+
+**Tests:** 192 tests against real Postgres + real Ollama, ~3 minutes.
+Verbose output + short tracebacks by default (`pyproject.toml addopts`).
+
+**Version:** `2.0.0` per semver — this is a major revision, not an
+incremental update to v1.
+
+## [0.22.0] - 2026-04-16
+
+### Added — brain_v2 parallel operation: agent configs + monitoring
+
+v2 is now wired for parallel operation alongside v1 across all agents.
+
+**Status monitoring (per telemetry guardrail):**
+- `health_v2()` MCP tool — returns DB connectivity, Ollama reachability,
+  per-table row counts, server uptime, tool-call counter, tool list.
+  First thing to call when diagnosing issues.
+- Structured dual-output logging: every tool call logged with entry/exit
+  + duration to both `logs/brain_v2.log` (persistent file) and stderr
+  (for MCP client visibility). Auto-instrumented via monkey-patched
+  `mcp.tool()` decorator — zero per-function changes, applies to all
+  36 tools uniformly.
+- Startup log line: `"server.py loading — pid=<pid> log_file=<path>"`.
+
+**Agent configs registered (v2 alongside v1):**
+- Claude Code: already registered (via `claude mcp add`). Both v1 + v2
+  show `✓ Connected` in `claude mcp list`.
+- Windsurf (codeium): `~/.codeium/windsurf/mcp_config.json` — added.
+- Windsurf (alt): `~/.windsurf/mcp_config.json` — added.
+- Cursor: `~/.cursor/mcp.json` — added.
+- VS Code MCP config was empty; left alone (no v1 entry to pair with).
+
+**v2 startup scripts (do NOT touch v1):**
+- `scripts/windows/brain-v2-up.cmd` — starts `open-brain-v2-db` container
+  on port 5433, waits for health check, reports status.
+- `scripts/brain-v2-up.sh` — same for Linux/WSL/macOS.
+
+**v1 stays authoritative.** v2 runs alongside for agents to exercise.
+No cutover. Phase 4 (task leases) and v1 canonicalization deferred
+per Dave's instruction.
+
+**Tool count:** 35 → **36**. Tests: 192 existing still pass (not re-run
+this session since no store/schema changes; only server wiring + logging).
+
+## [0.21.0] - 2026-04-16
+
+### Added — brain_v2 v1 parity complete: forget_many + unsupersede + prune + brain_startup_reminder
+
+Closes the FINAL v1 tool-parity gap. v2 now has functional equivalents
+for every v1 tool except `load_skill` (explicitly deferred — requires
+skill_trigger schema, tracked as a separate feature).
+
+**4 new MCP tools:**
+- `forget_many_v2(kinds, memory_ids, reason, source)` — batch
+  soft-delete via parallel lists. Partial success allowed; returns
+  per-item outcome (forgotten / already_forgotten / not_found).
+- `unsupersede_v2(old_id, source)` — reverse a rule supersession.
+  Restores severity, reactivates memory_index row, clears
+  superseded_by. Corrector rule stays active (caller can forget it
+  for full undo). Mirrors v1's unsupersede exactly.
+- `prune_v2(days, min_access, dry_run)` — HARD delete of stale
+  memories with v1 safeguards: 30-day floor, 50-row cap, dry_run
+  default True, pinned never pruned, rules never pruned. Targets
+  facts (by access_count), archived incidents, and done/stale tasks.
+  Every deletion audited via v2_audit BEFORE the row is removed.
+- `brain_startup_reminder_v2()` — mandatory session-start system
+  message, adjusted for v2 tool names. Same structure as v1.
+
+**Prune safeguards (mirrors v1 exactly):**
+- `OPEN_BRAIN_V2_PRUNE_MIN_DAYS` (default 30) — hard floor
+- `OPEN_BRAIN_V2_PRUNE_MAX_DELETE` (default 50) — hard cap per call
+- Rules are NEVER pruned (immutable in v2 design)
+- Pinned memories are NEVER pruned
+
+**Bug fix:** `store.prune()` now returns `{dry_run: False, deleted: 0}`
+when dry_run=False but no candidates match (previously returned a
+dry_run-shaped response, causing KeyError on `result["deleted"]`).
+
+**Tests (24 new in `test_parity_final.py`):**
+- TestForgetMany (5): batch, partial-not-found, idempotent, empty,
+  mixed-kinds
+- TestUnsupersede (4): reverses-chain, corrector-remains-active,
+  not-superseded-raises, missing-raises
+- TestBrainStartupReminder (3): structured message, mentions
+  boot_session_v2, mentions action_item ack
+- TestPruneSafeguards (12): below-min-raises, dry-run-default,
+  hard-delete-execution, pinned-never-pruned, rules-never-pruned,
+  access-count-filter, archived-incidents-eligible, non-archived-
+  not-pruned, done-tasks-eligible, open-tasks-not-pruned, hard-cap-
+  per-call (monkeypatched), dry-run-reports-would-total
+
+**Full regression:** 192/192 passing against real Postgres + real
+Ollama (~61 min full-suite runtime, no mocks).
+
+**Tool count:** 31 → **35**. Total v2 test count: 168 → **192**.
+
+**v1 tool parity is now COMPLETE** (except load_skill, deferred).
+
+## [0.20.0] - 2026-04-16
+
+### Added — brain_v2 v1 tool parity: annotate / rate / pin / unpin / scratch / brain_checkpoint
+
+Closes the last major v1-to-v2 tool-parity gap. Agents moving from v1
+to v2 now have equivalent day-to-day affordances.
+
+**8 new MCP tools, each modeled exactly on the v1 equivalent:**
+
+| v1 tool | v2 equivalent | Notes |
+|---|---|---|
+| `annotate` | `annotate_v2(kind, memory_id, note, clear)` | Set/clear/read modes |
+| `rate` | `rate_v2(kind, memory_id, direction)` | 'up' or 'down' |
+| `pin` | `pin_v2(kind, memory_id)` | Project-scoped only (global refused) |
+| `unpin` | `unpin_v2(kind, memory_id)` | No-op success on never-pinned |
+| `scratch_set` | `scratch_set_v2(key, value)` | In-process dict; ephemeral |
+| `scratch_get` | `scratch_get_v2(key)` | Returns {key, value, found} |
+| `scratch_list` | `scratch_list_v2()` | Returns {count, entries} |
+| `brain_checkpoint` | `brain_checkpoint_v2(action, source, context, project)` | Per-source cooldown |
+
+**Behavioral parity with v1:**
+- `pin_v2` enforces the "no pinning global memories" rule (returns
+  an error if the memory has an empty project).
+- `brain_checkpoint_v2` uses an in-process cooldown keyed by
+  `(source, action)`. Default 5 min (env `OPEN_BRAIN_V2_CHECKPOINT_COOLDOWN`).
+- Scratchpad state is in-process only, intentionally not persisted
+  (mirrors v1's `_scratch` dict).
+
+**Schema additions to `memory_index`** (via `ALTER TABLE … ADD COLUMN
+IF NOT EXISTS`, backward-compatible):
+- `annotation TEXT`
+- `upvotes INTEGER NOT NULL DEFAULT 0`
+- `downvotes INTEGER NOT NULL DEFAULT 0`
+
+**Tests (25 new in `test_parity.py`):**
+- TestAnnotate (3): set, clear, missing-raises
+- TestRate (5): upvote, downvote, accumulation, invalid direction,
+  missing-raises
+- TestPinUnpin (6): project-scoped success, global-rejected, unpin,
+  unpin-noop, pin-fact, missing-raises
+- TestScratchpad (4): set+get, get-missing, list, overwrite
+- TestBrainCheckpoint (5): source-required, action-required,
+  surfaces-blocker-rules, cooldown-skips-repeat, different-actions-
+  not-skipped
+- TestIntegration (2): annotation persists across connections, vote
+  counts persist across connections
+
+**Full regression:** 168/168 passing against real Postgres + real
+Ollama (no mocks). Full-suite runtime: ~53 minutes.
+
+**Tool count:** 23 → 31. Total v2 test count: 143 → **168**.
+
+## [0.19.0] - 2026-04-16
+
+### Added — brain_v2 operational completeness: forget + stats + list_recent
+
+Closes the "v1 tool parity for day-to-day ops" gap. Before this
+release, v2 had no mechanism to remove a bad memory, inspect the
+corpus, or review recent activity — all three are table stakes for a
+memory system meant to run alongside v1.
+
+**3 new MCP tools:**
+- `forget_v2(kind, memory_id, reason, source)` — soft-delete. Sets
+  `memory_index.active=FALSE` + records `forgotten_at`, `forgotten_reason`,
+  `forgotten_by`. Body preserved for audit. Idempotent.
+- `stats_v2(project)` — corpus stats: per-kind totals + active/forgotten
+  breakdown, rule severity counts, task status breakdown, incident
+  archive counts, pending action items, active sessions.
+- `list_recent_v2(limit, days, kind, project, include_forgotten)` —
+  recent memory_index rows (headline-only). Filters on kind, project,
+  age in days. Hard cap 200.
+
+**recall_v2 enhancement:** now surfaces a forgotten banner when
+recalling a forgotten memory. Body still returned (audit semantics)
+but with `forgotten: {forgotten_at, forgotten_reason, forgotten_by,
+banner}` metadata so agents know not to trust it as current truth.
+Mirrors v1's superseded-memory banner pattern.
+
+**Schema additions to memory_index:**
+- `forgotten_at TIMESTAMPTZ` (NULL = not forgotten)
+- `forgotten_reason TEXT`
+- `forgotten_by TEXT`
+
+Added via `ALTER TABLE … ADD COLUMN IF NOT EXISTS` for backward
+compatibility with pre-0.19 v2 databases.
+
+**Tests (20 new):**
+- `TestForget`: deactivation, idempotency, missing-id error, excluded
+  from search, recall still returns body, kind validation
+- `TestStats`: empty DB, per-kind counts, severity breakdown, forgotten
+  separation, task status, project filter
+- `TestListRecent`: newest-first ordering, limit, kind filter,
+  forgotten exclusion/inclusion, days filter, hard cap, headline-only
+
+All passing against real Postgres.
+
+**Tool count:** 20 → 23. Total v2 test count: 143.
+
+## [0.18.0] - 2026-04-16
+
+### Added — brain_v2 maintenance scheduling decision + rate-limited hook path
+
+Closes the P2 follow-up "scheduling decision" listed in v0.17.0.
+
+**Decision (see `brain_v2/MAINTENANCE_SCHEDULING.md`):** MCP-hook,
+rate-limited in code — not external cron. Rationale: services aren't
+always up on Dave's workstation (Open Brain OFF shortcut), cron would
+race service availability, MCP hook aligns with v2's process-lifecycle
+liveness model, maintenance is pure SQL (no infra-cost risk), and we
+don't want to add another daemon.
+
+**Implementation:**
+- New `maintenance_runs` table (id, started_at, finished_at, report
+  JSONB, source). One row per actual run; skipped calls do NOT insert.
+- `MaintenanceReport` dataclass extended with `skipped`, `skipped_reason`,
+  `last_run_at` fields for the skip path.
+- `run_all(conn, source)` now records start + finish in maintenance_runs.
+- `run_if_due(conn, hours=24.0, source)` — short-circuits if the last
+  successful run was within `hours`. Returns a skipped report instead.
+  Safe to fire on every boot via a PostToolUse hook.
+- `run_maintenance_if_due_v2(hours=24.0)` MCP tool.
+
+**Optional Claude Code hook** (user configures in `~/.claude/settings.json`):
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "mcp__open-brain-v2__boot_session_v2",
+        "hooks": [{"type": "mcp", "tool": "mcp__open-brain-v2__run_maintenance_if_due_v2"}]
+      }
+    ]
+  }
+}
+```
+
+With the 24h default, runs at most once per day per MCP-client host.
+
+**Tests:** 6 new tests in `TestRunIfDue` class (no-prior / within-window
+/ after-window / skipped-no-record / custom-window / counts-on-real-run).
+All passing. Full regression: 117 original + 6 new = 123 tests.
+
+**Docs updated:**
+- `brain_v2/MAINTENANCE_SCHEDULING.md` (new) — full rationale + hook config
+- `docs/planning/brain-v2-gap-analysis.md` — all P0–P3 closed, known
+  limitations documented (§7): heuristic classification caveat,
+  scheduling trade-off, cutover remains out of scope.
+
+**Tool count:** 19 → 20.
+
+## [0.17.0] - 2026-04-16
+
+### Added — brain_v2 P2 gaps closed: fact decay + incident archive
+
+Closes Gaps 5 and 6 from `docs/planning/brain-v2-gap-analysis.md`.
+Completes Windsurf synthesis §4.6 (decay by type).
+
+**New module `brain_v2/maintenance.py`:**
+- `decay_facts(conn, halflife_days, threshold)` — Ebbinghaus decay.
+  Score = `2^(-Δdays / halflife)` where Δdays is days since last access
+  (falls back to created_at if never accessed). Facts below threshold
+  are deactivated in `memory_index`; previously-deactivated facts that
+  recovered above threshold are reactivated. Hard-TTL facts whose ttl
+  is past are expired separately and never reactivate.
+- `archive_incidents(conn, archive_days)` — soft-archive after N days
+  of no access. Flips `archived=TRUE` on the incident row AND deactivates
+  the corresponding `memory_index` entry. Already-archived incidents
+  are skipped (idempotent).
+- `run_all(conn)` — runs both jobs, returns a unified `MaintenanceReport`.
+
+**3 new MCP tools:**
+- `run_maintenance_v2()` — unified trigger.
+- `decay_facts_v2()` — run only the fact-decay job.
+- `archive_incidents_v2()` — run only the incident-archive job.
+
+All three return affected id lists so callers can audit outcomes.
+
+**New config:**
+- `OPEN_BRAIN_V2_FACT_DECAY_THRESHOLD` (default 0.1) — score below
+  which a fact is deactivated. At halflife=7 and threshold=0.1,
+  deactivation happens at ~23 days no-access.
+
+**Testing:** 17 new tests in `test_maintenance.py` covering fresh /
+old / reactivate / custom-halflife / custom-threshold / past-TTL /
+future-TTL / TTL-exclusive / recent-incident / old-incident / already-
+archived / custom-archive-days / empty-DB / idempotency / rules-not-
+affected / tasks-not-affected. All passing against real Postgres.
+
+**Decay does NOT delete.** It deactivates the `memory_index` row only.
+Bodies preserved for `recall()` and audit. Un-decay happens automatically
+on the next maintenance run after a deactivated fact is recalled.
+
+**Tool count:** 16 → 19. Total v2 test count: 117.
+
+**All gap-analysis P0-P2 items are now closed.** Remaining: P3
+(cosmetic cleanup) and the maintenance scheduling decision (MCP
+trigger only vs. external cron) — deferred until usage signals it.
+
+## [0.16.0] - 2026-04-16
+
+### Added — brain_v2 P1 gaps closed: session registry + handoff protocol
+
+Closes Gaps 3 and 4 from `docs/planning/brain-v2-gap-analysis.md`. v2 now
+has sibling-session awareness and continuity across reboots.
+
+**New schema tables:**
+- `active_sessions` — per-source session registry (source, project, cwd,
+  pid, host, current_task, started_at, heartbeat_at, ended_at, status,
+  metadata). Process lifecycle is authoritative; NO timer-based TTL (v1
+  v0.14.0 lesson). New row with same (source, cwd, pid) ends the prior
+  active row (supersede on reboot).
+- `handoffs` — session-to-session continuity notes, 2000-char hard cap,
+  optionally linked to the writing session.
+
+**boot_session_v2 changes:**
+- Accepts optional `cwd` / `pid` / `host` args.
+- Registers a new `active_sessions` row on every boot.
+- Returns `session_id`, `other_active_sessions`, `handoff_source` in
+  the payload.
+- Auto-populates `handoff` from the latest handoff for the project
+  (excluding the caller's own session). Explicit handoff arg wins.
+
+**4 new MCP tools:**
+- `list_active_sessions_v2(project, exclude_self)` — surface siblings.
+- `update_active_task_v2(task, session_id)` — bump current_task + heartbeat.
+- `end_session_v2(handoff, session_id, source)` — clean exit; can write
+  a handoff in the same call.
+- `write_handoff_v2(content, source, project, session_id)` — mid-session
+  checkpoint.
+
+**Testing:** 27 new tests in `test_session_registry.py` covering register /
+end / list / update_task / handoff write+read / project filter / session
+exclusion / supersede-on-reboot / auto-populated handoff / explicit
+handoff override / register=False dry-run. All passing against real
+Postgres. Regression run on prior suites: 27/27 still pass.
+
+**Also fixed:** Gap 7 (dead `params` variable in store.search_headlines)
+was already cleaned up in v0.15.1 but the commit rolled it into this
+release.
+
+**Tool count:** 12 → 16 (new: list_active_sessions_v2,
+update_active_task_v2, end_session_v2, write_handoff_v2).
+
+**Still open (tracked for future work):**
+- Gap 5: Fact decay job (schema-only, no runtime)
+- Gap 6: Incident 90-day archive job (schema-only)
+
+## [0.15.0] - 2026-04-15
+
+### Added — Open Brain v2 bifurcation (Phase 1 scaffold)
+
+Parallel v2 memory architecture per `docs/planning/windsurf-memory-architecture-synthesis.md`
+(best-of-breed synthesis) + `docs/planning/infra-cost-addendum.md`
+(Ollama-runtime falsifiable check).
+
+Code lives in a new package `brain_v2/` on branch `feat/brain-v2-bifurcation`.
+V1 (`server.py`, `openbrain` DB on port 5432) is untouched. V2 runs alongside:
+
+- **New Postgres container** `open-brain-v2-db` on port **5433**, DB `open_brain_v2`
+  (`docker-compose.v2.yml`). Full physical isolation from v1's container.
+- **New MCP server** `open-brain-v2` with tool namespace `mcp__open-brain-v2__*`.
+  Registration snippet at `brain_v2/mcp_registration_snippet.json`.
+- **Pre-v2 backup** of the live brain at `backups/brain-pre-v2-20260415.sql`
+  (28 MB) per guardrail #827.
+
+**Phase 1 contracts (Windsurf §4.3 + §4.4):**
+
+- Four atomic memory types: `RULE`, `FACT`, `INCIDENT`, `TASK` — each in its
+  own table with type-specific retrieval policies. No unified `memories` table.
+- Shared `memory_index` holds the embedding + headline projection so boot
+  and search can rank headlines without materializing bodies.
+- Write gate (`brain_v2/write_gate.py`): (1) type declared,
+  (2) atomicity (≤400 words, no stacked `GUARDRAIL 20xx-` markers),
+  (3) headline ≤15 words, (4) cosine >0.75 duplicate detection against
+  same-kind active entries, (5) supersede-only for RULE bodies.
+- `remember_rule` refuses to merge — returns `DuplicateHit` so the caller
+  routes to `supersede_rule_v2`. RULE bodies are immutable after creation.
+- Boot payload: headline-only, 5 BLOCKER cap, 5 PATTERN task-relevance cap,
+  2K token total cap, truncate TASKs → PATTERNs → BLOCKERs if over.
+  WORKING CONTEXT regenerated from the `task` arg at every boot; not stored.
+- In-session temporal cache for recency boost + link-traversal boost on recall.
+- Audit log `v2_audit` for every INSERT / SUPERSEDE / UPDATE.
+
+**Falsifiable infra check** (`brain_v2/infra_check.py`) per infra-cost-
+addendum §4: verifies no `METADATA_LLM_MODEL` reload line appears in
+`ollama.log` between a `boot_session` and a `remember_rule` call. Current
+run: PASS (token estimate 12, no Qwen eviction, nomic-embed only).
+
+**Test coverage** (`brain_v2/tests/`, 39 tests, all passing against real
+Postgres + real Ollama):
+
+- `test_write_gate.py` — 18 tests, all 5 gate steps
+- `test_boot_payload.py` — 11 tests, cap enforcement + truncation order +
+  headline-only + project scoping + superseded-rule exclusion
+- `test_recall_search_cache.py` — 10 tests, body fetch + access-count bump +
+  headline-only search + temporal cache + task lifecycle
+
+**Out of scope for this commit** (future phases per Windsurf §6):
+Phase 3 decay beyond session cache, Phase 4 parallel-session coordination,
+Phase 5 compaction, canonicalization of v1's merged blockers into v2 atomic
+form, and `~/.claude/settings.json` MCP registration (permission-blocked
+during this session; snippet provided in `brain_v2/mcp_registration_snippet.json`
+for manual paste).
+
 ## [0.14.0] - 2026-04-15
 
 ### Changed — Session registry: replaced TTL with signoff + external heartbeat agent
