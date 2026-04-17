@@ -120,8 +120,8 @@ def _check_write_gate(project: str) -> str | None:
     """Returns an error JSON string if writes are blocked by pending
     action items, else None."""
     try:
-        with store.connect() as conn:
-            pending = store.count_pending_action_items(conn, project=project)
+        conn = store.connect()
+        pending = store.count_pending_action_items(conn, project=project)
         if pending > 0:
             return _err(
                 f"BLOCKED: {pending} pending action item(s) must be acknowledged "
@@ -129,8 +129,8 @@ def _check_write_gate(project: str) -> str | None:
                 blocked_by="action_items_pending",
                 pending_count=pending,
             )
-    except Exception:
-        pass  # DB down — don't block on a failed check
+    except Exception as exc:
+        _log.warning("_check_write_gate: DB unreachable, failing open: %s", exc)
     return None
 
 
@@ -174,7 +174,8 @@ def health_v2() -> str:
                     except Exception:
                         checks["tables"][tbl] = "error"
         checks["db"]["status"] = "connected"
-        checks["db"]["url_masked"] = store.connect().dsn.split("@")[-1] if hasattr(store.connect(), "dsn") else "?"
+        _c = store.connect()
+        checks["db"]["url_masked"] = _c.dsn.split("@")[-1] if hasattr(_c, "dsn") else "?"
     except Exception as exc:
         checks["db"]["status"] = f"unreachable: {exc}"
 
@@ -818,7 +819,6 @@ def list_recent_v2(limit: int = 20, days: int = 0, kind: str = "",
 # ── In-process ephemeral state (scratchpad + checkpoint cooldown) ───
 # Mirrors v1's `_scratch` dict and `_checkpoint_tracker`. Cleared on
 # server restart — NOT persisted to the DB (intentional, per v1).
-import time as _time
 _scratch: dict[str, str] = {}
 _checkpoint_tracker: dict[str, dict[str, float]] = {}
 
@@ -986,34 +986,34 @@ def brain_checkpoint_v2(action: str, source: str, context: str = "",
 
     query = f"{action} {context} {project}".strip()
     try:
-        with store.connect() as conn:
-            # Pinned + BLOCKER rules (scoped to project or global)
-            with conn.cursor() as cur:
-                proj_filter = "project = %s OR project = ''" if project else "TRUE"
-                params: list = [project] if project else []
-                cur.execute(
-                    f"""
-                    SELECT kind, memory_id, headline, severity, project, pinned
-                    FROM memory_index
-                    WHERE active = TRUE
-                      AND (severity = 'BLOCKER' OR pinned = TRUE)
-                      AND kind = 'rule'
-                      AND ({proj_filter})
-                    ORDER BY pinned DESC, created_at DESC
-                    LIMIT 10
-                    """,
-                    params,
-                )
-                guardrails = [dict(zip(("kind", "memory_id", "headline",
-                                         "severity", "project", "pinned"), r))
-                              for r in cur.fetchall()]
-
-            # Task-relevant PATTERN rules + facts
-            relevant = store.search_headlines(
-                conn, query=query,
-                project=project if project != "" else None,
-                limit=5,
+        conn = store.connect()
+        # Pinned + BLOCKER rules (scoped to project or global)
+        with conn.cursor() as cur:
+            proj_filter = "project = %s OR project = ''" if project else "TRUE"
+            params: list = [project] if project else []
+            cur.execute(
+                f"""
+                SELECT kind, memory_id, headline, severity, project, pinned
+                FROM memory_index
+                WHERE active = TRUE
+                  AND (severity = 'BLOCKER' OR pinned = TRUE)
+                  AND kind = 'rule'
+                  AND ({proj_filter})
+                ORDER BY pinned DESC, created_at DESC
+                LIMIT 10
+                """,
+                params,
             )
+            guardrails = [dict(zip(("kind", "memory_id", "headline",
+                                     "severity", "project", "pinned"), r))
+                          for r in cur.fetchall()]
+
+        # Task-relevant PATTERN rules + facts
+        relevant = store.search_headlines(
+            conn, query=query,
+            project=project if project != "" else None,
+            limit=5,
+        )
 
         tracker[action] = now
     except Exception as exc:

@@ -26,7 +26,13 @@ def _ensure_schema():
 
 @pytest.fixture
 def conn():
-    """Fresh connection with truncated tables."""
+    """Reusable connection with truncated tables.
+
+    Does NOT close the shared connection — closing and reopening costs
+    ~21s per test on Windows+Docker due to DNS/TCP overhead. Instead,
+    we truncate tables and commit, yielding the same connection.
+    Rollback after yield ensures no stale transaction state leaks.
+    """
     c = store.connect()
     with c.cursor() as cur:
         cur.execute("TRUNCATE memory_index, rules, facts, incidents, tasks, "
@@ -34,4 +40,4 @@ def conn():
                     "RESTART IDENTITY CASCADE")
     c.commit()
     yield c
-    c.close()
+    c.rollback()  # clean up any uncommitted state without closing

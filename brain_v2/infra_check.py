@@ -42,7 +42,11 @@ from brain_v2.config import OLLAMA_EMBED_MODEL
 from brain_v2.schema import apply_schema
 
 
-DEFAULT_OLLAMA_LOG = Path(os.environ.get("USERPROFILE", os.path.expanduser("~"))) / "Documents" / "ollama.log"
+_localappdata = os.environ.get("LOCALAPPDATA", "")
+if _localappdata:
+    DEFAULT_OLLAMA_LOG = Path(_localappdata) / "Ollama" / "server.log"
+else:
+    DEFAULT_OLLAMA_LOG = Path(os.path.expanduser("~")) / ".ollama" / "logs" / "server.log"
 
 
 def _tail_since(path: Path, since: _dt.datetime) -> list[str]:
@@ -156,7 +160,7 @@ def main() -> int:
     p.add_argument("--metadata-model", default=os.getenv("METADATA_LLM_MODEL", ""),
                    help="Name of the metadata LLM whose eviction would be a regression.")
     p.add_argument("--ollama-log", type=Path, default=None,
-                   help="Path to ollama.log. Defaults to ~/Documents/ollama.log.")
+                   help="Path to Ollama server.log. Defaults to %%LOCALAPPDATA%%/Ollama/server.log (Windows) or ~/.ollama/logs/server.log.")
     p.add_argument("--project", default="infra_check")
     p.add_argument("-v", "--verbose", action="store_true")
     args = p.parse_args()

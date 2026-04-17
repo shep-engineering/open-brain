@@ -13,7 +13,7 @@ Keyed by session_id. In-process dict — single server process.
 from __future__ import annotations
 
 import time
-from collections import defaultdict
+from collections import OrderedDict
 from dataclasses import dataclass, field
 
 
@@ -42,12 +42,17 @@ class SessionCache:
             self.link_boosts[key] = max(self.link_boosts.get(key, 0.0), weight)
 
 
-_caches: dict[str, SessionCache] = defaultdict(lambda: SessionCache(session_id=""))
+_MAX_CACHE_SIZE = 100
+_caches: OrderedDict[str, SessionCache] = OrderedDict()
 
 
 def get(session_id: str) -> SessionCache:
     if session_id not in _caches:
         _caches[session_id] = SessionCache(session_id=session_id)
+        if len(_caches) > _MAX_CACHE_SIZE:
+            _caches.popitem(last=False)  # evict oldest
+    else:
+        _caches.move_to_end(session_id)  # LRU touch
     return _caches[session_id]
 
 

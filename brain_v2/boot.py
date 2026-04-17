@@ -89,25 +89,31 @@ def _fetch_blockers(cur, project: str) -> list[dict]:
     return [dict(r) for r in cur.fetchall()]
 
 
-def _fetch_patterns(cur, project: str, task_embedding: str) -> list[dict]:
-    """Top PATTERN rules ranked by task-relevance (cosine)."""
+def _fetch_patterns(cur, project: str, task_embedding: str | None) -> list[dict]:
+    """Top PATTERN rules ranked by task-relevance (cosine).
+    Returns [] immediately if task_embedding is None (no PATTERNs exist)."""
+    if task_embedding is None:
+        return []
     cur.execute(
         """
-        SELECT kind, memory_id, headline, project,
-               1 - (embedding <=> %s::vector) AS similarity
-        FROM memory_index
-        WHERE active = TRUE
-          AND severity = 'PATTERN'
-          AND (project = %s OR project = '')
-        ORDER BY embedding <=> %s::vector ASC
+        WITH scored AS (
+            SELECT kind, memory_id, headline, project,
+                   1 - (embedding <=> %s::vector) AS similarity
+            FROM memory_index
+            WHERE active = TRUE
+              AND severity = 'PATTERN'
+              AND (project = %s OR project = '')
+        )
+        SELECT * FROM scored
+        ORDER BY similarity DESC
         LIMIT %s
         """,
-        (task_embedding, project, task_embedding, BOOT_PATTERN_COUNT_CAP),
+        (task_embedding, project, BOOT_PATTERN_COUNT_CAP),
     )
     return [dict(r) for r in cur.fetchall()]
 
 
-def _fetch_active_tasks(cur, project: str) -> list[dict]:
+def _fetch_active_tasks(cur, project: str, limit: int = 20) -> list[dict]:
     cur.execute(
         """
         SELECT id, content, priority, status
@@ -117,8 +123,9 @@ def _fetch_active_tasks(cur, project: str) -> list[dict]:
         ORDER BY
           CASE priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
           created_at DESC
+        LIMIT %s
         """,
-        (project,),
+        (project, limit),
     )
     return [dict(r) for r in cur.fetchall()]
 
@@ -143,10 +150,20 @@ def build(conn, *, project: str, task: str, source: str, handoff: str = "",
     and the returned payload includes session_id + other_active_sessions.
     Set register=False for read-only boot inspections (tests, tooling).
     """
-    task_embedding = embed_to_pgvector(task) if task.strip() else embed_to_pgvector(project or "open-brain")
-
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         blockers = _fetch_blockers(cur, project)
+
+        # Skip Ollama embedding call when no PATTERNs exist in the DB
+        cur.execute(
+            "SELECT 1 FROM memory_index WHERE active = TRUE AND severity = 'PATTERN' "
+            "AND (project = %s OR project = '') LIMIT 1",
+            (project,)
+        )
+        has_patterns = cur.fetchone() is not None
+        task_embedding = (
+            embed_to_pgvector(task if task.strip() else (project or "open-brain"))
+            if has_patterns else None
+        )
         patterns = _fetch_patterns(cur, project, task_embedding)
         tasks = _fetch_active_tasks(cur, project)
 

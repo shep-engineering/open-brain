@@ -1,5 +1,6 @@
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "-v --tb=short"
 markers = [
     "ollama: tests requiring a running Ollama instance for real embeddings",
 ]

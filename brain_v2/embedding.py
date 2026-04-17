@@ -11,7 +11,7 @@ import json
 import urllib.error
 import urllib.request
 
-from .config import OLLAMA_BASE_URL, OLLAMA_EMBED_MODEL
+from .config import OLLAMA_BASE_URL, OLLAMA_EMBED_MODEL, OLLAMA_EMBED_TIMEOUT
 
 
 class EmbeddingError(RuntimeError):
@@ -23,12 +23,16 @@ def embed(text: str) -> list[float]:
         raise EmbeddingError("cannot embed empty text")
     req = urllib.request.Request(
         f"{OLLAMA_BASE_URL}/api/embeddings",
-        data=json.dumps({"model": OLLAMA_EMBED_MODEL, "prompt": text}).encode("utf-8"),
+        data=json.dumps({
+            "model": OLLAMA_EMBED_MODEL,
+            "prompt": text,
+            "keep_alive": "30m",
+        }).encode("utf-8"),
         headers={"Content-Type": "application/json"},
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=OLLAMA_EMBED_TIMEOUT) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", errors="replace")

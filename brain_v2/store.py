@@ -29,8 +29,25 @@ log = logging.getLogger("brain_v2.store")
 
 
 # ── Connection helper ───────────────────────────────────────────────
-def connect():
-    return psycopg2.connect(DATABASE_URL)
+_conn: psycopg2.extensions.connection | None = None
+
+
+def connect() -> psycopg2.extensions.connection:
+    """Return a reusable connection (same pattern as v1's _get_conn).
+
+    psycopg2.connect() to the v2 container takes ~21 seconds due to
+    DNS/TCP resolution overhead on Windows + Docker. Opening a fresh
+    connection per tool call was the root cause of every v2 tool taking
+    42-65 seconds (one connect in the write gate + one in the tool body).
+    """
+    global _conn
+    if _conn is None or _conn.closed:
+        _conn = psycopg2.connect(DATABASE_URL)
+        # autocommit stays False (psycopg2 default) — atomicity preserved.
+        # Multi-statement writes (INSERT rule + INSERT memory_index + INSERT
+        # v2_audit) must be atomic; conn.commit() at the end of each store
+        # function is the transaction boundary.
+    return _conn
 
 
 # ── Data shapes ─────────────────────────────────────────────────────
@@ -52,6 +69,26 @@ class Memory:
         if d["extra"] is None:
             d.pop("extra")
         return d
+
+
+# ── Duplicate hit (return value; not an exception) ───────────────────
+@dataclass
+class DuplicateHit:
+    kind: str
+    existing_id: int
+    similarity: float
+    existing_headline: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "duplicate": True,
+            "kind": self.kind,
+            "existing_id": self.existing_id,
+            "similarity": round(self.similarity, 4),
+            "existing_headline": self.existing_headline,
+            "hint": f"route to supersede(old_id={self.existing_id}, ...) instead of creating a parallel {self.kind}",
+            "threshold": DUPLICATE_COSINE_THRESHOLD,
+        }
 
 
 # ── Shared helpers ──────────────────────────────────────────────────
@@ -199,6 +236,9 @@ def remember_incident(conn, *, headline: str, body: str, project: str = "",
                       linked_rule_ids: list[int] | None = None,
                       source: str = "") -> Memory:
     embedding_vec = embed_to_pgvector(f"{headline}. {body}")
+    # duplicate check intentionally skipped for incidents (embedding_vec=None):
+    # the same event can legitimately recur; callers track by linked_rule_ids,
+    # not by semantic similarity.
     run_gate(conn, kind="incident", headline=headline, body=body, embedding_vec=None)
     with conn.cursor() as cur:
         cur.execute(
@@ -306,7 +346,7 @@ def search_headlines(conn, *, query: str, kind: str | None = None,
     materialize bodies by default."""
     embedding_vec = embed_to_pgvector(query)
     where = ["active = TRUE"]
-    params: list[Any] = [embedding_vec]  # for SELECT similarity expression
+    params: list[Any] = [embedding_vec]  # for CTE
     if kind:
         check_kind(kind)
         where.append("kind = %s")
@@ -314,14 +354,16 @@ def search_headlines(conn, *, query: str, kind: str | None = None,
     if project is not None:
         where.append("(project = %s OR project = '')")
         params.append(project)
-    params.append(embedding_vec)  # for ORDER BY
     params.append(limit)
     sql = f"""
-        SELECT kind, memory_id, headline, severity, project,
-               1 - (embedding <=> %s::vector) AS similarity
-        FROM memory_index
-        WHERE {' AND '.join(where)}
-        ORDER BY embedding <=> %s::vector ASC
+        WITH scored AS (
+            SELECT kind, memory_id, headline, severity, project,
+                   1 - (embedding <=> %s::vector) AS similarity
+            FROM memory_index
+            WHERE {' AND '.join(where)}
+        )
+        SELECT * FROM scored
+        ORDER BY similarity DESC
         LIMIT %s
     """
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -406,7 +448,9 @@ def update_active_task(conn, *, session_id: int, task: str) -> bool:
             """,
             (task or None, session_id),
         )
-        return cur.rowcount > 0
+        changed = cur.rowcount > 0
+    conn.commit()
+    return changed
 
 
 def list_active_sessions(conn, *, project: str = "", exclude_id: int | None = None) -> list[dict]:
@@ -1028,13 +1072,26 @@ def prune(conn, *, days: int, min_access: int = 0,
 
     if dry_run:
         # Count how many more there'd be if we lifted the cap (for the
-        # operator to know how many calls they'd need). Same WHERE minus LIMIT.
+        # operator to know how many calls they'd need). COUNT(*) instead
+        # of fetchall() to avoid loading all rows into Python memory.
+        count_sql = """
+            SELECT COUNT(*)
+            FROM memory_index mi
+            LEFT JOIN facts     f ON mi.kind = 'fact'     AND mi.memory_id = f.id
+            LEFT JOIN incidents i ON mi.kind = 'incident' AND mi.memory_id = i.id
+            LEFT JOIN tasks     t ON mi.kind = 'task'     AND mi.memory_id = t.id
+            WHERE mi.created_at < NOW() - make_interval(days => %s)
+              AND mi.pinned = FALSE
+              AND mi.kind != 'rule'
+              AND (
+                    (mi.kind = 'fact'     AND f.access_count <= %s)
+                 OR (mi.kind = 'incident' AND i.archived = TRUE)
+                 OR (mi.kind = 'task'     AND t.status IN ('done', 'stale'))
+              )
+        """
         with conn.cursor() as cur:
-            cur.execute(
-                sql.replace("LIMIT %s", ""),
-                (int(days), int(min_access)),
-            )
-            would_total = len(cur.fetchall())
+            cur.execute(count_sql, (int(days), int(min_access)))
+            would_total = cur.fetchone()[0]
         result = {
             "dry_run": True,
             "would_delete_this_call": eligible_count,
@@ -1233,23 +1290,3 @@ def list_recent(conn, *, limit: int = 20, days: int = 0,
             d["forgotten_at"] = str(d["forgotten_at"])
         out.append(d)
     return out
-
-
-# ── Duplicate hit (return value; not an exception) ───────────────────
-@dataclass
-class DuplicateHit:
-    kind: str
-    existing_id: int
-    similarity: float
-    existing_headline: str
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "duplicate": True,
-            "kind": self.kind,
-            "existing_id": self.existing_id,
-            "similarity": round(self.similarity, 4),
-            "existing_headline": self.existing_headline,
-            "hint": f"route to supersede(old_id={self.existing_id}, ...) instead of creating a parallel {self.kind}",
-            "threshold": DUPLICATE_COSINE_THRESHOLD,
-        }

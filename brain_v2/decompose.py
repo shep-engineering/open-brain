@@ -118,7 +118,7 @@ def decompose(raw: str) -> list[Chunk]:
         chunks.append(Chunk(text=raw.strip(), kind=kind, headline=headline, severity=severity))
         log.info("fallback: stored entire context as single %s", kind)
 
+    from collections import Counter
     log.info("decomposed raw context into %d chunks: %s",
-             len(chunks),
-             {c.kind: sum(1 for x in chunks if x.kind == c.kind) for c in chunks})
+             len(chunks), dict(Counter(c.kind for c in chunks)))
     return chunks

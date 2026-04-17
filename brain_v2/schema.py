@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS rules (
     id             SERIAL      PRIMARY KEY,
     headline       TEXT        NOT NULL,
     body           TEXT        NOT NULL,
-    severity       TEXT        NOT NULL CHECK (severity IN ('BLOCKER', 'PATTERN', 'CONTEXT', 'DEPRECATED')),
+    severity       TEXT        NOT NULL CHECK (severity IN ('BLOCKER', 'PATTERN', 'DEPRECATED')),
     project        TEXT        NOT NULL DEFAULT '',
     source         TEXT        NOT NULL DEFAULT '',
     supersedes     INTEGER     REFERENCES rules(id) ON DELETE SET NULL,
@@ -40,8 +40,17 @@ CREATE TABLE IF NOT EXISTS rules (
     created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT headline_word_cap CHECK (array_length(regexp_split_to_array(trim(headline), '\\s+'), 1) <= 15)
 );
-CREATE INDEX IF NOT EXISTS rules_severity_project_idx ON rules (severity, project);
-CREATE INDEX IF NOT EXISTS rules_active_idx ON rules (id) WHERE superseded_by IS NULL;
+-- Migrate CHECK constraint: remove 'CONTEXT' severity (never used, removed from write gate)
+DO $$ BEGIN
+    ALTER TABLE rules DROP CONSTRAINT IF EXISTS rules_severity_check;
+    ALTER TABLE rules ADD CONSTRAINT rules_severity_check
+        CHECK (severity IN ('BLOCKER', 'PATTERN', 'DEPRECATED'));
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
+DROP INDEX IF EXISTS rules_severity_project_idx;  -- superseded by the partial index below
+DROP INDEX IF EXISTS rules_active_idx;
+CREATE INDEX IF NOT EXISTS rules_project_severity_idx
+    ON rules (project, severity) WHERE superseded_by IS NULL;
 
 -- ── FACT ─────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS facts (
