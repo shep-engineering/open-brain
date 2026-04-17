@@ -104,6 +104,8 @@ def _fetch_patterns(cur, project: str, task_embedding: str | None) -> list[dict]
         WHERE active = TRUE
           AND severity = 'PATTERN'
           AND (project = %s OR project = '')
+          AND (skill_trigger IS NULL
+               OR (skill_trigger->>'always_on')::boolean = TRUE)
         ORDER BY embedding <=> %s::vector ASC
         LIMIT %s
         """,

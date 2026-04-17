@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS rules (
     superseded_by  INTEGER     REFERENCES rules(id) ON DELETE SET NULL,
     supersede_reason TEXT,
     linked_incident_ids INTEGER[] NOT NULL DEFAULT ARRAY[]::INTEGER[],
+    skill_trigger  JSONB,
     created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT headline_word_cap CHECK (array_length(regexp_split_to_array(trim(headline), '\\s+'), 1) <= 15)
 );
@@ -130,6 +131,12 @@ ALTER TABLE memory_index ADD COLUMN IF NOT EXISTS forgotten_by TEXT;
 ALTER TABLE memory_index ADD COLUMN IF NOT EXISTS annotation TEXT;
 ALTER TABLE memory_index ADD COLUMN IF NOT EXISTS upvotes INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE memory_index ADD COLUMN IF NOT EXISTS downvotes INTEGER NOT NULL DEFAULT 0;
+-- Skills layer (v2.0.0+): skill_trigger on rules + memory_index
+ALTER TABLE rules ADD COLUMN IF NOT EXISTS skill_trigger JSONB;
+ALTER TABLE memory_index ADD COLUMN IF NOT EXISTS skill_trigger JSONB;
+CREATE INDEX IF NOT EXISTS rules_skill_trigger_idx
+    ON rules USING GIN (skill_trigger)
+    WHERE skill_trigger IS NOT NULL;
 CREATE INDEX IF NOT EXISTS memory_index_embedding_hnsw
     ON memory_index USING hnsw (embedding vector_cosine_ops)
     WITH (m = 16, ef_construction = 64);

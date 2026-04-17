@@ -445,10 +445,21 @@ def search_v2(query: str, kind: str = "", project: str = "", limit: int = 10) ->
 
 @mcp.tool()
 def remember_rule_v2(headline: str, body: str, severity: str = "PATTERN",
-                     project: str = "", source: str = "") -> str:
+                     project: str = "", source: str = "",
+                     skill_trigger: dict | None = None) -> str:
     """Write a new RULE. Rejects duplicates (>0.75 cosine) — caller must
     route to supersede_rule_v2 instead. RULE bodies are immutable; the
-    only legal modification path is supersede."""
+    only legal modification path is supersede.
+
+    skill_trigger: Optional dict tagging this rule as a skill. Shape:
+        {"name": "<globally-unique-name>",
+         "keywords": ["k1", "k2"],   # case-insensitive substring match
+         "projects": [],              # empty = global; populated = scoped
+         "always_on": false}          # true = load at every boot
+      When set, the rule is returned by boot_session_v2 only if always_on
+      is true; otherwise it loads on keyword match via search_v2 or
+      explicitly via load_skill_v2.
+    """
     blocked = _check_write_gate(project)
     if blocked:
         return blocked
@@ -457,6 +468,7 @@ def remember_rule_v2(headline: str, body: str, severity: str = "PATTERN",
             result = store.remember_rule(
                 conn, headline=headline, body=body, severity=severity,
                 project=project, source=source,
+                skill_trigger=skill_trigger,
             )
     except WriteGateError as exc:
         return _err(f"write gate rejected: {exc}", step="write_gate")
@@ -1318,6 +1330,39 @@ def prune_v2(days: int = 90, min_access: int = 0,
         _log.exception("prune_v2 failed")
         return _err(f"prune failed: {exc}")
     return _ok({"success": True, **result})
+
+
+@mcp.tool()
+def load_skill_v2(name: str, source: str = "", project: str = "") -> str:
+    """Load a specific skill by its trigger name.
+
+    Skills are rules with skill_trigger.name set. Call this when you're
+    about to start work on a topic you know has a named skill. Returns
+    the skill content in the same shape as search_v2.
+
+    Only active (non-superseded) skills are returned. A skill with
+    projects populated is only loadable from one of those projects;
+    a skill with projects = [] is global.
+
+    Args:
+        name:    The skill name from its skill_trigger.name field.
+        source:  REQUIRED agent identifier.
+        project: Current project scope.
+    """
+    ensure_schema()
+    if not name:
+        return _err("name is required")
+    try:
+        conn = store.connect()
+        skill = store.get_skill_by_name(conn, name=name,
+                                         project_filter=project or None)
+    except Exception as exc:
+        _log.exception("load_skill_v2 failed")
+        return _err(f"load_skill failed: {exc}")
+    if skill is None:
+        return _err(f"skill '{name}' not found or out of scope for project '{project}'",
+                    blocked_by="not_found")
+    return _ok(skill)
 
 
 @mcp.tool()
