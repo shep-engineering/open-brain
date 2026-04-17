@@ -179,16 +179,20 @@ def health_v2() -> str:
     except Exception as exc:
         checks["db"]["status"] = f"unreachable: {exc}"
 
-    # Ollama reachability
+    # Ollama reachability — use socket-level connect test, not urlopen.
+    # On Windows, urlopen(timeout=N) only bounds the read phase; the TCP
+    # connect phase uses the OS default (~60-90s), making health_v2 block
+    # for over a minute when Ollama is down.
     try:
-        import urllib.request
+        import socket as _socket
+        import urllib.parse
         from brain_v2.config import OLLAMA_BASE_URL
-        with urllib.request.urlopen(f"{OLLAMA_BASE_URL}/api/tags", timeout=5) as resp:
-            if resp.status == 200:
-                checks["ollama"]["status"] = "reachable"
-            else:
-                checks["ollama"]["status"] = f"HTTP {resp.status}"
-    except Exception as exc:
+        parsed = urllib.parse.urlparse(OLLAMA_BASE_URL)
+        host = parsed.hostname or "127.0.0.1"
+        port = parsed.port or 11434
+        with _socket.create_connection((host, port), timeout=5):
+            checks["ollama"]["status"] = "reachable"
+    except OSError as exc:
         checks["ollama"]["status"] = f"unreachable: {exc}"
 
     # Tool count
@@ -986,34 +990,34 @@ def brain_checkpoint_v2(action: str, source: str, context: str = "",
 
     query = f"{action} {context} {project}".strip()
     try:
-        conn = store.connect()
-        # Pinned + BLOCKER rules (scoped to project or global)
-        with conn.cursor() as cur:
-            proj_filter = "project = %s OR project = ''" if project else "TRUE"
-            params: list = [project] if project else []
-            cur.execute(
-                f"""
-                SELECT kind, memory_id, headline, severity, project, pinned
-                FROM memory_index
-                WHERE active = TRUE
-                  AND (severity = 'BLOCKER' OR pinned = TRUE)
-                  AND kind = 'rule'
-                  AND ({proj_filter})
-                ORDER BY pinned DESC, created_at DESC
-                LIMIT 10
-                """,
-                params,
-            )
-            guardrails = [dict(zip(("kind", "memory_id", "headline",
-                                     "severity", "project", "pinned"), r))
-                          for r in cur.fetchall()]
+        with store.connect() as conn:
+            # Pinned + BLOCKER rules (scoped to project or global)
+            with conn.cursor() as cur:
+                proj_filter = "project = %s OR project = ''" if project else "TRUE"
+                params: list = [project] if project else []
+                cur.execute(
+                    f"""
+                    SELECT kind, memory_id, headline, severity, project, pinned
+                    FROM memory_index
+                    WHERE active = TRUE
+                      AND (severity = 'BLOCKER' OR pinned = TRUE)
+                      AND kind = 'rule'
+                      AND ({proj_filter})
+                    ORDER BY pinned DESC, created_at DESC
+                    LIMIT 10
+                    """,
+                    params,
+                )
+                guardrails = [dict(zip(("kind", "memory_id", "headline",
+                                         "severity", "project", "pinned"), r))
+                              for r in cur.fetchall()]
 
-        # Task-relevant PATTERN rules + facts
-        relevant = store.search_headlines(
-            conn, query=query,
-            project=project if project != "" else None,
-            limit=5,
-        )
+            # Task-relevant PATTERN rules + facts
+            relevant = store.search_headlines(
+                conn, query=query,
+                project=project if project != "" else None,
+                limit=5,
+            )
 
         tracker[action] = now
     except Exception as exc:
