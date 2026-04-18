@@ -4,9 +4,12 @@
   <source src="assets/videos/brain-video.mp4" type="video/mp4">
 </video>
 
-> **Agent-readable second brain.** One PostgreSQL database, one MCP server, every AI you use.
+> **Agent-readable second brain.** PostgreSQL + pgvector, two MCP servers (v1 + v2), every AI you use.
 
 Open Brain stores your thoughts as vector embeddings so any AI tool (Claude Code, Cursor, Windsurf, ChatGPT Desktop, VS Code Copilot) can search your memory **by meaning**, not just keywords. Local-first. You own the data. ~$0/month to run.
+
+!!! info "brain_v2 (2.0.0) is live"
+    v2 is a ground-up architecture redesign running alongside v1. Four typed memory tables, headline-only boot payloads, immutable rules with supersede-only modification, full observability stack. See [v2 Architecture](architecture/v2-architecture.md) for details.
 
 ---
 
@@ -35,7 +38,7 @@ Your thought
     (+ annotations, ratings, access tracking)
               |
               v
-    MCP Server (stdio / HTTP)  <--  server.py  (21 tools)
+    MCP Server (stdio / HTTP)  <--  server.py  (v1: 26 tools, v2: 39 tools)
               |
     +---------+-----------+
     v         v           v
@@ -89,5 +92,6 @@ Your thought
 - [Installation](getting-started/installation.md): Get up and running in ~15 minutes
 - [Wiring Agents](getting-started/wiring-agents.md): Connect your AI tools to the brain
 - [Dashboard](guides/dashboard.md): Monitor your brain in real time
-- [Tools Reference](tools.md): All 21 MCP tools explained
-- [Architecture](architecture/overview.md): How it all fits together
+- [Tools Reference](tools.md): All MCP tools explained (v1 + v2)
+- [Architecture](architecture/overview.md): v1 architecture
+- [v2 Architecture](architecture/v2-architecture.md): The ground-up redesign

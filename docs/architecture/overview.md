@@ -1,6 +1,9 @@
-# Architecture Overview
+# Architecture Overview (v1)
 
-Open Brain is a single Python MCP server (`server.py`) backed by PostgreSQL + pgvector. It exposes 19 tools over stdio or HTTP that any MCP-compatible AI client can call.
+!!! info "Looking for v2?"
+    This page documents v1's architecture. For the v2 ground-up redesign (typed memory tables, write gate, headline-only boot, observability), see [v2 Architecture](v2-architecture.md).
+
+Open Brain v1 is a single Python MCP server (`server.py`) backed by PostgreSQL + pgvector. It exposes 26 tools over stdio or HTTP that any MCP-compatible AI client can call.
 
 ---
 

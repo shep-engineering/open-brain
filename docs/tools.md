@@ -1,6 +1,15 @@
 # Tools Reference
 
-Open Brain exposes 26 MCP tools: 23 user-facing tools and 3 cognitive architecture tools for agent compliance enforcement.
+Open Brain runs two MCP servers side by side:
+
+- **v1** (`mcp__open-brain__*`) — 26 tools. Single `memories` table.
+- **v2** (`mcp__open-brain-v2__*`) — 39 tools. Typed tables, write gate, headline-only boot. See [v2 Architecture](architecture/v2-architecture.md).
+
+---
+
+## v1 Tools
+
+The v1 tools below use the `mcp__open-brain__` namespace.
 
 ---
 
@@ -469,3 +478,397 @@ All content passed to Open Brain is scanned for API keys, tokens, private keys, 
 - Generic API key patterns
 
 **Mode:** Reject (default) -- blocks storage entirely and returns an error. The secrets filter runs before embedding, so sensitive content never reaches the embedding model.
+
+---
+---
+
+## v2 Tools
+
+All v2 tools use the `mcp__open-brain-v2__` namespace. v2 enforces typed memories — every write specifies a `kind` (`rule`, `fact`, `incident`, `task`). Bodies are immutable for rules (supersede-only). See [v2 Architecture](architecture/v2-architecture.md) for the full design.
+
+---
+
+### Boot + Session
+
+#### `boot_session_v2`
+
+Initialize v2 for a new session. Returns headline-only payload (2K token cap).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project` | string | No | Project to load context for |
+| `task` | string | No | What this session is about to work on |
+| `source` | string | No | Agent name (`claude`, `windsurf`, `cursor`) |
+| `handoff` | string | No | Explicit handoff text (auto-populated from prior session if empty) |
+| `cwd` | string | No | Caller's working directory |
+| `pid` | int | No | Caller's process ID (defaults to server's PID) |
+| `host` | string | No | Caller's hostname |
+
+**Returns:** BLOCKERs (5 max), PATTERNs (5 max, task-relevance ranked), active tasks, working context, pending action items, other active sessions, handoff, token estimate.
+
+#### `end_session_v2`
+
+End a session, optionally writing a handoff note for the next session.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `handoff` | string | No | Handoff note (<=2000 chars) |
+| `session_id` | int | No | Defaults to this server's session |
+| `source` | string | No | For audit |
+
+#### `update_active_task_v2`
+
+Update task description + bump heartbeat.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `task` | string | Yes | New task description |
+| `session_id` | int | No | Defaults to this server's session |
+
+#### `list_active_sessions_v2`
+
+List live sessions, optionally filtered by project.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project` | string | No | Filter by project |
+| `exclude_self` | bool | No | Hide this session (default true) |
+
+#### `write_handoff_v2`
+
+Write a handoff note without ending the session (mid-session checkpoint).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `content` | string | Yes | Handoff text (<=2000 chars) |
+| `source` | string | No | For audit |
+| `project` | string | No | Project scope |
+
+---
+
+### Write Tools
+
+All write tools are blocked if pending action items exist. Call `acknowledge_action_item_v2` first.
+
+#### `remember_rule_v2`
+
+Write a new RULE. Rejects duplicates (>0.75 cosine) — caller must route to `supersede_rule_v2`.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `headline` | string | Yes | <=15 words |
+| `body` | string | Yes | <=400 words (hard ceiling) |
+| `severity` | string | No | `BLOCKER` or `PATTERN` (default `PATTERN`) |
+| `project` | string | No | Project scope |
+| `source` | string | No | Agent identifier |
+| `skill_trigger` | dict | No | Tag as a skill: `{name, keywords, projects, always_on}` |
+
+#### `remember_fact_v2`
+
+Write a new FACT. Subject to Ebbinghaus decay.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `headline` | string | Yes | <=15 words |
+| `body` | string | Yes | <=400 words |
+| `project` | string | No | Project scope |
+| `tags` | string[] | No | Searchable tags |
+| `ttl` | string | No | ISO 8601 expiry timestamp (hard TTL) |
+| `source` | string | No | Agent identifier |
+
+#### `remember_incident_v2`
+
+Write a new INCIDENT (episodic record). Duplicate check skipped — same event can recur.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `headline` | string | Yes | <=15 words |
+| `body` | string | Yes | <=400 words |
+| `project` | string | No | Project scope |
+| `root_cause` | string | No | What caused it |
+| `resolution` | string | No | How it was fixed |
+| `linked_rule_ids` | int[] | No | Rules related to this incident |
+| `source` | string | No | Agent identifier |
+
+#### `remember_task_v2`
+
+Write a cross-session TASK obligation.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `content` | string | Yes | Task description (headline auto-generated from first line) |
+| `project` | string | No | Project scope |
+| `priority` | string | No | `low`, `medium` (default), or `high` |
+| `due_condition` | string | No | When this task should be done |
+| `source` | string | No | Agent identifier |
+
+#### `capture_context_v2`
+
+Auto-decompose raw text into typed atomic memories. Classification is keyword-based heuristic (no LLM).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `context` | string | Yes | Raw text to capture |
+| `source` | string | No | Agent identifier |
+| `project` | string | No | Project scope |
+
+#### `supersede_rule_v2`
+
+Revise a rule. Old rule goes DEPRECATED, new rule links to it. This is the ONLY way to modify a rule.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `old_id` | int | Yes | Rule to supersede |
+| `new_headline` | string | Yes | <=15 words |
+| `new_body` | string | Yes | <=400 words |
+| `reason` | string | Yes | Why the old rule is wrong |
+| `source` | string | No | Agent identifier |
+| `severity` | string | No | Override severity (defaults to old rule's severity) |
+
+#### `update_task_status_v2`
+
+Transition a task's lifecycle state.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `task_id` | int | Yes | Task to update |
+| `status` | string | Yes | `open`, `blocked`, `done`, or `stale` |
+| `source` | string | No | Agent identifier |
+
+---
+
+### Read Tools
+
+#### `recall_v2`
+
+Fetch full body of a memory by kind + ID. Forgotten memories still return (with a banner).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `kind` | string | Yes | `rule`, `fact`, `incident`, or `task` |
+| `memory_id` | int | Yes | ID within that kind |
+
+#### `search_v2`
+
+Semantic search over headlines. Bodies NOT returned — call `recall_v2` for full content.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `query` | string | Yes | Natural language query |
+| `kind` | string | No | Filter by memory kind |
+| `project` | string | No | Filter by project |
+| `limit` | int | No | Max results (default 10) |
+
+Skill keyword matches are merged into results with `via_skill_trigger` annotation.
+
+#### `list_recent_v2`
+
+Browse recent memories (headline-only), newest first.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `limit` | int | No | Max rows (default 20, hard cap 200) |
+| `days` | int | No | Only last N days (0 = no limit) |
+| `kind` | string | No | Filter by kind |
+| `project` | string | No | Filter by project |
+| `include_forgotten` | bool | No | Include forgotten rows (default false) |
+
+#### `stats_v2`
+
+Corpus statistics: per-kind totals, severity breakdown, task status, pending action items, active sessions.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project` | string | No | Scope to project (empty = global) |
+
+---
+
+### Curation Tools
+
+#### `annotate_v2`
+
+Attach or clear a persistent note on a memory.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `kind` | string | Yes | `rule`, `fact`, `incident`, or `task` |
+| `memory_id` | int | Yes | ID within that kind |
+| `note` | string | No | Text to set (omit to read current) |
+| `clear` | bool | No | True to remove annotation |
+
+#### `rate_v2`
+
+Upvote or downvote a memory.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `kind` | string | Yes | Memory kind |
+| `memory_id` | int | Yes | ID within that kind |
+| `direction` | string | Yes | `up` or `down` |
+
+#### `pin_v2` / `unpin_v2`
+
+Pin/unpin a memory. Only project-scoped memories can be pinned.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `kind` | string | Yes | Memory kind |
+| `memory_id` | int | Yes | ID within that kind |
+
+---
+
+### Cleanup Tools
+
+#### `forget_v2`
+
+Soft-delete. Deactivates the memory_index row. Body preserved for audit.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `kind` | string | Yes | Memory kind |
+| `memory_id` | int | Yes | ID within that kind |
+| `reason` | string | No | Why it's being forgotten |
+| `source` | string | No | Agent identifier |
+
+#### `forget_many_v2`
+
+Batch soft-delete. Partial success allowed.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `kinds` | string[] | Yes | Parallel list of kinds |
+| `memory_ids` | int[] | Yes | Parallel list of IDs |
+| `reason` | string | No | Applied to all |
+| `source` | string | No | Agent identifier |
+
+#### `unsupersede_v2`
+
+Reverse a rule supersession. Both rules end up active.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `old_id` | int | Yes | Rule whose supersession to reverse |
+| `source` | string | Yes | Agent identifier |
+
+#### `prune_v2`
+
+Hard-delete stale memories with safeguards. Rules are never pruned.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `days` | int | No | Age threshold (minimum 30, default 90) |
+| `min_access` | int | No | Facts with access_count > this are kept |
+| `dry_run` | bool | No | Preview only (default true) |
+
+---
+
+### Maintenance Tools
+
+#### `run_maintenance_v2`
+
+Run all maintenance jobs: fact decay + incident archive.
+
+#### `run_maintenance_if_due_v2`
+
+Run maintenance only if the last run was more than `hours` ago. Safe to fire on every boot.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `hours` | float | No | Rate-limit window (default 24) |
+
+#### `decay_facts_v2`
+
+Run only the Ebbinghaus fact decay job.
+
+#### `archive_incidents_v2`
+
+Run only the incident archive job (90-day default).
+
+---
+
+### Action Items
+
+#### `acknowledge_action_item_v2`
+
+Acknowledge a pending action item. Writes are blocked until all are acknowledged.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `item_id` | int | Yes | Action item ID |
+| `decision` | string | Yes | `will_execute`, `already_done`, or `not_relevant` |
+| `source` | string | No | Agent identifier |
+| `reason` | string | Conditional | Required for `already_done` and `not_relevant` |
+
+#### `create_action_item_v2`
+
+Manually create an action item linked to a memory.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `source_kind` | string | Yes | Kind of the source memory |
+| `source_id` | int | Yes | ID of the source memory |
+| `text` | string | Yes | Action item text |
+| `project` | string | No | Project scope |
+
+---
+
+### Skills
+
+#### `load_skill_v2`
+
+Load a specific skill by its trigger name.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `name` | string | Yes | Skill trigger name |
+| `source` | string | No | Agent identifier |
+| `project` | string | No | Project scope (required for project-scoped skills) |
+
+---
+
+### Working Memory
+
+#### `scratch_set_v2` / `scratch_get_v2` / `scratch_list_v2`
+
+Ephemeral key-value store. Cleared on server restart.
+
+---
+
+### Observability
+
+#### `health_v2`
+
+DB connectivity, Ollama reachability (socket-level, 5s timeout), table row counts, server uptime, tool list.
+
+#### `metrics_v2`
+
+Per-tool call counts, error rates, avg/p99 latency for the current server process lifetime.
+
+#### `recent_errors_v2`
+
+Last N errors from the in-memory ring buffer.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `n` | int | No | Number of errors to return (default 20) |
+
+---
+
+### Cognitive Architecture
+
+#### `brain_checkpoint_v2`
+
+Check the brain before a risky action. Surfaces pinned BLOCKER rules + task-relevant PATTERN rules.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `action` | string | Yes | What you're about to do |
+| `source` | string | Yes | Agent identifier |
+| `context` | string | No | Additional context |
+| `project` | string | No | Project scope |
+
+5-minute cooldown per action per source.
+
+#### `brain_startup_reminder_v2`
+
+Returns the v2 mandatory boot-first system message. Display at session start.

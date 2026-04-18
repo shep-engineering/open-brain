@@ -79,3 +79,35 @@ python server.py --transport http --port 8080
 # Both simultaneously
 python server.py --transport both
 ```
+
+---
+
+## brain_v2 Configuration
+
+v2 has its own environment variables. All are optional — defaults target the v2 container on port 5433.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OPEN_BRAIN_V2_DATABASE_URL` | `postgresql://postgres:password@localhost:5433/open_brain_v2` | v2 PostgreSQL connection string |
+| `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | Shared with v1 |
+| `OLLAMA_EMBEDDING_MODEL` | `nomic-embed-text` | Embedding model (v2 does not use a metadata LLM) |
+| `OPEN_BRAIN_V2_EMBED_TIMEOUT` | `120` | Seconds for Ollama embedding calls (handles cold model loads) |
+| `OPEN_BRAIN_V2_EMBEDDING_DIMS` | `768` | Must match your embedding model |
+| `OPEN_BRAIN_V2_BOOT_TOKEN_CAP` | `2000` | Maximum tokens in boot payload |
+| `OPEN_BRAIN_V2_BOOT_BLOCKER_CAP` | `5` | Max BLOCKER rules in boot |
+| `OPEN_BRAIN_V2_BOOT_PATTERN_CAP` | `5` | Max PATTERN rules in boot |
+| `OPEN_BRAIN_V2_BOOT_TASK_CAP` | `20` | Max active tasks in boot |
+| `OPEN_BRAIN_V2_BOOT_HANDOFF_CAP` | `200` | Max tokens for handoff note |
+| `OPEN_BRAIN_V2_DUPLICATE_COSINE` | `0.75` | Cosine threshold for duplicate detection |
+| `OPEN_BRAIN_V2_FACT_HALFLIFE_DAYS` | `7.0` | Ebbinghaus decay halflife for facts |
+| `OPEN_BRAIN_V2_FACT_DECAY_THRESHOLD` | `0.1` | Score below which facts deactivate |
+| `OPEN_BRAIN_V2_INCIDENT_ARCHIVE_DAYS` | `90` | Days before incidents auto-archive |
+| `OPEN_BRAIN_V2_PRUNE_MIN_DAYS` | `30` | Hard floor — never prune anything newer |
+| `OPEN_BRAIN_V2_PRUNE_MAX_DELETE` | `50` | Max rows deleted per prune call |
+| `OPEN_BRAIN_V2_SKILL_TRIGGER_MAX` | `5` | Max skills surfaced per search query |
+| `OPEN_BRAIN_V2_SLOW_CALL_MS` | `10000` | Threshold for slow-call alerts (ms) |
+| `OPEN_BRAIN_V2_HEADLINE_WORD_CAP` | `15` | Max words in a headline |
+| `OPEN_BRAIN_V2_BODY_WORD_CAP` | `200` | Soft ceiling for body length (hard ceiling = 2x) |
+
+!!! note "No metadata LLM"
+    v2 intentionally does NOT use a metadata LLM in the write path. Type classification in `capture_context_v2` is keyword-based heuristic. This eliminates the Ollama model-thrashing cost documented in the [infra cost addendum](../architecture/v2-architecture.md).
