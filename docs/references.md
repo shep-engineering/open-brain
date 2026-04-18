@@ -15,3 +15,12 @@ space Open Brain operates in.
 ## Protocol
 
 - **[Model Context Protocol](https://modelcontextprotocol.io)** — The open standard every Open Brain tool speaks. Any MCP-compatible client (Claude Code, Cursor, Windsurf, ChatGPT Desktop) can connect.
+
+## brain_v2 design sources
+
+The v2 redesign was informed by parallel synthesis documents from three AI agents, each independently analyzing v1's failure modes and proposing architectural fixes:
+
+- `docs/planning/windsurf-memory-architecture-synthesis.md` — selected as best-of-breed by Dave. Key contributions: headline-only boot with token cap, typed stores, ephemeral working context, temporal+spatial locality retrieval.
+- `docs/planning/claude-memory-architecture-synthesis.md` — complementary analysis. Key contributions: write gate atomicity checks, immutable rule bodies.
+- `docs/planning/gpt-memory-architecture-synthesis.md` — complementary analysis. Key contributions: predictive context positioning, composite scoring.
+- `docs/planning/infra-cost-addendum.md` — falsifiable Ollama runtime cost check. Proved v2's write path does not trigger metadata LLM eviction.

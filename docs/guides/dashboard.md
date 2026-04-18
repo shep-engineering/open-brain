@@ -104,3 +104,17 @@ The dashboard requires two additional Python packages (both included in `require
 | Taskbar shows generic Python icon | Reboot Windows to flush the icon cache. The dashboard sets `SetCurrentProcessExplicitAppUserModelID` and DPI awareness. |
 | Observability strip shows zeros | Make some MCP tool calls (search, remember, etc.) to generate OTel spans in `logs/otel-traces.jsonl`. |
 | MCP status shows offline | If the server was active within the last 5 minutes, it should show online. Check that `logs/otel-traces.jsonl` has recent spans with `"service": "open-brain"`. |
+
+---
+
+## v2 Monitoring
+
+The v1 dashboard does not currently show brain_v2 stats. During the v2 soak period, use these MCP tools from any agent session to monitor v2 health:
+
+- **`health_v2`** — DB connectivity, Ollama reachability, table row counts, server uptime, tool list
+- **`metrics_v2`** — per-tool call counts, error rates, avg/p99 latency
+- **`recent_errors_v2`** — last N errors from the in-memory ring buffer
+
+v2 also writes persistent telemetry to the `tool_events` table (every tool call with timing) and structured JSONL to `logs/brain_v2.jsonl` (rotating, 5MB x 5 files).
+
+A unified dashboard covering both v1 and v2 is planned for post-soak.

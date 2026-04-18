@@ -28,16 +28,16 @@ The wire command scans for:
 
 ## Manual Wiring
 
-If you prefer to configure manually, add the following to each client's MCP config file.
+If you prefer to configure manually, add the following to each client's MCP config file. For v2 to run alongside v1, add **both** server entries.
 
 ### Windsurf
 
 **Config file:**
 
-- **Windows:** `C:\Users\<USERNAME>\.windsurf\mcp_config.json`
+- **Windows:** `C:\Users\<USERNAME>\.windsurf\mcp_config.json` or `C:\Users\<USERNAME>\.codeium\windsurf\mcp_config.json`
 - **Linux / macOS:** `~/.windsurf/mcp_config.json`
 
-**Windows:**
+**Windows (v1 + v2):**
 
 ```json
 {
@@ -50,6 +50,15 @@ If you prefer to configure manually, add the following to each client's MCP conf
         "EMBEDDING_PROVIDER": "ollama",
         "OLLAMA_BASE_URL": "http://localhost:11434",
         "METADATA_LLM_MODEL": "qwen2.5:32b"
+      }
+    },
+    "open-brain-v2": {
+      "command": "C:\\path\\to\\open-brain\\.venv\\Scripts\\python.exe",
+      "args": ["C:\\path\\to\\open-brain\\brain_v2\\server.py"],
+      "env": {
+        "OPEN_BRAIN_V2_DATABASE_URL": "postgresql://postgres:<your_password>@localhost:5433/open_brain_v2",
+        "OLLAMA_BASE_URL": "http://localhost:11434",
+        "OLLAMA_EMBEDDING_MODEL": "nomic-embed-text"
       }
     }
   }
@@ -162,10 +171,10 @@ claude mcp add open-brain "/path/to/open-brain/.venv/bin/python" "/path/to/open-
 
 After wiring, restart the client and check:
 
-- **Windsurf:** MCP icon (plug) in Cascade panel, green dot, 19 tools
-- **Cursor:** Chat panel, hammer icon, `open-brain` listed
-- **Claude Code:** Run `claude mcp list`. Should show `open-brain: ... Connected`
-- **Claude Desktop:** Ask "What tools do you have?" Should list the 19 tools
+- **Windsurf:** MCP icon (plug) in Cascade panel, green dot. Should show both `open-brain` (26 tools) and `open-brain-v2` (39 tools).
+- **Cursor:** Chat panel, hammer icon, both `open-brain` and `open-brain-v2` listed
+- **Claude Code:** Run `claude mcp list`. Should show `open-brain: ... Connected` and `open-brain-v2: ... Connected`
+- **Claude Desktop:** Ask "What tools do you have?" Should list tools from both servers
 
 ---
 
