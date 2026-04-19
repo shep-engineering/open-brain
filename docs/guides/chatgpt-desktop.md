@@ -48,3 +48,15 @@ ChatGPT Desktop uses Custom Instructions for persistent behavior:
 2. Paste the contents of `prompts/generic-system-prompt.md` into the "What would you like ChatGPT to know?" field
 
 This tells ChatGPT to silently capture and recall memories using the Open Brain tools.
+
+---
+
+## v2 via SSE
+
+To connect ChatGPT Desktop to brain_v2, run a second SSE proxy on a different port:
+
+```sh
+.venv\Scripts\python.exe -m mcp.server.sse --port 8766 -- python brain_v2/server.py
+```
+
+Then add `http://localhost:8766/sse` as a second MCP server in ChatGPT Desktop settings.

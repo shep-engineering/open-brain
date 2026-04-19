@@ -33,9 +33,10 @@ nav:
     - Configuration: getting-started/configuration.md
     - Wiring Agents: getting-started/wiring-agents.md
   - Architecture:
-    - Overview: architecture/overview.md
-    - Memory Model: architecture/memory-model.md
-    - Smart Batching: architecture/smart-batching.md
+    - v1 Overview: architecture/overview.md
+    - v1 Memory Model: architecture/memory-model.md
+    - v1 Smart Batching: architecture/smart-batching.md
+    - v2 Architecture: architecture/v2-architecture.md
   - Tools Reference: tools.md
   - Guides:
     - Dashboard: guides/dashboard.md

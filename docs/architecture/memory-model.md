@@ -1,6 +1,9 @@
-# Memory Model
+# Memory Model (v1)
 
-Every memory in Open Brain is a row in PostgreSQL with a dense vector embedding, structured metadata, and quality signals.
+!!! info "v2 Memory Model"
+    v2 replaces the single `memories` table with four typed tables (`rules`, `facts`, `incidents`, `tasks`) and a shared `memory_index` for cross-type search. See [v2 Architecture](v2-architecture.md#four-atomic-memory-types).
+
+Every memory in Open Brain v1 is a row in PostgreSQL with a dense vector embedding, structured metadata, and quality signals.
 
 ---
 

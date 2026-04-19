@@ -8,12 +8,17 @@
 
 Before any work, in order:
 
-1. **Boot the brain (MANDATORY, no exceptions):** Call `mcp__open-brain__boot_session` (or `mcp__open-brain__search` as fallback) at the START of EVERY session, BEFORE your first action.
+1. **Boot BOTH brains (MANDATORY, no exceptions):** Call both boot tools at the START of EVERY session, BEFORE your first action. Do them in order.
    ```bash
-   # Via MCP tool:
+   # Step 1 — V1 brain (guardrails, history, action items, correction loop)
    mcp__open-brain__boot_session project="<project>" source="claude"
-   mcp__open-brain__search query="<task topic>"
-   mcp__open-brain__search query="user preferences formatting rules"
+
+   # Step 2 — V2 brain (typed rules/facts/incidents/tasks, structured memory)
+   mcp__open-brain-v2__boot_session_v2 project="<project>" task="<first user prompt>" source="claude"
+
+   # Step 3 — Search V1 for task context (V2 search is additive once populated)
+   mcp__open-brain__search query="<task topic>" source="claude"
+   mcp__open-brain__search query="user preferences formatting rules" source="claude"
    ```
 
    **If the brain is unavailable (MCP call fails):**
@@ -187,9 +192,15 @@ At every meaningful milestone (feature complete, bug fixed, refactor done):
 bash scripts/context-checkpoint.sh "what was accomplished"
 ```
 
-If open-brain is available, also capture context:
+If open-brain is available, capture context to BOTH brains:
 ```bash
-# Via MCP tool: mcp__open-brain__capture_context context="<what was done, decisions made, gotchas>" source="claude"
+# V1 (unstructured, full history):
+mcp__open-brain__capture_context context="<what was done, decisions made, gotchas>" source="claude"
+# V2 (typed, structured — use the right type):
+mcp__open-brain-v2__remember_rule_v2    # for workflow rules / guardrails
+mcp__open-brain-v2__remember_fact_v2    # for project facts / decisions
+mcp__open-brain-v2__remember_incident_v2 # for bugs found / root causes
+mcp__open-brain-v2__capture_context_v2  # for auto-decomposed session context
 ```
 
 ## 4. Code Standards: Always Enforced
@@ -240,11 +251,14 @@ git reset --hard pre-change/<timestamp>-<branch>
 
 ## 7. Memory: Capture at Session End
 
-If open-brain is available, always capture at the end of a session:
+If open-brain is available, always capture at the end of a session to BOTH brains:
 ```bash
-# Via MCP tool: mcp__open-brain__capture_context
-# Include: what was built, decisions made, bugs fixed, gotchas hit
-# source="claude"
+# V1 — full narrative context:
+mcp__open-brain__capture_context context="<summary>" source="claude"
+# V2 — typed atoms (pick the right tool per memory type):
+mcp__open-brain-v2__capture_context_v2 context="<summary>" source="claude"
+# V2 — end session with handoff note for next agent:
+mcp__open-brain-v2__end_session_v2 handoff="<what was done, what's next>" source="claude"
 ```
 
 Never ask the user "should I remember this?" Decide and capture silently.

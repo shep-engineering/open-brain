@@ -148,6 +148,50 @@ Since there's no volume, all data is gone.
 
 ---
 
+## brain_v2 Tests
+
+v2 has its own test suite in `brain_v2/tests/` with 203 tests. These run against the **v2 database** (`open_brain_v2` on port 5433), not the test database on port 5434.
+
+```sh
+# Start the v2 database
+docker compose -f docker-compose.v2.yml up -d
+
+# Run v2 tests
+pytest brain_v2/tests/ -v --tb=short
+```
+
+### Key differences from v1 tests
+
+| Aspect | v1 Tests | v2 Tests |
+|--------|----------|----------|
+| Database | `openbrain_test` on port 5434 | `open_brain_v2` on port 5433 |
+| Embeddings | Fake (deterministic hash) | **Real Ollama** (requires `nomic-embed-text` running) |
+| Isolation | Separate container, no persistent volume | Same container, tables truncated per test |
+| Connection | New connection per test | Shared connection (reuse for performance) |
+| Runtime | ~30 seconds | ~3 minutes (real embeddings) |
+
+v2 tests use real Postgres and real Ollama — no mocks. This is by design per guardrail #3347: "smoke tests are not feature tests."
+
+### Test structure
+
+```
+brain_v2/tests/
+  conftest.py                  # Shared connection, table truncation per test
+  test_action_items.py         # 16 tests: create, ack, blocking gate
+  test_boot_payload.py         # 11 tests: caps, truncation, token budget
+  test_capture_context.py      # 18 tests: decomposition, typed routing
+  test_maintenance.py          # 23 tests: fact decay, incident archive
+  test_operational.py          # 20 tests: forget, stats, list_recent
+  test_parity.py               # 25 tests: annotate, rate, pin, scratch, checkpoint
+  test_parity_final.py         # 24 tests: forget_many, unsupersede, prune
+  test_recall_search_cache.py  # 10 tests: recall, search, temporal cache
+  test_session_registry.py     # 27 tests: register, end, handoff, boot integration
+  test_skills_layer_v2.py      # 11 tests: skill storage, boot filtering, keyword match
+  test_write_gate.py           # 18 tests: type, severity, headline, atomicity, dedup
+```
+
+---
+
 ## Troubleshooting
 
 ### Tests skip with "Test database not running"

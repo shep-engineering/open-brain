@@ -87,3 +87,16 @@ Open Brain decomposes this into atomic memories:
 2. **Decision:** Use integration tests for auth, not mocks (type: `decision`)
 
 Each gets its own embedding, metadata, and dedup check.
+
+---
+
+## v2 Differences
+
+In brain_v2, `capture_context_v2` works similarly but with key differences:
+
+- **No LLM in the write path** — classification uses keyword-based heuristics (regex patterns for rule/incident/task keywords), not a metadata LLM. This eliminates model-swapping cost entirely.
+- **Typed output** — each chunk is classified as `rule`, `fact`, `incident`, or `task` and routed to the appropriate typed table through the [write gate](../architecture/v2-architecture.md#write-gate-5-steps).
+- **Atomicity enforcement** — the write gate rejects bodies >400 words and bodies with multiple stacked GUARDRAIL markers (the v1 merge pathology).
+- **Headline generation** — each chunk gets an auto-generated headline (first sentence, <=15 words) that appears in boot payloads and search results without materializing the full body.
+
+The philosophy is the same: agents capture silently, recall automatically. The mechanics are stricter.

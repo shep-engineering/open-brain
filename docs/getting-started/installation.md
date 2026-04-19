@@ -87,7 +87,17 @@ This creates the `memories` table, pgvector extension, HNSW index, and all suppo
 
 ---
 
-## Step 5: Set up the test database (optional)
+## Step 5: Start brain_v2 database (recommended)
+
+v2 runs on a separate Postgres container alongside v1:
+
+```sh
+docker compose -f docker-compose.v2.yml up -d
+```
+
+This starts `open-brain-v2-db` on port **5433** with database `open_brain_v2`. The schema is applied automatically on first `boot_session_v2` call.
+
+## Step 6: Set up the test database (optional)
 
 Open Brain uses a separate Docker container for tests so they never touch your production data.
 
@@ -107,7 +117,7 @@ See the full [Testing guide](../guides/testing.md) for details on safety layers,
 
 ---
 
-## Step 6: Pull the embedding model
+## Step 7: Pull the embedding model
 
 ```sh
 ollama pull nomic-embed-text
@@ -124,7 +134,7 @@ ollama pull qwen2.5:32b
 
 ---
 
-## Step 7: Verify
+## Step 8: Verify
 
 ```sh
 python server.py
@@ -134,7 +144,7 @@ The server should start without errors. Now [wire it into your AI tools](wiring-
 
 ---
 
-## Step 8: Launch the Dashboard (Windows)
+## Step 9: Launch the Dashboard (Windows)
 
 Open Brain includes a dark-themed monitoring dashboard. It auto-detects whether services are running and starts them if needed.
 

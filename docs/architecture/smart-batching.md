@@ -1,6 +1,9 @@
-# Smart Batching
+# Smart Batching (v1)
 
-The `capture_context` tool uses a multi-phase batching algorithm to efficiently process session text on local hardware.
+!!! info "v2 does not use smart batching"
+    v2's `capture_context_v2` uses keyword-based heuristic classification instead of an LLM, and embeds each chunk individually. There is no metadata LLM in v2's write path — this eliminates the model-swapping problem entirely. See [v2 Architecture](v2-architecture.md).
+
+The v1 `capture_context` tool uses a multi-phase batching algorithm to efficiently process session text on local hardware.
 
 ---
 
