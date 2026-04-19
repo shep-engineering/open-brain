@@ -5,6 +5,10 @@ for "alive" and a definitely-gone pid for "dead"). No subprocess spawning —
 the agent module is imported and probe_once() is called in-process.
 
 Run with: pytest tests/test_heartbeat_agent.py -v
+
+NOTE: These tests modify active_sessions rows that other test files also
+touch. Under xdist parallel execution, this causes race conditions
+(tuple concurrently updated / stale reads). Marked serial.
 """
 from __future__ import annotations
 
@@ -14,6 +18,8 @@ import sys
 
 import psycopg2
 import pytest
+
+pytestmark = pytest.mark.serial
 
 HERE = os.path.dirname(__file__)
 sys.path.insert(0, os.path.join(HERE, ".."))
