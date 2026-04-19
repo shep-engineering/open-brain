@@ -1400,6 +1400,29 @@ def ensure_schema() -> None:
               file=sys.stderr)
 
 
+def _auto_register_session() -> None:
+    """Auto-register a session at server startup so telemetry flows
+    from the first tool call. boot_session_v2 upgrades this session
+    with project/task/handoff when the agent calls it explicitly."""
+    global _DB_SESSION_ID
+    ensure_schema()
+    if _DB_SESSION_ID is not None:
+        return
+    try:
+        import socket
+        conn = store.connect()
+        _DB_SESSION_ID = store.register_session(
+            conn, source="auto", project="",
+            cwd=os.getcwd(), pid=os.getpid(),
+            host=socket.gethostname(),
+            current_task="server started, awaiting boot_session_v2",
+        )
+        _flush_tool_event_buffer(_DB_SESSION_ID)
+        _log.info("auto-registered session id=%d (pid=%d)", _DB_SESSION_ID, os.getpid())
+    except Exception as exc:
+        _log.warning("auto-register session failed (DB not ready): %s", exc)
+
+
 def _on_shutdown():
     if _DB_SESSION_ID is not None:
         _flush_tool_event_buffer(_DB_SESSION_ID)
@@ -1409,5 +1432,5 @@ _atexit.register(_on_shutdown)
 
 
 if __name__ == "__main__":
-    ensure_schema()  # best-effort at startup; retried on first tool call if needed
+    _auto_register_session()
     mcp.run()
