@@ -1,6 +1,8 @@
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "brain_v2/tests"]
 addopts = "-v --tb=short"
 markers = [
     "ollama: tests requiring a running Ollama instance for real embeddings",
+    "unit: pure unit tests with no external dependencies",
+    "serial: tests that must run sequentially",
 ]
