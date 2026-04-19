@@ -9,12 +9,17 @@ Three layers of protection against accidentally hitting production:
   1. os.environ override (this file, top-level)
   2. Session fixture assertion (refuses to run if URL points to production)
   3. Connection singleton reset (forces _get_conn to reconnect with test URL)
+
+xdist support:
+  - Schema DDL runs once under a filelock; other workers wait and skip
+  - Session teardown only truncates from the controller (no PYTEST_XDIST_WORKER)
 """
 
 import hashlib
 import os
 import struct
 import math
+import tempfile
 
 # ──────────────────────────────────────────────────────────────────────────────
 # LAYER 1: Override DATABASE_URL before server.py is imported by any test file.
@@ -46,15 +51,15 @@ def safety_guard():
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Schema initialization (session-scoped, runs once)
+# Under xdist, each worker runs its own session. Use filelock so only one
+# worker performs DDL; others wait and skip.
 # ──────────────────────────────────────────────────────────────────────────────
-@pytest.fixture(scope="session", autouse=True)
-def init_test_schema():
-    """Create schema in the test database, reusing setup_db.py logic + server migrations."""
-    import server
+_SCHEMA_LOCK = os.path.join(tempfile.gettempdir(), "open_brain_test_schema.lock")
+_SCHEMA_DONE = os.path.join(tempfile.gettempdir(), "open_brain_test_schema.done")
 
-    # LAYER 3: Reset the singleton connection so _get_conn() reconnects with test URL
-    server._conn = None
 
+def _create_schema_ddl():
+    """Run all CREATE TABLE / INDEX / TRIGGER statements. Called once."""
     try:
         conn = psycopg2.connect(TEST_DATABASE_URL)
         conn.autocommit = True
@@ -63,15 +68,12 @@ def init_test_schema():
             "Test database not running. Start with:\n"
             "  docker compose -f docker-compose.test.yml up -d"
         )
-        return  # unreachable, but satisfies type checker
+        return
 
     dims = int(os.getenv("EMBEDDING_DIMENSIONS", "768"))
 
     with conn.cursor() as cur:
-        # pgvector extension
         cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
-
-        # memories table (mirrors setup_db.py)
         cur.execute(f"""
             CREATE TABLE IF NOT EXISTS memories (
                 id            SERIAL      PRIMARY KEY,
@@ -88,22 +90,17 @@ def init_test_schema():
                 pinned        BOOLEAN     NOT NULL DEFAULT FALSE
             )
         """)
-
-        # HNSW vector index
         cur.execute("""
             CREATE INDEX IF NOT EXISTS memories_embedding_hnsw_idx
             ON memories USING hnsw (embedding vector_cosine_ops)
             WITH (m = 16, ef_construction = 64)
         """)
-
-        # Supporting indexes
         cur.execute("CREATE INDEX IF NOT EXISTS memories_created_at_idx ON memories (created_at DESC)")
         cur.execute("CREATE INDEX IF NOT EXISTS memories_metadata_gin_idx ON memories USING gin (metadata)")
         cur.execute("CREATE INDEX IF NOT EXISTS memories_project_idx ON memories (project) WHERE project != ''")
         cur.execute("CREATE INDEX IF NOT EXISTS memories_last_accessed_idx ON memories (last_accessed ASC NULLS FIRST)")
         cur.execute("CREATE INDEX IF NOT EXISTS memories_pinned_project_idx ON memories (project) WHERE pinned = TRUE")
 
-        # Audit log table
         cur.execute("""
             CREATE TABLE IF NOT EXISTS memories_audit (
                 audit_id    SERIAL      PRIMARY KEY,
@@ -119,7 +116,6 @@ def init_test_schema():
         """)
         cur.execute("CREATE INDEX IF NOT EXISTS memories_audit_ts_idx ON memories_audit (changed_at DESC)")
 
-        # Audit trigger
         cur.execute("""
             CREATE OR REPLACE FUNCTION audit_memories()
             RETURNS trigger AS $body$
@@ -154,20 +150,49 @@ def init_test_schema():
 
     conn.close()
 
-    # Run server.py idempotent migrations (they use _get_conn which now points to test DB)
-    server.db_migrate_hybrid()
-    server.db_migrate_bitemporal()
-    server.db_migrate_uptime()
+
+@pytest.fixture(scope="session", autouse=True)
+def init_test_schema():
+    """Create schema in the test database. Under xdist, serialized via filelock."""
+    import server
+    from filelock import FileLock
+
+    # LAYER 3: Reset the singleton connection so _get_conn() reconnects with test URL
+    server._conn = None
+
+    # Schema DDL — run once, serialized across xdist workers
+    with FileLock(_SCHEMA_LOCK):
+        if not os.path.exists(_SCHEMA_DONE):
+            _create_schema_ddl()
+            # Run server.py idempotent migrations
+            server.db_migrate_hybrid()
+            server.db_migrate_bitemporal()
+            server.db_migrate_uptime()
+            with open(_SCHEMA_DONE, "w") as f:
+                f.write("done")
+        else:
+            # Another worker did DDL. Still run migrations (idempotent, fast).
+            server.db_migrate_hybrid()
+            server.db_migrate_bitemporal()
+            server.db_migrate_uptime()
 
     yield
 
-    # Session teardown: truncate all test data
+    # Session teardown: truncate all test data.
+    # Under xdist, only the controller (no PYTEST_XDIST_WORKER env var)
+    # does the final wipe after all workers are done.
     try:
-        cleanup_conn = psycopg2.connect(TEST_DATABASE_URL)
-        cleanup_conn.autocommit = True
-        with cleanup_conn.cursor() as cur:
-            cur.execute("TRUNCATE memories, memories_audit, server_uptime RESTART IDENTITY CASCADE")
-        cleanup_conn.close()
+        if not os.environ.get("PYTEST_XDIST_WORKER"):
+            cleanup_conn = psycopg2.connect(TEST_DATABASE_URL)
+            cleanup_conn.autocommit = True
+            with cleanup_conn.cursor() as cur:
+                cur.execute("TRUNCATE memories, memories_audit, server_uptime RESTART IDENTITY CASCADE")
+            cleanup_conn.close()
+            # Clean up done marker for the next test run
+            try:
+                os.unlink(_SCHEMA_DONE)
+            except FileNotFoundError:
+                pass
     except Exception:
         pass
 
