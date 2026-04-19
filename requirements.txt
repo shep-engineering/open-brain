@@ -12,6 +12,7 @@ opentelemetry-exporter-otlp-proto-grpc>=1.24.0
 opentelemetry-instrumentation-psycopg2>=0.45b0
 opentelemetry-instrumentation-requests>=0.45b0
 opentelemetry-instrumentation-logging>=0.45b0
+pytest-xdist>=3.5.0
 
 # --- mobile-UX evaluator harness (tests/mobile/) ---
 # Drives Chromium with mobile device emulation to verify the reveal.js
