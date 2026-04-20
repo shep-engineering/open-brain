@@ -66,8 +66,14 @@ start "" /B "%PYTHON%" "%OB_ROOT%\server.py" 2>>"%OB_ROOT%\server-crash.log"
 echo     Open Brain server started
 
 echo [5/5] Starting session-registry heartbeat agent (v0.14.0+)...
-start "" /B "%PYTHON%" "%OB_ROOT%\scripts\heartbeat_agent.py" >"%OB_ROOT%\logs\heartbeat-agent.log" 2>&1
-echo     Heartbeat agent started ^(pid-probe interval 60s^)
+schtasks /query /tn OpenBrainHeartbeatAgent >nul 2>&1
+if %errorlevel%==0 (
+    schtasks /run /tn OpenBrainHeartbeatAgent >nul 2>&1
+    echo     Heartbeat agent: scheduled task triggered ^(pid-probe interval 60s^)
+) else (
+    start "" /B "%PYTHON%" "%OB_ROOT%\scripts\heartbeat_agent.py" >"%OB_ROOT%\logs\heartbeat-agent.log" 2>&1
+    echo     Heartbeat agent: inline ^(install via scripts\windows\install-heartbeat-agent.ps1 for persistence^)
+)
 
 echo.
 echo Open Brain v0.14.0 is ON. 26 MCP tools ready for Windsurf / Cursor / Claude Code.

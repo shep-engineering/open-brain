@@ -126,7 +126,10 @@ def test_boot_registers_with_defaulted_pid_and_host():
         pid, host = cur.fetchone()
     conn.close()
     assert pid == os.getpid()
-    assert host == socket.gethostname()
+    # v0.14.x normalizes host to lowercase on insert. The raw
+    # socket.gethostname() on Windows is typically uppercase (e.g.
+    # 'DAVE-PC'); the stored form is 'dave-pc'.
+    assert host == socket.gethostname().lower()
 
 
 def test_boot_surfaces_sibling_in_same_project():

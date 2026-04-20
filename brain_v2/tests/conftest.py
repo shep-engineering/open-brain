@@ -43,7 +43,12 @@ def safety_guard_v2():
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _ensure_schema():
+def _ensure_schema(safety_guard_v2):
+    """Schema setup. Explicit `safety_guard_v2` parameter makes the
+    dependency unambiguous — we rely on the guard running first so
+    we never apply schema to the production DB. Without the explicit
+    param pytest picks up the ordering by definition order, which is
+    brittle."""
     try:
         with store.connect() as conn:
             apply_schema(conn)

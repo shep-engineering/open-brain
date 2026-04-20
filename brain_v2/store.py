@@ -25,6 +25,11 @@ from .config import DATABASE_URL, DUPLICATE_COSINE_THRESHOLD
 from .embedding import embed_to_pgvector
 from .write_gate import WriteGateError, run_gate, check_kind
 
+# Shared with V1 (repo-root module imported by both brains). Used for
+# host normalization at session-registry insert and by the boot-time
+# opportunistic probe in brain_v2/boot.py.
+import session_liveness
+
 log = logging.getLogger("brain_v2.store")
 
 
@@ -486,6 +491,10 @@ def register_session(conn, *, source: str, project: str = "", cwd: str = "",
     (source, cwd, pid) is already active, it is ENDED first (supersede
     on reboot — process lifecycle is authoritative, no TTL).
     """
+    # v0.23.0 / V2 2.1.0: normalize host at insert so `lower(host)=...`
+    # matches legacy rows written in mixed case. Empty string stays
+    # empty (schema column is NOT NULL DEFAULT '').
+    normalized_host = session_liveness.normalize_host(host) or ""
     with conn.cursor() as cur:
         # End any prior active session from the same process
         if pid is not None:
@@ -511,7 +520,7 @@ def register_session(conn, *, source: str, project: str = "", cwd: str = "",
             VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb)
             RETURNING id
             """,
-            (source, project, cwd, pid, host, current_task or None,
+            (source, project, cwd, pid, normalized_host, current_task or None,
              json.dumps(metadata) if metadata else None),
         )
         session_id = cur.fetchone()[0]
