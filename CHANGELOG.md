@@ -5,6 +5,108 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.0] + [brain_v2 2.1.0] - 2026-04-20
+
+### Session-registry trust fixes across both brains
+
+Closes the "heartbeat agent silently down → registry goes stale → boot
+surfaces dead sessions as live siblings" failure mode on V1 and V2.
+Evidence at session start on DAVE-PC: 3 "active" V1 rows (2 pids confirmed
+dead via `tasklist`, heartbeat_at frozen 2 days), plus 3 "active" V2 rows
+with `heartbeat_at == started_at` on every one — V2 had never bumped
+heartbeat_at because it had no external probe code at all.
+
+**V1 additions (v0.23.0):**
+- `scripts/migrate_v7_active_sessions_ended_at.py` — idempotent ALTER TABLE
+  adding `ended_at TIMESTAMPTZ` (nullable, NULL for legacy rows). Closes
+  the only real schema divergence between V1 and V2 `active_sessions`.
+  Enables uniform write SQL across both brains.
+- `session_liveness.py` module (repo root) — shared by V1 and V2.
+  `is_pid_alive`, `normalize_host`, `compute_staleness(rows)`,
+  `probe_and_mark_ended(conn, rows, my_host, cap=20)`. Constants
+  `STALENESS_WARN_SECONDS` (env `OPEN_BRAIN_REGISTRY_STALENESS_WARN`,
+  default 600) and `NULL_PID_TTL_MINUTES` (env `OPEN_BRAIN_SESSION_TTL_MINUTES`,
+  default 1440 — 24 hours).
+- `server.py::boot_session` — opportunistic same-host pid probe on every
+  boot (cap 20 rows, try/except wrapped), plus `registry_staleness_seconds`
+  / `registry_trustworthy` / `self_healed_ended_ids` on the OTHER ACTIVE
+  SESSIONS section. Warning banner when untrustworthy.
+- `server.py::list_active_sessions` — emits `registry_staleness_seconds`
+  / `registry_trustworthy` at top level.
+- `server.py::db_register_session` — normalizes host to lowercase on
+  insert (mirrors V2). Fixes latent case-sensitive match bug.
+- `scripts/heartbeat_agent.py` — multi-URL probe. Accepts
+  `OPEN_BRAIN_PROBE_URLS` env (comma-separated); default derives the V2
+  URL from V1 by swapping `:5432/openbrain` → `:5433/open_brain_v2`.
+  Per-URL isolation: one DB down doesn't stop probing of the other.
+  `_fetch_local_active`, `_mark_ended`, `_bump_heartbeat`,
+  `_sweep_null_pid_stale`, `probe_once` all accept a `url` argument
+  (defaulting to `DATABASE_URL` for test back-compat).
+- `probe_all_urls(host_filter, urls)` — main loop helper.
+- Null-pid TTL sweep in `probe_once` — gated strictly on `pid IS NULL`
+  so probeable rows keep the `memory #4929/#3719` probe-based semantics.
+  Uses `make_interval(mins => %s)` (not `%s || ' minutes'::interval`
+  which silently fails on integer binding).
+- `scripts/windows/install-heartbeat-agent.ps1` +
+  `uninstall-heartbeat-agent.ps1` + `run-heartbeat-agent.cmd` —
+  registers `OpenBrainHeartbeatAgent` scheduled task at logon with
+  unlimited runtime + 60s restart on failure. Logs to
+  `%LOCALAPPDATA%\open-brain\heartbeat-agent.log`.
+- `scripts/windows/open-brain-on.cmd` step 5/5 — prefers
+  `schtasks /run OpenBrainHeartbeatAgent` if installed, inline `start /B`
+  fallback otherwise.
+- Tests: 16 new in `tests/test_session_liveness.py` (normalize_host,
+  is_pid_alive, compute_staleness, probe_and_mark_ended). 5 new in
+  `tests/test_heartbeat_agent.py` (case-insensitive host match, boot
+  self-heal, staleness warning, null-pid under/over TTL). 1 existing
+  test updated for new lowercase-host contract.
+
+**V2 additions (brain_v2 2.1.0):**
+- `brain_v2/store.py::register_session` — normalizes host via
+  `session_liveness.normalize_host`. Empty string stays empty (schema
+  column is NOT NULL DEFAULT ''). Mixed-case lowercased.
+- `brain_v2/boot.py::build` — opportunistic same-host pid probe on
+  siblings (inner try/except so a probe failure doesn't kill the whole
+  boot response — Windsurf flagged the outer try/except in
+  `boot_session_v2` is too broad). Filters dead rows out of returned
+  `other_active_sessions`. Computes staleness via shared helper.
+- `BootPayload` — new fields: `registry_staleness_seconds`,
+  `registry_trustworthy`, `self_healed_ended_ids`.
+- `brain_v2/server.py::boot_session_v2` — defaults host to
+  `socket.gethostname()` when caller omits (mirrors V1's
+  `server.py:1835`). Prevents empty-host rows like V2 production id #4.
+- `brain_v2/server.py::list_active_sessions_v2` — emits
+  `registry_staleness_seconds` / `registry_trustworthy` at top level.
+- Tests: V2 `test_session_registry.py` extended with 9 new tests across
+  3 classes (`TestHostNormalization`, `TestBootOpportunisticProbe`,
+  `TestRegistryStaleness`).
+- `brain_v2/tests/conftest.py::_ensure_schema` — now takes
+  `safety_guard_v2` as an explicit parameter so the ordering dependency
+  is unambiguous (Windsurf's minor fix).
+
+**Key design decision:** Option A — one probe process, shared module,
+one V1 column migration. Alternative (Option B) would duplicate
+`heartbeat_agent.py` as `heartbeat_agent_v2.py` — rejected because
+the four "duplicate-logic" failure modes (drift, semantic divergence,
+double install, test duplication) are historically well-documented in
+open-brain's own memory (#4978, #3719, #5117). Coupling the shared
+probe to V2's schema is provisional; if V2 later adopts an event-based
+or in-process lifecycle-integrated liveness model, split by copying the
+file and flipping the URL env var. Noted in
+`scripts/heartbeat_agent.py`'s module docstring.
+
+**One debugging lesson captured:** V1's `active_sessions` had no
+`ended_at` column during initial Track 2C work. My sweep SQL
+`SET status='ended', ended_at=NOW()` failed silently because `probe_once`
+wrapped the sweep in a bare try/except with `verbose=False`. Identified
+by running the sweep directly outside the test harness; fixed by the
+v7 migration + uniform SQL. Lesson: silent catch-all except blocks hide
+the bugs that hurt most.
+
+**Design doc:** `docs/planning/v14-registry-trust-extend-to-v2.md` —
+Windsurf-reviewed plan capturing the schema comparison, options
+considered, risks, and branch hygiene.
+
 ## [2.0.0] - 2026-04-17
 
 ### brain_v2 — major revision, production-ready

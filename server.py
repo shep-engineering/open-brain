@@ -43,6 +43,7 @@ from mcp.server.fastmcp import FastMCP
 from secrets_filter import check_content, SecretDetectedError
 import telemetry
 from telemetry import instrument
+import session_liveness
 
 # ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -440,6 +441,7 @@ def _http_post(url: str, payload: dict, headers: dict | None = None) -> dict:
         raise RuntimeError(f"Cannot reach {url}: {e.reason}") from e
 
 
+@instrument("ollama.embed")
 def _embed_ollama(text: str) -> list[float]:
     result = _http_post(
         f"{OLLAMA_BASE_URL}/api/embeddings",
@@ -453,6 +455,7 @@ def _embed_ollama(text: str) -> list[float]:
     return result["embedding"]
 
 
+@instrument("openai.embed")
 def _embed_openai(text: str) -> list[float]:
     body: dict = {"model": OPENAI_EMBED_MODEL, "input": text}
     if EMBEDDING_DIMS:
@@ -514,6 +517,7 @@ def _meta_heuristic(text: str) -> dict:
     return {"type": type_, "people": people, "topics": topics, "action_items": action_items, "tags": tags}
 
 
+@instrument("ollama.metadata_llm")
 def _meta_llm(text: str) -> dict:
     prompt = (
         "Extract metadata from this note. Reply ONLY with valid JSON, no markdown.\n\n"
@@ -650,6 +654,7 @@ def db_update(memory_id: int, content: str, embedding: list[float], metadata: di
         return _normalize_row(dict(cur.fetchone()))
 
 
+@instrument("ollama.merge_decision")
 def _llm_merge_decision(new_content: str, existing_content: str) -> str:
     """Ask the LLM whether to ADD, MERGE, REPLACE, or SKIP.
     Returns one of those four strings. Falls back to 'ADD' on any error."""
@@ -678,6 +683,7 @@ def _llm_merge_decision(new_content: str, existing_content: str) -> str:
     return "ADD"
 
 
+@instrument("ollama.merge_content")
 def _llm_merge_content(new_content: str, existing_content: str) -> str:
     """Ask the LLM to write a single merged memory from two related ones."""
     prompt = (
@@ -907,6 +913,7 @@ def db_register_session(source: str, project: str, cwd: str, pid: int | None,
     returned `id` in `_active_session_ids[source]` for fast heartbeat updates.
     """
     meta_json = json.dumps(metadata) if metadata else None
+    normalized_host = session_liveness.normalize_host(host)
     conn = _get_conn()
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
@@ -915,7 +922,7 @@ def db_register_session(source: str, project: str, cwd: str, pid: int | None,
             "VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb) "
             "RETURNING id, source, project, cwd, pid, host, current_task, "
             "          started_at, heartbeat_at, status, metadata",
-            (source, project or None, cwd or None, pid, host or None,
+            (source, project or None, cwd or None, pid, normalized_host,
              current_task or None, meta_json),
         )
         return dict(cur.fetchone())
@@ -1827,7 +1834,8 @@ def boot_session(source: str, project: str = "", task: str = "",
         # client disconnects, server.py exits, pid dies, agent sees it
         # gone on the next cycle.
         effective_pid = pid if pid else os.getpid()
-        effective_host = host if host else socket.gethostname()
+        effective_host = (session_liveness.normalize_host(host)
+                          or session_liveness.normalize_host(socket.gethostname()))
         try:
             try:
                 db_supersede_previous_session(source, cwd, effective_pid)
@@ -1930,12 +1938,38 @@ def boot_session(source: str, project: str = "", task: str = "",
                 project_filter=project or None,
                 exclude_session_id=my_session.get("id"),
             )
-            if others:
-                sections.append({
+            # Opportunistic same-host pid probe: self-heal any obvious
+            # dead rows on this host before we report them to the caller.
+            # Caps at 20 rows so boot latency stays bounded. Agent-less
+            # registry trust signal + cleanup in one pass.
+            ended_inline: list[int] = []
+            try:
+                ended_inline = session_liveness.probe_and_mark_ended(
+                    _get_conn(), others, effective_host,
+                )
+                if ended_inline:
+                    ended_set = set(ended_inline)
+                    others = [r for r in others if r.get("id") not in ended_set]
+            except Exception:
+                pass
+            staleness_seconds, trustworthy = session_liveness.compute_staleness(others)
+            if others or staleness_seconds is not None:
+                section = {
                     "section": "OTHER ACTIVE SESSIONS",
                     "count": len(others),
                     "content": [_serialize_session(s) for s in others],
-                })
+                    "registry_staleness_seconds": staleness_seconds,
+                    "registry_trustworthy": trustworthy,
+                }
+                if not trustworthy:
+                    section["warning"] = (
+                        "heartbeat agent appears down — listed sessions may be dead. "
+                        "Check scripts/heartbeat_agent.py; restart via "
+                        "scripts/windows/install-heartbeat-agent.ps1 once installed."
+                    )
+                if ended_inline:
+                    section["self_healed_ended_ids"] = ended_inline
+                sections.append(section)
         except Exception:
             pass
 
@@ -2066,10 +2100,13 @@ def list_active_sessions(source: str, project: str = "",
             exclude_session_id=my_id or None,
         )
         _record_search(source, project)
+        staleness_seconds, trustworthy = session_liveness.compute_staleness(rows)
         return json.dumps({
             "success": True,
             "count": len(rows),
             "sessions": [_serialize_session(r) for r in rows],
+            "registry_staleness_seconds": staleness_seconds,
+            "registry_trustworthy": trustworthy,
         }, indent=2)
     except Exception as exc:
         return json.dumps({"success": False, "error": str(exc)})

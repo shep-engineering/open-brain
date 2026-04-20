@@ -362,11 +362,18 @@ def boot_session_v2(project: str = "", task: str = "", source: str = "",
     global _DB_SESSION_ID
     ensure_schema()
     actual_pid = pid if pid else os.getpid()
+    # v2.1.0: default host to this machine's hostname if caller omits,
+    # mirroring V1's server.py:1835. Ensures the opportunistic probe in
+    # boot.build has something non-empty to match against. Row #4 in
+    # the production registry (empty host) is exactly the failure mode
+    # this prevents.
+    import socket as _socket
+    actual_host = host if host else _socket.gethostname()
     try:
         with store.connect() as conn:
             payload = boot.build(
                 conn, project=project, task=task, source=source,
-                handoff=handoff, cwd=cwd, pid=actual_pid, host=host,
+                handoff=handoff, cwd=cwd, pid=actual_pid, host=actual_host,
             )
     except Exception as exc:
         _log.exception("boot_session_v2 failed")
@@ -641,7 +648,17 @@ def list_active_sessions_v2(project: str = "", exclude_self: bool = True) -> str
     except Exception as exc:
         _log.exception("list_active_sessions_v2 failed")
         return _err(f"list failed: {exc}")
-    return _ok({"count": len(sessions), "sessions": sessions})
+    # v2.1.0: emit registry trust signal so callers can tell whether
+    # the heartbeat agent has been running recently enough to trust
+    # the data. Empty set → (None, True) — nothing to distrust.
+    import session_liveness as _sl
+    staleness, trustworthy = _sl.compute_staleness(sessions)
+    return _ok({
+        "count": len(sessions),
+        "sessions": sessions,
+        "registry_staleness_seconds": staleness,
+        "registry_trustworthy": trustworthy,
+    })
 
 
 @mcp.tool()

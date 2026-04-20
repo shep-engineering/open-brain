@@ -294,3 +294,167 @@ class TestBootIntegration:
         with conn.cursor() as cur:
             cur.execute("SELECT COUNT(*) FROM active_sessions")
             assert cur.fetchone()[0] == 0
+
+
+# ──────────────────────────────────────────────────────────────────────
+# v2.1.0 — registry trust: host normalization, opportunistic probe,
+# staleness signal. Mirrors V1's tests/test_session_liveness.py.
+# ──────────────────────────────────────────────────────────────────────
+
+
+import os
+import socket
+
+
+def _dead_pid() -> int:
+    import psutil
+    for candidate in (987654, 876543, 765432, 654321):
+        if not psutil.pid_exists(candidate):
+            return candidate
+    pytest.skip("couldn't find a dead pid on this system")
+
+
+class TestHostNormalization:
+    def test_register_lowercases_host_on_insert(self, conn):
+        sid = store.register_session(
+            conn, source="claude", project="test",
+            cwd="F:/x", pid=1, host="DAVE-PC",
+        )
+        with conn.cursor() as cur:
+            cur.execute("SELECT host FROM active_sessions WHERE id = %s", (sid,))
+            assert cur.fetchone()[0] == "dave-pc"
+
+    def test_register_empty_host_stays_empty_string(self, conn):
+        """Schema is NOT NULL DEFAULT ''. normalize_host('') -> None,
+        falls back to '' to satisfy the column. Regression guard."""
+        sid = store.register_session(
+            conn, source="claude", project="test",
+            cwd="F:/x", pid=1, host="",
+        )
+        with conn.cursor() as cur:
+            cur.execute("SELECT host FROM active_sessions WHERE id = %s", (sid,))
+            assert cur.fetchone()[0] == ""
+
+    def test_register_strips_whitespace(self, conn):
+        sid = store.register_session(
+            conn, source="claude", project="test",
+            cwd="F:/x", pid=1, host="  Mixed-Host  ",
+        )
+        with conn.cursor() as cur:
+            cur.execute("SELECT host FROM active_sessions WHERE id = %s", (sid,))
+            assert cur.fetchone()[0] == "mixed-host"
+
+
+class TestBootOpportunisticProbe:
+    def test_boot_marks_dead_same_host_sibling_ended(self, conn):
+        """A dead same-host sibling gets flipped to ended inline by boot."""
+        my_host = socket.gethostname()
+        dead = _dead_pid()
+        sibling = store.register_session(
+            conn, source="windsurf", project="healcheck",
+            cwd="F:/dead", pid=dead, host=my_host,
+        )
+        # Separate session boots.
+        payload = boot.build(
+            conn, project="healcheck", task="check probe", source="claude",
+            cwd="F:/booting", pid=os.getpid(), host=my_host,
+        )
+        # Dead sibling should be marked ended AND removed from siblings.
+        with conn.cursor() as cur:
+            cur.execute("SELECT status FROM active_sessions WHERE id = %s",
+                        (sibling,))
+            assert cur.fetchone()[0] == "ended"
+        sibling_ids = [s["id"] for s in payload.other_active_sessions]
+        assert sibling not in sibling_ids
+        assert sibling in payload.self_healed_ended_ids
+
+    def test_boot_leaves_alive_sibling_active(self, conn):
+        my_host = socket.gethostname()
+        sibling = store.register_session(
+            conn, source="windsurf", project="healcheck",
+            cwd="F:/alive", pid=os.getpid(), host=my_host,
+        )
+        payload = boot.build(
+            conn, project="healcheck", task="check probe", source="claude",
+            cwd="F:/booting2", pid=os.getpid() + 1, host=my_host,
+        )
+        # Alive sibling stays active and appears in siblings list.
+        with conn.cursor() as cur:
+            cur.execute("SELECT status FROM active_sessions WHERE id = %s",
+                        (sibling,))
+            assert cur.fetchone()[0] == "active"
+        sibling_ids = [s["id"] for s in payload.other_active_sessions]
+        assert sibling in sibling_ids
+        assert sibling not in payload.self_healed_ended_ids
+
+    def test_boot_skips_other_host_siblings(self, conn):
+        """A row on another host must NOT be probed even if its pid
+        is dead locally — cross-host pid space is unknown."""
+        my_host = socket.gethostname()
+        other_host = "some-other-machine-xyz"
+        dead = _dead_pid()
+        sibling = store.register_session(
+            conn, source="windsurf", project="healcheck",
+            cwd="F:/remote", pid=dead, host=other_host,
+        )
+        boot.build(
+            conn, project="healcheck", task="t", source="claude",
+            cwd="F:/booting3", pid=os.getpid(), host=my_host,
+        )
+        with conn.cursor() as cur:
+            cur.execute("SELECT status FROM active_sessions WHERE id = %s",
+                        (sibling,))
+            assert cur.fetchone()[0] == "active"
+
+
+class TestRegistryStaleness:
+    def test_fresh_siblings_trustworthy(self, conn):
+        my_host = socket.gethostname()
+        store.register_session(
+            conn, source="windsurf", project="stalecheck",
+            cwd="F:/x", pid=os.getpid(), host=my_host,
+        )
+        payload = boot.build(
+            conn, project="stalecheck", task="t", source="claude",
+            cwd="F:/y", pid=os.getpid() + 1, host=my_host,
+        )
+        assert payload.registry_trustworthy is True
+
+    def test_stale_siblings_not_trustworthy(self, conn):
+        """Sibling's heartbeat_at artificially pushed >10min into the
+        past. compute_staleness reports seconds past threshold and
+        flips trustworthy to False."""
+        import session_liveness as sl
+        my_host = socket.gethostname()
+        # Use a live pid so the probe doesn't flip it to ended —
+        # we want it still in the sibling list so staleness is computed.
+        sibling = store.register_session(
+            conn, source="windsurf", project="stalecheck",
+            cwd="F:/stale", pid=os.getpid(), host=my_host,
+        )
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE active_sessions "
+                "SET heartbeat_at = NOW() - interval '2 hours' "
+                "WHERE id = %s",
+                (sibling,),
+            )
+        conn.commit()
+
+        payload = boot.build(
+            conn, project="stalecheck", task="t", source="claude",
+            cwd="F:/booting4", pid=os.getpid() + 1, host=my_host,
+        )
+        assert payload.registry_trustworthy is False
+        assert payload.registry_staleness_seconds is not None
+        assert payload.registry_staleness_seconds >= sl.STALENESS_WARN_SECONDS
+
+    def test_empty_siblings_trustworthy_and_none(self, conn):
+        """No siblings → (None, True). Nothing to distrust."""
+        payload = boot.build(
+            conn, project="noone-else", task="t", source="claude",
+            cwd="F:/x", pid=os.getpid(), host=socket.gethostname(),
+        )
+        assert payload.other_active_sessions == []
+        assert payload.registry_trustworthy is True
+        assert payload.registry_staleness_seconds is None

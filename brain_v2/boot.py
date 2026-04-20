@@ -27,6 +27,9 @@ from .config import (
 )
 from .embedding import embed_to_pgvector
 
+# Shared with V1. Host normalization, pid probing, staleness signal.
+import session_liveness
+
 
 # Crude token estimate: 1 token ~= 4 chars. Matches OpenAI's average for
 # English prose well enough for a cap check.
@@ -47,6 +50,11 @@ class BootPayload:
     handoff_source: dict | None = None
     token_estimate: int = 0
     truncated: list[str] = field(default_factory=list)
+    # v2.1.0: registry trust signal. None + True for empty sibling set
+    # (nothing to distrust). Populated when register=True.
+    registry_staleness_seconds: int | None = None
+    registry_trustworthy: bool = True
+    self_healed_ended_ids: list[int] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -62,6 +70,9 @@ class BootPayload:
             "handoff_source": self.handoff_source,
             "token_estimate": self.token_estimate,
             "truncated": self.truncated,
+            "registry_staleness_seconds": self.registry_staleness_seconds,
+            "registry_trustworthy": self.registry_trustworthy,
+            "self_healed_ended_ids": self.self_healed_ended_ids,
             "caps": {
                 "blocker_count": BOOT_BLOCKER_COUNT_CAP,
                 "pattern_count": BOOT_PATTERN_COUNT_CAP,
@@ -176,14 +187,47 @@ def build(conn, *, project: str, task: str, source: str, handoff: str = "",
     session_id: int | None = None
     siblings: list[dict] = []
     handoff_source: dict | None = None
+    # v2.1.0: opportunistic self-heal + staleness signal. Fail-soft so a
+    # probe error never kills boot. Windsurf flagged that the outer
+    # try/except in boot_session_v2 is too broad — this inner guard
+    # keeps the rest of the boot payload alive even if the probe fails.
+    registry_staleness_seconds: int | None = None
+    registry_trustworthy: bool = True
+    self_healed_ended_ids: list[int] = []
     if register and source:
         session_id = _store.register_session(
             conn, source=source, project=project, cwd=cwd,
             pid=pid, host=host, current_task=task,
         )
-        siblings = _store.list_active_sessions(
-            conn, project=project, exclude_id=session_id,
-        )
+        try:
+            siblings = _store.list_active_sessions(
+                conn, project=project, exclude_id=session_id,
+            )
+            # Opportunistic same-host pid probe. Caps probe to 20 rows
+            # to bound boot latency. Dead rows flip to 'ended' inline;
+            # we filter them out of the returned siblings list so the
+            # caller sees a clean view.
+            my_host = session_liveness.normalize_host(host)
+            if my_host and siblings:
+                ended = session_liveness.probe_and_mark_ended(
+                    conn, siblings, my_host,
+                )
+                if ended:
+                    ended_set = set(ended)
+                    siblings = [
+                        s for s in siblings
+                        if s.get("id") not in ended_set
+                    ]
+                    self_healed_ended_ids = list(ended)
+            # Staleness signal: inform the caller whether the registry
+            # data is recent enough to trust.
+            registry_staleness_seconds, registry_trustworthy = (
+                session_liveness.compute_staleness(siblings)
+            )
+        except Exception:
+            # Keep boot alive on any probe/list failure. Siblings may
+            # be empty or partial; staleness stays at defaults.
+            pass
         # Auto-populate handoff from latest if caller didn't supply one
         if not handoff:
             latest = _store.get_latest_handoff(
@@ -207,6 +251,9 @@ def build(conn, *, project: str, task: str, source: str, handoff: str = "",
         session_id=session_id,
         handoff=handoff[: BOOT_HANDOFF_TOKEN_CAP * 4],  # hard char cut
         handoff_source=handoff_source,
+        registry_staleness_seconds=registry_staleness_seconds,
+        registry_trustworthy=registry_trustworthy,
+        self_healed_ended_ids=self_healed_ended_ids,
     )
 
     # Token accounting
