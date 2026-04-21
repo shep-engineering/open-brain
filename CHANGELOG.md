@@ -5,6 +5,84 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.2] + [brain_v2 2.1.2] - 2026-04-21
+
+### MCP client identification metadata on active_sessions
+
+Populates the previously-unused `metadata` JSONB column with operator-
+facing identity info so a human (or automation) inspecting the session
+registry can tell at a glance which app opened each row. Triggered by
+V2 prod incident 2026-04-20: a row with `host=''` `source='claude'`
+left us unable to tell if it was Claude Code, Cursor, a dashboard, or
+a stray process without side-channel investigation.
+
+Captured at register time (no schema change — column already existed):
+
+- `client.{name, version}` from the MCP `initialize` handshake's
+  `clientInfo` (read via FastMCP's `Context` type — NOT the raw
+  `RequestContext`, which doesn't auto-inject). Double-guarded
+  None checks.
+- `parent.{pid, name, cmdline_head}` from `psutil.Process(getpid).parent()`.
+  `cmdline_head` is the first 200 chars with common credential
+  patterns redacted (`--token=`, `--api-key=`, `Bearer `, `sk-*`,
+  `ghp_*`, etc.) as defense-in-depth.
+- `recorded_at` — ISO UTC timestamp.
+
+**Changes:**
+
+- `session_liveness.py` — new `capture_identity_metadata(client_info)`
+  + `_scrub_cmdline_secrets(s)` helpers + `_SECRET_PATTERNS` regex list.
+- `server.py::boot_session` — optional `context: Context = None`
+  parameter (FastMCP auto-injects). Extracts clientInfo, calls helper,
+  passes metadata to `db_register_session`.
+- `brain_v2/server.py::boot_session_v2` — same treatment, plus
+  explicit `store.end_session` call on the `source='auto'` row
+  before the real boot row lands (it doesn't get superseded
+  automatically — supersede matches `source+cwd+pid` and 'auto' !=
+  'claude').
+- `brain_v2/server.py::_auto_register_session` — captures parent-only
+  metadata (no clientInfo available before the client connects).
+- `brain_v2/boot.py::build` — threads `metadata` param through to
+  `register_session`.
+- `brain_v2/store.py::list_active_sessions` — SELECT now includes
+  `metadata`.
+- V1 `list_active_sessions` / `_serialize_session` already surface
+  metadata via pass-through; no V1 list changes needed.
+
+**Defense-in-depth host fallback (separate commit on same branch):**
+
+Both `db_register_session` (V1) and `register_session` (V2) now
+default empty/None host to `socket.gethostname()` internally. The
+boot tools already defaulted at the tool layer; this catches any
+direct register_session caller that bypasses the tool (tests, scripts,
+future code paths). No empty-host rows land in the registry going
+forward.
+
+Deviation from plan §5.7: the reviewed plan called for
+`raise ValueError("host required")` on empty host. That would be a
+breaking API change (17+ V2 tests pass no host), forcing a minor
+bump instead of a patch. Chose fallback over rejection — achieves the
+same data outcome (no empty-host rows) while keeping the patch
+classification valid.
+
+Behavior change on `test_register_empty_host_stays_empty_string`: now
+`test_register_empty_host_defaults_to_this_machine`. Stored host
+becomes `socket.gethostname().lower()` instead of `''`.
+
+**Tests:** 7 new in `tests/test_session_liveness.py` (minimal,
+with_client_info, empty_client_info, parent_exited, cmdline_truncated,
+secret_scrubbed, scrub_noop). 3 new in `tests/test_session_registry.py`
+(identity_metadata with context, without context, empty-host
+fallback). 5 new in `brain_v2/tests/test_session_registry.py::
+TestIdentityMetadata` (register_stores, list_returns,
+auto_parent_only, auto_row_ended_by_explicit_end, boot_threads_metadata).
+1 existing V2 test renamed + updated for new host-fallback behavior.
+
+Patch bumps. No public API surface change — `metadata` field is
+additive on the response.
+
+Plan (Windsurf-reviewed): `docs/planning/v23-2-mcp-client-identification.md`.
+
 ## [0.23.1] + [brain_v2 2.1.1] - 2026-04-21
 
 ### PID reuse false-positive fix
