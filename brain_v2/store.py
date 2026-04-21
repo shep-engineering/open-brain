@@ -577,7 +577,7 @@ def list_active_sessions(conn, *, project: str = "", exclude_id: int | None = No
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         sql = """
             SELECT id, source, project, cwd, pid, host, current_task,
-                   started_at, heartbeat_at, status, pid_create_time
+                   started_at, heartbeat_at, status, pid_create_time, metadata
             FROM active_sessions
             WHERE status = 'active'
         """

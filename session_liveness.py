@@ -31,9 +31,95 @@ must reuse connections).
 from __future__ import annotations
 
 import os
+import re
 from datetime import datetime, timezone
 
 import psutil
+
+
+# v0.23.2 / v2.1.2: redact common secret patterns from a captured parent
+# cmdline before storing in session metadata. Defensive belt-and-suspenders —
+# MCP clients (Claude Code, Cursor, Windsurf) don't carry tokens in argv in
+# practice, but we'd rather not find out the hard way. Keep the list
+# short and conservative; overly aggressive redaction would mangle normal
+# cmdlines.
+_SECRET_PATTERNS = [
+    # --token=VALUE, --api-key=VALUE, --key=VALUE, --password=VALUE, --secret=VALUE
+    re.compile(r"(--(?:token|api[-_]?key|key|password|secret|auth)=)\S+",
+               re.IGNORECASE),
+    # Bearer <token>
+    re.compile(r"(Bearer\s+)\S+", re.IGNORECASE),
+    # OpenAI-style sk-... keys (sk- followed by 20+ alnum)
+    re.compile(r"sk-[A-Za-z0-9]{20,}"),
+    # GitHub personal access tokens
+    re.compile(r"gh[pousr]_[A-Za-z0-9]{20,}"),
+    re.compile(r"github_pat_[A-Za-z0-9_]{20,}"),
+]
+_SECRET_REDACTED = "<REDACTED>"
+
+
+def _scrub_cmdline_secrets(s: str) -> str:
+    """Redact common credential patterns from a command-line string.
+    Returns the input unchanged if no matches. Never raises."""
+    if not s:
+        return s
+    out = s
+    for pat in _SECRET_PATTERNS:
+        # For patterns with a prefix capture group, preserve the prefix + REDACTED.
+        # For bare patterns, replace the whole match.
+        if pat.groups:
+            out = pat.sub(rf"\1{_SECRET_REDACTED}", out)
+        else:
+            out = pat.sub(_SECRET_REDACTED, out)
+    return out
+
+
+def capture_identity_metadata(client_info: dict | None = None) -> dict:
+    """Return a JSON-serializable identity dict for a register_session call.
+
+    Captures:
+      - client.{name, version} from the MCP initialize handshake's clientInfo
+        (caller extracts from context.request_context.session.client_params;
+        passes dict or None).
+      - parent.{pid, name, cmdline_head} — OS-level parent process of the
+        current server.py subprocess (the MCP client on stdio transport).
+        cmdline_head is the first 200 chars of the parent's argv, with
+        common credential patterns redacted.
+      - recorded_at — ISO UTC timestamp.
+
+    Never raises — any field that can't be gathered is omitted gracefully.
+    Intended for the `metadata` JSONB column on active_sessions.
+    """
+    md: dict = {}
+    if client_info:
+        name = client_info.get("name")
+        version = client_info.get("version")
+        if name or version:
+            md["client"] = {"name": name, "version": version}
+    try:
+        me = psutil.Process(os.getpid())
+        parent = me.parent()
+        if parent is not None:
+            try:
+                cmdline_list = parent.cmdline()
+                cmdline_raw = " ".join(cmdline_list)[:200]
+                cmdline_head = _scrub_cmdline_secrets(cmdline_raw)
+            except (psutil.AccessDenied, psutil.NoSuchProcess):
+                cmdline_head = None
+            try:
+                parent_name = parent.name()
+            except (psutil.AccessDenied, psutil.NoSuchProcess):
+                parent_name = None
+            md["parent"] = {
+                "pid": parent.pid,
+                "name": parent_name,
+                "cmdline_head": cmdline_head,
+            }
+    except Exception:
+        # psutil.NoSuchProcess / AccessDenied / anything else — never raise.
+        pass
+    md["recorded_at"] = datetime.now(timezone.utc).isoformat()
+    return md
 
 STALENESS_WARN_SECONDS: int = int(
     os.getenv("OPEN_BRAIN_REGISTRY_STALENESS_WARN", "600")

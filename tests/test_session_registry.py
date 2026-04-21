@@ -132,6 +132,79 @@ def test_boot_registers_with_defaulted_pid_and_host():
     assert host == socket.gethostname().lower()
 
 
+class _FakeClientInfo:
+    def __init__(self, name, version):
+        self.name = name
+        self.version = version
+
+
+class _FakeClientParams:
+    def __init__(self, client_info):
+        self.clientInfo = client_info
+
+
+class _FakeSession:
+    def __init__(self, client_params):
+        self.client_params = client_params
+
+
+class _FakeRequestContext:
+    def __init__(self, session):
+        self.session = session
+
+
+class _FakeContext:
+    """Minimal duck-typed stand-in for FastMCP's Context. Mirrors the
+    attribute path `context.request_context.session.client_params.clientInfo`."""
+    def __init__(self, client_info):
+        cp = _FakeClientParams(client_info)
+        self.request_context = _FakeRequestContext(_FakeSession(cp))
+
+
+def test_boot_session_stores_identity_metadata():
+    """v0.23.2: boot_session called with an MCP context stores a
+    metadata JSONB containing client.{name, version} from the
+    initialize handshake + parent process identity."""
+    ctx = _FakeContext(_FakeClientInfo("claude-ai", "1.0.90"))
+    out = json.loads(boot_session(
+        source=TEST_SOURCE, project=TEST_PROJECT, task="pytest identity",
+        context=ctx,
+    ))
+    assert out["success"] is True
+    from conftest import TEST_DATABASE_URL
+    conn = psycopg2.connect(TEST_DATABASE_URL)
+    with conn.cursor() as cur:
+        cur.execute("SELECT metadata FROM active_sessions WHERE id = %s",
+                    (out["session_id"],))
+        (md,) = cur.fetchone()
+    conn.close()
+    assert md is not None
+    assert md.get("client") == {"name": "claude-ai", "version": "1.0.90"}
+    assert "recorded_at" in md
+    # Parent is best-effort; pytest has a parent so we expect it to be captured.
+    if "parent" in md:
+        assert isinstance(md["parent"].get("pid"), int)
+
+
+def test_boot_session_without_context_stores_parent_only():
+    """If no Context is injected (e.g. direct function call in a test,
+    or an MCP client that didn't send clientInfo), boot_session still
+    stores metadata — just without the `client` block."""
+    out = json.loads(boot_session(source=TEST_SOURCE, project=TEST_PROJECT,
+                                    task="pytest no-context"))
+    assert out["success"] is True
+    from conftest import TEST_DATABASE_URL
+    conn = psycopg2.connect(TEST_DATABASE_URL)
+    with conn.cursor() as cur:
+        cur.execute("SELECT metadata FROM active_sessions WHERE id = %s",
+                    (out["session_id"],))
+        (md,) = cur.fetchone()
+    conn.close()
+    assert md is not None
+    assert "client" not in md
+    assert "recorded_at" in md
+
+
 def test_boot_surfaces_sibling_in_same_project():
     sibling = db_register_session(SIBLING_SOURCE, TEST_PROJECT,
                                    "C:/sibling", 9999, "host-b",

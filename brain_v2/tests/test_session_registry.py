@@ -556,3 +556,107 @@ class TestPidReuse:
         assert sibling not in payload.self_healed_ended_ids
         sibling_ids = [s["id"] for s in payload.other_active_sessions]
         assert sibling in sibling_ids
+
+
+# ──────────────────────────────────────────────────────────────────────
+# v2.1.2 — MCP client identification metadata on active_sessions rows.
+# Capture clientInfo + parent process identity + timestamp; surface via
+# list_active_sessions; end source='auto' row on real boot.
+# ──────────────────────────────────────────────────────────────────────
+
+
+class TestIdentityMetadata:
+    def test_register_session_stores_metadata(self, conn):
+        """register_session with a metadata dict persists it verbatim."""
+        md = {"client": {"name": "claude-ai", "version": "1.2.3"},
+              "recorded_at": "2026-04-21T00:00:00+00:00"}
+        sid = store.register_session(
+            conn, source="claude", project="metadata",
+            cwd="F:/x", pid=os.getpid(), host=socket.gethostname(),
+            metadata=md,
+        )
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT metadata FROM active_sessions WHERE id = %s", (sid,),
+            )
+            (stored,) = cur.fetchone()
+        assert stored == md
+
+    def test_list_active_sessions_returns_metadata(self, conn):
+        """V2 list_active_sessions SELECT includes metadata (v2.1.2)."""
+        md = {"client": {"name": "cursor", "version": "0.x"},
+              "recorded_at": "2026-04-21T00:00:00+00:00"}
+        sid = store.register_session(
+            conn, source="cursor", project="metadata-list",
+            cwd="F:/x", pid=os.getpid(), host=socket.gethostname(),
+            metadata=md,
+        )
+        rows = store.list_active_sessions(conn, project="metadata-list")
+        match = next((r for r in rows if r["id"] == sid), None)
+        assert match is not None
+        assert match.get("metadata") == md
+
+    def test_auto_register_captures_parent_only_shape(self, conn):
+        """Simulates _auto_register_session: call register_session with
+        a metadata dict that has parent info only (no client)."""
+        import session_liveness as sl
+        md = sl.capture_identity_metadata(client_info=None)
+        assert "client" not in md  # guaranteed by helper
+        assert "recorded_at" in md
+        sid = store.register_session(
+            conn, source="auto", project="",
+            cwd="F:/x", pid=os.getpid(), host=socket.gethostname(),
+            metadata=md,
+        )
+        rows = store.list_active_sessions(conn, project="")
+        match = next((r for r in rows if r["id"] == sid), None)
+        assert match is not None
+        stored = match["metadata"]
+        assert "client" not in stored
+        assert "recorded_at" in stored
+
+    def test_auto_row_ended_by_explicit_end_session(self, conn):
+        """The source='auto' row doesn't get superseded automatically
+        (supersede rule matches on source+cwd+pid — different source
+        means no match). boot_session_v2 must call store.end_session
+        on the cached auto session_id explicitly. Test the end_session
+        side of that contract."""
+        auto_sid = store.register_session(
+            conn, source="auto", project="",
+            cwd="F:/auto", pid=os.getpid(), host=socket.gethostname(),
+        )
+        # Verify supersede does NOT catch different-source rows.
+        real_sid = store.register_session(
+            conn, source="claude", project="x",
+            cwd="F:/auto", pid=os.getpid(), host=socket.gethostname(),
+        )
+        with conn.cursor() as cur:
+            cur.execute("SELECT status FROM active_sessions WHERE id = %s",
+                        (auto_sid,))
+            assert cur.fetchone()[0] == "active"  # auto still alive — not superseded
+        # Explicit end_session (what boot_session_v2 now does) transitions it.
+        ended = store.end_session(conn, session_id=auto_sid, source="auto")
+        assert ended is True
+        with conn.cursor() as cur:
+            cur.execute("SELECT status FROM active_sessions WHERE id = %s",
+                        (auto_sid,))
+            assert cur.fetchone()[0] == "ended"
+            cur.execute("SELECT status FROM active_sessions WHERE id = %s",
+                        (real_sid,))
+            assert cur.fetchone()[0] == "active"
+
+    def test_boot_build_threads_metadata_through(self, conn):
+        """boot.build(metadata=...) forwards to register_session."""
+        md = {"client": {"name": "windsurf", "version": "1.24"},
+              "recorded_at": "2026-04-21T00:00:00+00:00"}
+        payload = boot.build(
+            conn, project="bootmd", task="thread metadata",
+            source="windsurf", cwd="F:/x",
+            pid=os.getpid(), host=socket.gethostname(),
+            metadata=md,
+        )
+        with conn.cursor() as cur:
+            cur.execute("SELECT metadata FROM active_sessions WHERE id = %s",
+                        (payload.session_id,))
+            (stored,) = cur.fetchone()
+        assert stored == md
