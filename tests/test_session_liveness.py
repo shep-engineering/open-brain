@@ -356,3 +356,108 @@ def test_probe_and_mark_ended_preserves_legacy_null_rows():
         cur.execute("SELECT status FROM active_sessions WHERE id = %s",
                     (r["id"],))
         assert cur.fetchone()[0] == "active"
+
+
+# ============================================================
+# capture_identity_metadata (v0.23.2 / v2.1.2)
+# ============================================================
+
+def test_capture_identity_metadata_minimal():
+    """No client_info + whatever psutil.Process().parent() returns →
+    always gets recorded_at, and parent block if the parent is alive."""
+    md = sl.capture_identity_metadata(client_info=None)
+    assert "recorded_at" in md
+    assert "client" not in md  # no client_info -> no client key
+    # parent is best-effort; test process has a real parent (pytest), so
+    # expect it to be populated. If it happens not to be, at least the
+    # call didn't crash.
+    if "parent" in md:
+        assert isinstance(md["parent"].get("pid"), int)
+        assert isinstance(md["parent"].get("name"), (str, type(None)))
+
+
+def test_capture_identity_metadata_with_client_info():
+    md = sl.capture_identity_metadata(
+        client_info={"name": "claude-ai", "version": "1.0.90"},
+    )
+    assert md["client"] == {"name": "claude-ai", "version": "1.0.90"}
+    assert "recorded_at" in md
+
+
+def test_capture_identity_metadata_empty_client_info_omits_key():
+    """If the dict is present but empty / has no useful fields, don't
+    write an empty `client` block."""
+    md = sl.capture_identity_metadata(client_info={})
+    assert "client" not in md
+
+
+def test_capture_identity_metadata_parent_exited(monkeypatch):
+    """If the parent is None (exited), helper doesn't crash; parent block is omitted."""
+    class _FakeProc:
+        def parent(self_inner):
+            return None
+    monkeypatch.setattr(
+        sl.psutil, "Process", lambda _pid=None: _FakeProc(),
+    )
+    md = sl.capture_identity_metadata(client_info=None)
+    assert "parent" not in md
+    assert "recorded_at" in md
+
+
+def test_capture_identity_metadata_cmdline_truncated(monkeypatch):
+    long_arg = "x" * 400
+    class _FakeParent:
+        pid = 4242
+        def cmdline(self):
+            return ["node.exe", long_arg]
+        def name(self):
+            return "node.exe"
+    class _FakeProc:
+        def parent(self_inner):
+            return _FakeParent()
+    monkeypatch.setattr(
+        sl.psutil, "Process", lambda _pid=None: _FakeProc(),
+    )
+    md = sl.capture_identity_metadata(client_info=None)
+    assert md["parent"]["pid"] == 4242
+    assert md["parent"]["name"] == "node.exe"
+    assert len(md["parent"]["cmdline_head"]) <= 200
+
+
+def test_capture_identity_metadata_secret_scrubbed(monkeypatch):
+    """Common credential patterns in the parent's cmdline get redacted
+    before storage. Defensive belt-and-suspenders."""
+    class _FakeParent:
+        pid = 4242
+        def cmdline(self):
+            return [
+                "node.exe", "cli.js",
+                "--token=SECRET_A_VERYLONGTOKENVALUE123",
+                "--api-key=SECRET_B_ANOTHER_VALUE",
+                "Bearer", "AUTHSTRING_XYZ987",
+                "sk-ABCDEFGHIJKLMNOPQRSTUVWX",
+                "ghp_AAAAAAAAAAAAAAAAAAAAABBBBBB",
+            ]
+        def name(self):
+            return "node.exe"
+    class _FakeProc:
+        def parent(self_inner):
+            return _FakeParent()
+    monkeypatch.setattr(
+        sl.psutil, "Process", lambda _pid=None: _FakeProc(),
+    )
+    md = sl.capture_identity_metadata(client_info=None)
+    head = md["parent"]["cmdline_head"]
+    # Actual secret values should be gone; pattern prefix may remain.
+    assert "SECRET_A_VERYLONGTOKENVALUE123" not in head
+    assert "SECRET_B_ANOTHER_VALUE" not in head
+    assert "AUTHSTRING_XYZ987" not in head
+    assert "sk-ABCDEFGHIJKLMNOPQRSTUVWX" not in head
+    assert "ghp_AAAAAAAAAAAAAAAAAAAAABBBBBB" not in head
+    assert "<REDACTED>" in head
+
+
+def test_scrub_cmdline_secrets_noop_on_clean_input():
+    """Normal cmdlines without secrets pass through unchanged."""
+    clean = "node.exe C:\\claude-code\\cli.js --stdio --project my-app"
+    assert sl._scrub_cmdline_secrets(clean) == clean

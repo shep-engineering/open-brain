@@ -39,6 +39,7 @@ import psycopg2
 import psycopg2.extras
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp.server import Context
 
 from secrets_filter import check_content, SecretDetectedError
 import telemetry
@@ -914,6 +915,14 @@ def db_register_session(source: str, project: str, cwd: str, pid: int | None,
     """
     meta_json = json.dumps(metadata) if metadata else None
     normalized_host = session_liveness.normalize_host(host)
+    # v0.23.2: defense-in-depth — if the caller passed empty/whitespace/None,
+    # default to this machine's hostname. boot_session already does this
+    # at the tool layer; this covers any direct db_register_session call
+    # (tests, scripts). Chosen over ValueError: a raise would be a
+    # breaking API change on a patch bump. No empty-host rows land
+    # regardless of which caller invoked us.
+    if not normalized_host:
+        normalized_host = session_liveness.normalize_host(socket.gethostname())
     # v0.23.1: capture the process's create_time at register so the
     # probe can detect pid reuse (same pid, different process later).
     pid_create_time = session_liveness.get_pid_create_time(pid) if pid else None
@@ -1785,7 +1794,8 @@ def brain_startup_reminder() -> str:
 @mcp.tool()
 @instrument("boot_session")
 def boot_session(source: str, project: str = "", task: str = "",
-                  cwd: str = "", pid: int = 0, host: str = "") -> str:
+                  cwd: str = "", pid: int = 0, host: str = "",
+                  context: Context = None) -> str:
     """Boot your brain for this session. MUST be called before any other tool.
 
     This loads your full project context so you can work effectively:
@@ -1839,6 +1849,23 @@ def boot_session(source: str, project: str = "", task: str = "",
         effective_pid = pid if pid else os.getpid()
         effective_host = (session_liveness.normalize_host(host)
                           or session_liveness.normalize_host(socket.gethostname()))
+        # v0.23.2: capture clientInfo from the MCP initialize handshake (if
+        # this tool was invoked via MCP and the client sent it) + parent
+        # process info. Stored in the row's metadata column for operator
+        # visibility into "which app opened this session." Double-guard
+        # both client_params and clientInfo — either can be None.
+        _client_info: dict | None = None
+        if context is not None:
+            try:
+                cp = context.request_context.session.client_params
+                if cp is not None and getattr(cp, "clientInfo", None) is not None:
+                    _client_info = {
+                        "name": cp.clientInfo.name,
+                        "version": cp.clientInfo.version,
+                    }
+            except Exception:
+                _client_info = None
+        _identity_md = session_liveness.capture_identity_metadata(_client_info)
         try:
             try:
                 db_supersede_previous_session(source, cwd, effective_pid)
@@ -1846,7 +1873,8 @@ def boot_session(source: str, project: str = "", task: str = "",
                 pass
             my_session = db_register_session(source, project, cwd,
                                               effective_pid,
-                                              effective_host, task)
+                                              effective_host, task,
+                                              metadata=_identity_md)
             _active_session_ids[source] = my_session["id"]
         except Exception:
             my_session = {"id": None}

@@ -25,6 +25,7 @@ import uuid
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from mcp.server.fastmcp import FastMCP  # type: ignore
+from mcp.server.fastmcp.server import Context  # type: ignore
 
 from brain_v2 import boot, store, temporal_cache
 from brain_v2.config import SERVER_NAME
@@ -337,7 +338,7 @@ def health_v2() -> str:
 @mcp.tool()
 def boot_session_v2(project: str = "", task: str = "", source: str = "",
                     handoff: str = "", cwd: str = "", pid: int = 0,
-                    host: str = "") -> str:
+                    host: str = "", context: Context = None) -> str:
     """Boot v2 — returns headline-only payload.
 
     5 BLOCKER max. 5 PATTERN max (task-relevance ranked). 2,000 token cap.
@@ -358,6 +359,9 @@ def boot_session_v2(project: str = "", task: str = "", source: str = "",
         cwd:     Absolute path of caller's working dir.
         pid:     Caller's pid. Defaults to server.py's pid.
         host:    Caller's hostname.
+        context: FastMCP-injected handle to the MCP session. Used to
+                 read `clientInfo` from the initialize handshake so the
+                 registered row knows which app opened it (v2.1.2+).
     """
     global _DB_SESSION_ID
     ensure_schema()
@@ -369,11 +373,41 @@ def boot_session_v2(project: str = "", task: str = "", source: str = "",
     # this prevents.
     import socket as _socket
     actual_host = host if host else _socket.gethostname()
+    # v2.1.2: capture clientInfo + parent process identity for the
+    # metadata column, and explicitly end the source='auto' row from
+    # server startup (it doesn't get superseded automatically — the
+    # supersede rule matches on source+cwd+pid, and 'auto' != this
+    # session's source). Without this end_session call, two rows
+    # would coexist for the same pid until the next run.
+    import session_liveness
+    _client_info: dict | None = None
+    if context is not None:
+        try:
+            cp = context.request_context.session.client_params
+            if cp is not None and getattr(cp, "clientInfo", None) is not None:
+                _client_info = {
+                    "name": cp.clientInfo.name,
+                    "version": cp.clientInfo.version,
+                }
+        except Exception:
+            _client_info = None
+    identity_md = session_liveness.capture_identity_metadata(_client_info)
     try:
         with store.connect() as conn:
+            # End the auto-registered row (set at server startup by
+            # _auto_register_session) before the real boot row lands.
+            # See plan §5.6.
+            if _DB_SESSION_ID is not None:
+                try:
+                    store.end_session(conn, session_id=_DB_SESSION_ID,
+                                       source="auto")
+                except Exception:
+                    _log.warning("failed to end auto session row %s",
+                                  _DB_SESSION_ID, exc_info=True)
             payload = boot.build(
                 conn, project=project, task=task, source=source,
                 handoff=handoff, cwd=cwd, pid=actual_pid, host=actual_host,
+                metadata=identity_md,
             )
     except Exception as exc:
         _log.exception("boot_session_v2 failed")
@@ -1427,12 +1461,19 @@ def _auto_register_session() -> None:
         return
     try:
         import socket
+        import session_liveness
+        # v2.1.2: capture parent process identity (no clientInfo available
+        # at startup — the MCP initialize handshake happens later when the
+        # client calls its first tool). Half-identified row: enough to
+        # see "this server was launched by node.exe / cursor.exe / etc."
+        auto_md = session_liveness.capture_identity_metadata(client_info=None)
         conn = store.connect()
         _DB_SESSION_ID = store.register_session(
             conn, source="auto", project="",
             cwd=os.getcwd(), pid=os.getpid(),
             host=socket.gethostname(),
             current_task="server started, awaiting boot_session_v2",
+            metadata=auto_md,
         )
         _flush_tool_event_buffer(_DB_SESSION_ID)
         _log.info("auto-registered session id=%d (pid=%d)", _DB_SESSION_ID, os.getpid())

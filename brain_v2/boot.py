@@ -154,7 +154,8 @@ def _make_working_context(task: str, project: str, source: str) -> dict:
 
 def build(conn, *, project: str, task: str, source: str, handoff: str = "",
           cwd: str = "", pid: int | None = None, host: str = "",
-          register: bool = True) -> BootPayload:
+          register: bool = True,
+          metadata: dict | None = None) -> BootPayload:
     """Build the v2 boot payload. Embeds `task` ONCE for pattern
     retrieval. No per-section re-embedding. Caps applied in order.
 
@@ -198,6 +199,7 @@ def build(conn, *, project: str, task: str, source: str, handoff: str = "",
         session_id = _store.register_session(
             conn, source=source, project=project, cwd=cwd,
             pid=pid, host=host, current_task=task,
+            metadata=metadata,
         )
         try:
             siblings = _store.list_active_sessions(
