@@ -915,6 +915,14 @@ def db_register_session(source: str, project: str, cwd: str, pid: int | None,
     """
     meta_json = json.dumps(metadata) if metadata else None
     normalized_host = session_liveness.normalize_host(host)
+    # v0.23.2: defense-in-depth — if the caller passed empty/whitespace/None,
+    # default to this machine's hostname. boot_session already does this
+    # at the tool layer; this covers any direct db_register_session call
+    # (tests, scripts). Chosen over ValueError: a raise would be a
+    # breaking API change on a patch bump. No empty-host rows land
+    # regardless of which caller invoked us.
+    if not normalized_host:
+        normalized_host = session_liveness.normalize_host(socket.gethostname())
     # v0.23.1: capture the process's create_time at register so the
     # probe can detect pid reuse (same pid, different process later).
     pid_create_time = session_liveness.get_pid_create_time(pid) if pid else None

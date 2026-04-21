@@ -492,9 +492,21 @@ def register_session(conn, *, source: str, project: str = "", cwd: str = "",
     on reboot — process lifecycle is authoritative, no TTL).
     """
     # v0.23.0 / V2 2.1.0: normalize host at insert so `lower(host)=...`
-    # matches legacy rows written in mixed case. Empty string stays
-    # empty (schema column is NOT NULL DEFAULT '').
-    normalized_host = session_liveness.normalize_host(host) or ""
+    # matches legacy rows written in mixed case.
+    # v2.1.2: defense-in-depth — if caller passed empty/whitespace/None
+    # host, default to this machine's hostname rather than letting the
+    # empty string land (empty-host rows are unprobeable by the agent
+    # and operationally useless). The boot tools already default host
+    # at the tool layer; this catches any direct register_session caller
+    # that bypasses the tool (tests, scripts, future code paths).
+    # Chosen over hard-rejection: raising ValueError on empty host would
+    # be a breaking API change for existing store.register_session callers
+    # in tests; a defensive default achieves the same data outcome
+    # (no empty-host rows land) while keeping the patch bump valid semver.
+    normalized_host = session_liveness.normalize_host(host)
+    if not normalized_host:
+        import socket as _socket
+        normalized_host = session_liveness.normalize_host(_socket.gethostname()) or ""
     # v2.1.1: capture create_time for pid-reuse-safe identity check at
     # probe time. None for null-pid / permission-denied / race — the
     # probe falls back to the legacy pid-only check in that case.

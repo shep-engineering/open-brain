@@ -186,6 +186,17 @@ def test_boot_session_stores_identity_metadata():
         assert isinstance(md["parent"].get("pid"), int)
 
 
+def test_register_empty_host_defaults_to_this_machine():
+    """v0.23.2: empty host at register time falls through to
+    socket.gethostname() (lowercased). Defense-in-depth catches direct
+    db_register_session callers that bypass the boot-tool default."""
+    row = db_register_session(
+        TEST_SOURCE, TEST_PROJECT, "F:/empty-host",
+        9999, "", "testing empty host fallback",
+    )
+    assert row["host"] == socket.gethostname().lower()
+
+
 def test_boot_session_without_context_stores_parent_only():
     """If no Context is injected (e.g. direct function call in a test,
     or an MCP client that didn't send clientInfo), boot_session still

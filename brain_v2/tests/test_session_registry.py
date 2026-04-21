@@ -324,16 +324,20 @@ class TestHostNormalization:
             cur.execute("SELECT host FROM active_sessions WHERE id = %s", (sid,))
             assert cur.fetchone()[0] == "dave-pc"
 
-    def test_register_empty_host_stays_empty_string(self, conn):
-        """Schema is NOT NULL DEFAULT ''. normalize_host('') -> None,
-        falls back to '' to satisfy the column. Regression guard."""
+    def test_register_empty_host_defaults_to_this_machine(self, conn):
+        """v2.1.2: empty host at register time falls through to
+        socket.gethostname() (lowercased). Previous behavior (empty
+        string stored) caused operationally-useless rows that the
+        heartbeat agent couldn't probe. Defense-in-depth — the boot
+        tools already default, this catches direct-register callers."""
+        import socket
         sid = store.register_session(
             conn, source="claude", project="test",
             cwd="F:/x", pid=1, host="",
         )
         with conn.cursor() as cur:
             cur.execute("SELECT host FROM active_sessions WHERE id = %s", (sid,))
-            assert cur.fetchone()[0] == ""
+            assert cur.fetchone()[0] == socket.gethostname().lower()
 
     def test_register_strips_whitespace(self, conn):
         sid = store.register_session(
