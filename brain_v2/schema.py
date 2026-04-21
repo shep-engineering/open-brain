@@ -181,8 +181,17 @@ CREATE TABLE IF NOT EXISTS active_sessions (
     ended_at       TIMESTAMPTZ,
     status         TEXT        NOT NULL DEFAULT 'active'
                    CHECK (status IN ('active', 'ended')),
-    metadata       JSONB
+    metadata       JSONB,
+    -- v2.1.1: epoch seconds from psutil.Process(pid).create_time() at
+    -- register time. Used by the probe to detect PID reuse: if the
+    -- pid still exists but its current create_time differs, treat as
+    -- a different (impostor) process and end the row.
+    pid_create_time DOUBLE PRECISION
 );
+-- Idempotent ALTER for DBs created pre-v2.1.1 (the CREATE TABLE above
+-- is a no-op if the table exists; this ALTER adds the column in that
+-- case).
+ALTER TABLE active_sessions ADD COLUMN IF NOT EXISTS pid_create_time DOUBLE PRECISION;
 CREATE INDEX IF NOT EXISTS active_sessions_project_status_idx
     ON active_sessions (project, status) WHERE status = 'active';
 CREATE INDEX IF NOT EXISTS active_sessions_dedup_idx

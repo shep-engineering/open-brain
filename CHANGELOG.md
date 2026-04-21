@@ -5,6 +5,61 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.1] + [brain_v2 2.1.1] - 2026-04-21
+
+### PID reuse false-positive fix
+
+v0.23.0's probe used pid-only existence checks (`psutil.pid_exists`),
+which can't distinguish the original registering process from a new
+unrelated process that the OS later assigned the same pid. Observed in
+production on 2026-04-20: V1 row #13 registered with pid 41712 (a
+Claude MCP server that had since exited); Windows reassigned 41712 to
+`ChatGPT.exe`; the probe happily reported "alive" and kept bumping
+heartbeat_at on a row that represented a dead session.
+
+Fixes the identity check to match (pid, create_time) tuple:
+
+- `scripts/migrate_v8_active_sessions_pid_create_time.py` (new) —
+  adds `pid_create_time DOUBLE PRECISION` (nullable) to V1
+  `active_sessions`. Idempotent.
+- `brain_v2/schema.py` — adds the same column inline in the
+  `CREATE TABLE active_sessions` + an idempotent `ALTER TABLE ...
+  ADD COLUMN IF NOT EXISTS` for existing V2 DBs.
+- `session_liveness.py` — new `get_pid_create_time(pid) -> float | None`
+  wrapping `psutil.Process(pid).create_time()`, and
+  `verify_pid_identity(pid, stored_create_time) -> bool`. Tolerance
+  1s (absorbs psutil sub-ms jitter; far below any realistic pid-reuse
+  window). Legacy rows with `NULL` stored_create_time fall back to the
+  old `is_pid_alive` check for back-compat.
+- `session_liveness.probe_and_mark_ended` + `heartbeat_agent.probe_once`
+  both switched from `is_pid_alive` to `verify_pid_identity`.
+- `server.py::db_register_session` and `brain_v2/store.py::register_session`
+  now capture `pid_create_time` at insert via `session_liveness.get_pid_create_time`.
+- `server.py::db_list_active_sessions` and `brain_v2/store.py::list_active_sessions`
+  now return `pid_create_time` in their row dicts so the probe has it.
+- `scripts/heartbeat_agent.py::_fetch_local_active` — SELECT includes
+  `pid_create_time`.
+
+Behavior change on `AccessDenied` during probe: `verify_pid_identity`
+returns False (treats as dead), where the old `is_pid_alive` would
+have returned True. Same-user processes don't hit this; it's a
+defensive choice for the unusual case.
+
+Tests: 7 new in `tests/test_session_liveness.py` (`get_pid_create_time`
+happy+edge, `verify_pid_identity` match/mismatch/tolerance/null-fallback/
+bad-input, probe reaps impostor, probe preserves legacy NULL row).
+4 new in `brain_v2/tests/test_session_registry.py::TestPidReuse`
+(register stamps create_time, dead-pid → NULL, boot reaps impostor,
+boot preserves legacy NULL). No regressions.
+
+Patch bump on both brains — no public API surface change, just
+tighter liveness semantics on the existing probe.
+
+Out of scope: backfilling create_time on pre-existing rows (can't —
+we don't know when those processes started). Legacy rows stay NULL
+and retain pid-only fallback until they transition out of active
+some other way.
+
 ## [0.23.0] + [brain_v2 2.1.0] - 2026-04-20
 
 ### Session-registry trust fixes across both brains

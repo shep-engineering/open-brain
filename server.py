@@ -914,16 +914,19 @@ def db_register_session(source: str, project: str, cwd: str, pid: int | None,
     """
     meta_json = json.dumps(metadata) if metadata else None
     normalized_host = session_liveness.normalize_host(host)
+    # v0.23.1: capture the process's create_time at register so the
+    # probe can detect pid reuse (same pid, different process later).
+    pid_create_time = session_liveness.get_pid_create_time(pid) if pid else None
     conn = _get_conn()
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
             "INSERT INTO active_sessions "
-            "    (source, project, cwd, pid, host, current_task, metadata) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb) "
+            "    (source, project, cwd, pid, host, current_task, metadata, pid_create_time) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s) "
             "RETURNING id, source, project, cwd, pid, host, current_task, "
-            "          started_at, heartbeat_at, status, metadata",
+            "          started_at, heartbeat_at, status, metadata, pid_create_time",
             (source, project or None, cwd or None, pid, normalized_host,
-             current_task or None, meta_json),
+             current_task or None, meta_json, pid_create_time),
         )
         return dict(cur.fetchone())
 
@@ -992,7 +995,7 @@ def db_list_active_sessions(project_filter: str | None = None,
             params.append(exclude_session_id)
         cur.execute(
             "SELECT id, source, project, cwd, pid, host, current_task, "
-            "       started_at, heartbeat_at, status, metadata "
+            "       started_at, heartbeat_at, status, metadata, pid_create_time "
             "FROM active_sessions "
             f"WHERE {' AND '.join(clauses)} "
             "ORDER BY started_at ASC",

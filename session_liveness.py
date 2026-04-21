@@ -50,6 +50,13 @@ def is_pid_alive(pid) -> bool:
     """True if a process with this pid currently exists on this host.
 
     Safely handles None / non-int / negative input by returning False.
+
+    NOTE: This is the pid-only check. It CANNOT distinguish the
+    original process from a new process that the OS later assigned the
+    same pid (classic pid-reuse false-positive). For sibling-session
+    liveness, prefer `verify_pid_identity` which also checks
+    create_time. This function stays available for callers that
+    legitimately only need a bare existence check.
     """
     if pid is None:
         return False
@@ -62,6 +69,73 @@ def is_pid_alive(pid) -> bool:
     try:
         return psutil.pid_exists(n)
     except Exception:
+        return False
+
+
+# Identity tolerance: psutil.Process.create_time() returns a deterministic
+# float epoch for a given process, but floats can carry sub-ms jitter
+# across calls. 1s is generous for identity match (create_time won't
+# legitimately shift) and far smaller than any realistic pid-reuse
+# window on modern OSes.
+_CREATE_TIME_TOLERANCE_SECONDS = 1.0
+
+
+def get_pid_create_time(pid) -> float | None:
+    """Return `psutil.Process(pid).create_time()` (epoch seconds) or
+    None if the pid doesn't exist / permission denied / bad input.
+
+    Called at session registration to stamp the row with the process's
+    creation time. The probe compares the stored value against the
+    current process's create_time at the same pid — mismatch means the
+    OS reassigned the pid (pid reuse), so the original session is dead.
+    """
+    if pid is None:
+        return None
+    try:
+        n = int(pid)
+    except (TypeError, ValueError):
+        return None
+    if n <= 0:
+        return None
+    try:
+        return psutil.Process(n).create_time()
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        return None
+    except Exception:
+        return None
+
+
+def verify_pid_identity(pid, stored_create_time) -> bool:
+    """True iff the pid exists AND its current process's create_time
+    matches `stored_create_time` (within tolerance).
+
+    - If `stored_create_time` is None, falls back to `is_pid_alive(pid)`.
+      This preserves legacy behavior for rows written pre-v0.23.1 (no
+      create_time captured) so they're not spuriously reaped.
+    - On `NoSuchProcess` / `AccessDenied` / bad input, returns False.
+      AccessDenied on a probe means "can't verify" which is safer to
+      treat as dead than to trust — same-user processes shouldn't
+      produce this.
+    """
+    if stored_create_time is None:
+        return is_pid_alive(pid)
+    if pid is None:
+        return False
+    try:
+        n = int(pid)
+    except (TypeError, ValueError):
+        return False
+    if n <= 0:
+        return False
+    try:
+        current = psutil.Process(n).create_time()
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        return False
+    except Exception:
+        return False
+    try:
+        return abs(float(current) - float(stored_create_time)) < _CREATE_TIME_TOLERANCE_SECONDS
+    except (TypeError, ValueError):
         return False
 
 
@@ -155,7 +229,10 @@ def probe_and_mark_ended(conn, rows, my_host, cap: int = _OPPORTUNISTIC_PROBE_CA
         if pid is None:
             continue
         checked += 1
-        if is_pid_alive(pid):
+        # v2.1.1: identity check includes stored create_time when
+        # present. Legacy rows (pid_create_time=None) fall back to
+        # pid-only is_pid_alive via verify_pid_identity's None branch.
+        if verify_pid_identity(pid, r.get("pid_create_time")):
             continue
         row_id = r.get("id")
         if row_id is None:
