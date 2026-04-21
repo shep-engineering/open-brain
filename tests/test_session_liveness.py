@@ -211,3 +211,148 @@ def test_probe_and_mark_ended_respects_cap():
         rows.append(r)
     ended = sl.probe_and_mark_ended(_get_conn(), rows, host, cap=2)
     assert len(ended) == 2
+
+
+# ============================================================
+# get_pid_create_time
+# ============================================================
+
+def test_get_pid_create_time_current_process_returns_float():
+    ct = sl.get_pid_create_time(os.getpid())
+    assert isinstance(ct, float)
+    assert ct > 0
+
+
+def test_get_pid_create_time_dead_pid_returns_none():
+    assert sl.get_pid_create_time(_dead_pid()) is None
+
+
+def test_get_pid_create_time_bad_input_returns_none():
+    assert sl.get_pid_create_time(None) is None
+    assert sl.get_pid_create_time("not-an-int") is None
+    assert sl.get_pid_create_time(-1) is None
+    assert sl.get_pid_create_time(0) is None
+
+
+# ============================================================
+# verify_pid_identity (pid-reuse-safe liveness)
+# ============================================================
+
+def test_verify_pid_identity_current_process_matches():
+    """Same pid + same create_time -> alive."""
+    my_pid = os.getpid()
+    ct = sl.get_pid_create_time(my_pid)
+    assert ct is not None
+    assert sl.verify_pid_identity(my_pid, ct) is True
+
+
+def test_verify_pid_identity_different_create_time_fails():
+    """Same pid but stored create_time doesn't match current process's
+    create_time -> treated as pid reuse -> NOT alive. Simulates the
+    production scenario where pid 41712 was reused by ChatGPT.exe."""
+    my_pid = os.getpid()
+    # Fabricate a create_time far from any real process's start time.
+    assert sl.verify_pid_identity(my_pid, 0.0) is False
+    # Also tiny delta beyond tolerance should fail.
+    real = sl.get_pid_create_time(my_pid)
+    assert sl.verify_pid_identity(my_pid, real + 10.0) is False
+
+
+def test_verify_pid_identity_within_tolerance_passes():
+    """Sub-second jitter on create_time is absorbed by the 1s tolerance."""
+    my_pid = os.getpid()
+    real = sl.get_pid_create_time(my_pid)
+    # 0.1s off should still match.
+    assert sl.verify_pid_identity(my_pid, real + 0.1) is True
+    assert sl.verify_pid_identity(my_pid, real - 0.1) is True
+
+
+def test_verify_pid_identity_null_create_time_falls_back_to_pid_alive():
+    """Legacy rows (pre-v0.23.1) have pid_create_time=None; verify
+    should behave exactly like is_pid_alive for those."""
+    my_pid = os.getpid()
+    assert sl.verify_pid_identity(my_pid, None) is True
+    assert sl.verify_pid_identity(_dead_pid(), None) is False
+
+
+def test_verify_pid_identity_dead_pid_fails():
+    assert sl.verify_pid_identity(_dead_pid(), 12345.0) is False
+
+
+def test_verify_pid_identity_bad_input_fails():
+    assert sl.verify_pid_identity(None, 12345.0) is False
+    assert sl.verify_pid_identity("xyz", 12345.0) is False
+    assert sl.verify_pid_identity(0, 12345.0) is False
+
+
+# ============================================================
+# Pid reuse end-to-end: probe reaps a row whose stored create_time
+# no longer matches the live process at that pid.
+# ============================================================
+
+def test_probe_and_mark_ended_reaps_pid_reuse_impostor():
+    """Register a row with our own (alive) pid, then clobber its stored
+    pid_create_time with 0.0 to simulate the pid having been reused by
+    a different process. Probe should mark the row ended."""
+    host = socket.gethostname()
+    r = db_register_session(TEST_SOURCE, "__test__", "F:/impostor",
+                             os.getpid(), host, "will look like pid reuse")
+    conn = _get_conn()
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE active_sessions SET pid_create_time = 0.0 WHERE id = %s",
+            (r["id"],),
+        )
+    # Fresh row dict carrying the fake create_time.
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, pid, host, pid_create_time, heartbeat_at "
+            "FROM active_sessions WHERE id = %s",
+            (r["id"],),
+        )
+        row = {
+            k: v for k, v in zip(
+                ("id", "pid", "host", "pid_create_time", "heartbeat_at"),
+                cur.fetchone(),
+            )
+        }
+    ended = sl.probe_and_mark_ended(_get_conn(), [row], host)
+    assert r["id"] in ended
+    with conn.cursor() as cur:
+        cur.execute("SELECT status FROM active_sessions WHERE id = %s",
+                    (r["id"],))
+        assert cur.fetchone()[0] == "ended"
+
+
+def test_probe_and_mark_ended_preserves_legacy_null_rows():
+    """A row with NULL pid_create_time and an alive pid must NOT be
+    reaped — legacy back-compat (pre-v0.23.1 rows predate the column).
+    probe falls back to the pid-only check via is_pid_alive."""
+    host = socket.gethostname()
+    r = db_register_session(TEST_SOURCE, "__test__", "F:/legacy",
+                             os.getpid(), host, "legacy-style")
+    # Clobber to None to emulate a pre-migration row.
+    conn = _get_conn()
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE active_sessions SET pid_create_time = NULL WHERE id = %s",
+            (r["id"],),
+        )
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, pid, host, pid_create_time, heartbeat_at "
+            "FROM active_sessions WHERE id = %s",
+            (r["id"],),
+        )
+        row = {
+            k: v for k, v in zip(
+                ("id", "pid", "host", "pid_create_time", "heartbeat_at"),
+                cur.fetchone(),
+            )
+        }
+    ended = sl.probe_and_mark_ended(_get_conn(), [row], host)
+    assert ended == []
+    with conn.cursor() as cur:
+        cur.execute("SELECT status FROM active_sessions WHERE id = %s",
+                    (r["id"],))
+        assert cur.fetchone()[0] == "active"

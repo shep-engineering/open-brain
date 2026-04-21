@@ -458,3 +458,101 @@ class TestRegistryStaleness:
         assert payload.other_active_sessions == []
         assert payload.registry_trustworthy is True
         assert payload.registry_staleness_seconds is None
+
+
+# ──────────────────────────────────────────────────────────────────────
+# v2.1.1 — PID reuse false-positive protection.
+# pid_create_time stamped at register; probe verifies identity.
+# ──────────────────────────────────────────────────────────────────────
+
+
+class TestPidReuse:
+    def test_register_stamps_pid_create_time(self, conn):
+        """Fresh registrations should capture create_time for the pid."""
+        sid = store.register_session(
+            conn, source="claude", project="test",
+            cwd="F:/x", pid=os.getpid(), host=socket.gethostname(),
+        )
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT pid_create_time FROM active_sessions WHERE id = %s",
+                (sid,),
+            )
+            ct = cur.fetchone()[0]
+        assert ct is not None
+        assert isinstance(ct, float)
+
+    def test_register_dead_pid_leaves_create_time_null(self, conn):
+        """A pid that doesn't exist at register time cannot have a
+        create_time captured. The row gets NULL and falls back to the
+        legacy pid-only probe (which correctly reaps it since the pid
+        is dead)."""
+        sid = store.register_session(
+            conn, source="claude", project="test",
+            cwd="F:/dead", pid=_dead_pid(), host=socket.gethostname(),
+        )
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT pid_create_time FROM active_sessions WHERE id = %s",
+                (sid,),
+            )
+            assert cur.fetchone()[0] is None
+
+    def test_boot_reaps_pid_reuse_impostor(self, conn):
+        """Register with our own pid, then overwrite pid_create_time
+        with 0.0 to simulate pid reuse. Next boot's opportunistic probe
+        should mark the row ended."""
+        my_host = socket.gethostname()
+        sibling = store.register_session(
+            conn, source="windsurf", project="pidreuse",
+            cwd="F:/impostor", pid=os.getpid(), host=my_host,
+        )
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE active_sessions SET pid_create_time = 0.0 WHERE id = %s",
+                (sibling,),
+            )
+        conn.commit()
+
+        payload = boot.build(
+            conn, project="pidreuse", task="reap impostor", source="claude",
+            cwd="F:/booting", pid=os.getpid() + 1, host=my_host,
+        )
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT status FROM active_sessions WHERE id = %s",
+                (sibling,),
+            )
+            assert cur.fetchone()[0] == "ended"
+        assert sibling in payload.self_healed_ended_ids
+
+    def test_boot_preserves_legacy_null_create_time(self, conn):
+        """Legacy rows (pre-v2.1.1) have NULL pid_create_time. As long
+        as their pid is alive, they must NOT be reaped — pid-only
+        fallback preserves back-compat."""
+        my_host = socket.gethostname()
+        sibling = store.register_session(
+            conn, source="windsurf", project="legacy",
+            cwd="F:/legacy", pid=os.getpid(), host=my_host,
+        )
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE active_sessions SET pid_create_time = NULL "
+                "WHERE id = %s",
+                (sibling,),
+            )
+        conn.commit()
+
+        payload = boot.build(
+            conn, project="legacy", task="don't reap legacy", source="claude",
+            cwd="F:/booting2", pid=os.getpid() + 1, host=my_host,
+        )
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT status FROM active_sessions WHERE id = %s",
+                (sibling,),
+            )
+            assert cur.fetchone()[0] == "active"
+        assert sibling not in payload.self_healed_ended_ids
+        sibling_ids = [s["id"] for s in payload.other_active_sessions]
+        assert sibling in sibling_ids

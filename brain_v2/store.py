@@ -495,6 +495,10 @@ def register_session(conn, *, source: str, project: str = "", cwd: str = "",
     # matches legacy rows written in mixed case. Empty string stays
     # empty (schema column is NOT NULL DEFAULT '').
     normalized_host = session_liveness.normalize_host(host) or ""
+    # v2.1.1: capture create_time for pid-reuse-safe identity check at
+    # probe time. None for null-pid / permission-denied / race — the
+    # probe falls back to the legacy pid-only check in that case.
+    pid_create_time = session_liveness.get_pid_create_time(pid) if pid else None
     with conn.cursor() as cur:
         # End any prior active session from the same process
         if pid is not None:
@@ -516,12 +520,12 @@ def register_session(conn, *, source: str, project: str = "", cwd: str = "",
         cur.execute(
             """
             INSERT INTO active_sessions
-                (source, project, cwd, pid, host, current_task, metadata)
-            VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb)
+                (source, project, cwd, pid, host, current_task, metadata, pid_create_time)
+            VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s)
             RETURNING id
             """,
             (source, project, cwd, pid, normalized_host, current_task or None,
-             json.dumps(metadata) if metadata else None),
+             json.dumps(metadata) if metadata else None, pid_create_time),
         )
         session_id = cur.fetchone()[0]
     conn.commit()
@@ -573,7 +577,7 @@ def list_active_sessions(conn, *, project: str = "", exclude_id: int | None = No
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         sql = """
             SELECT id, source, project, cwd, pid, host, current_task,
-                   started_at, heartbeat_at, status
+                   started_at, heartbeat_at, status, pid_create_time
             FROM active_sessions
             WHERE status = 'active'
         """

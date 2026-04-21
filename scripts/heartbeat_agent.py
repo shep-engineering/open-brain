@@ -133,7 +133,7 @@ def _fetch_local_active(host_filter: str, url: str = None) -> list[dict]:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
                 "SELECT id, source, project, cwd, pid, host, current_task, "
-                "       started_at, heartbeat_at "
+                "       started_at, heartbeat_at, pid_create_time "
                 "FROM active_sessions "
                 "WHERE status = 'active' "
                 "  AND pid IS NOT NULL "
@@ -236,12 +236,15 @@ def probe_once(host_filter: str, verbose: bool = False,
         if pid is None:
             continue
         try:
-            if session_liveness.is_pid_alive(pid):
+            # v0.23.1: identity check (pid + create_time) instead of
+            # pid-only. Legacy rows with NULL pid_create_time fall back
+            # to pid-only via verify_pid_identity's None branch.
+            if session_liveness.verify_pid_identity(pid, r.get("pid_create_time")):
                 alive_ids.append(r["id"])
                 if verbose:
                     print(f"[heartbeat-agent] #{r['id']} pid={pid} source={r['source']} alive")
             else:
-                _mark_ended(r["id"], reason="pid_gone", url=url)
+                _mark_ended(r["id"], reason="pid_gone_or_reused", url=url)
                 ended += 1
                 if verbose:
                     print(f"[heartbeat-agent] #{r['id']} pid={pid} source={r['source']} -> ENDED")
