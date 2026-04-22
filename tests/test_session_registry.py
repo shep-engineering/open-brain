@@ -128,7 +128,7 @@ def test_boot_registers_with_defaulted_pid_and_host():
     assert pid == os.getpid()
     # v0.14.x normalizes host to lowercase on insert. The raw
     # socket.gethostname() on Windows is typically uppercase (e.g.
-    # 'DAVE-PC'); the stored form is 'dave-pc'.
+    # 'WORKSTATION-A'); the stored form is 'workstation-a'.
     assert host == socket.gethostname().lower()
 
 

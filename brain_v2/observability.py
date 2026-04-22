@@ -38,7 +38,7 @@ from typing import Any, Optional
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-BASE_DIR  = Path(__file__).parent.parent.resolve()  # F:\open-brain
+BASE_DIR  = Path(__file__).parent.parent.resolve()  # repo root
 LOG_DIR   = BASE_DIR / "logs"
 LOG_FILE  = LOG_DIR / "brain_v2.jsonl"
 MAX_BYTES = 5 * 1024 * 1024   # 5 MB per log file

@@ -144,7 +144,7 @@ some other way.
 
 Closes the "heartbeat agent silently down → registry goes stale → boot
 surfaces dead sessions as live siblings" failure mode on V1 and V2.
-Evidence at session start on DAVE-PC: 3 "active" V1 rows (2 pids confirmed
+Evidence at session start on the-workstation: 3 "active" V1 rows (2 pids confirmed
 dead via `tasklist`, heartbeat_at frozen 2 days), plus 3 "active" V2 rows
 with `heartbeat_at == started_at` on every one — V2 had never bumped
 heartbeat_at because it had no external probe code at all.

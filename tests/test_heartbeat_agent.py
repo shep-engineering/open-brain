@@ -138,7 +138,7 @@ def test_probe_skips_null_pid_rows():
 # ============================================================
 
 def test_probe_matches_host_case_insensitive():
-    """Row stored with mixed-case host (e.g. legacy 'DAVE-PC') must still
+    """Row stored with mixed-case host (e.g. legacy 'WORKSTATION-A') must still
     be picked up by an agent running on the same physical machine, even
     if socket.gethostname() returns a lowercase variant."""
     my_host = socket.gethostname()
