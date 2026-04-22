@@ -33,7 +33,8 @@ Before any work, in order:
    5. Once the brain becomes available mid-session, resume using it silently.
 2. **Read context checkpoints**: if the file exists:
    ```bash
-   cat docs/planning/CONTEXT_CHECKPOINTS.md
+   # Planning content lives in the sibling repo (see §0.5 below).
+   cat ../open-brain-planning/CONTEXT_CHECKPOINTS.md
    ```
 3. **Run the pre-work gate**, non-negotiable:
    ```bash
@@ -41,6 +42,36 @@ Before any work, in order:
    ```
    This ensures you are on a feature branch, creates a rollback tag, and
    writes a task-start marker. If it fails, stop and fix the issue.
+
+## 0.5. Planning docs live in a sibling repo
+
+Open-brain's architectural plans, Windsurf-reviewed designs, session-
+decision history, and `CONTEXT_CHECKPOINTS.md` are kept in a **separate
+private sibling repo** at `F:/open-brain-planning/` (GitHub:
+`degailen/open-brain-planning`, private). The public mirror
+`shep-engineering/open-brain` deliberately excludes this content — it is
+NOT visible in `docs/planning/` under open-brain anymore.
+
+**Before proposing any architectural change** (schema changes, MCP-tool
+design, session-registry work, contributor workflow, brain_v2 design,
+etc.), grep the sibling repo for existing plans:
+
+```bash
+bash scripts/plan-grep.sh "<keyword>"
+# or on PowerShell:
+powershell scripts/plan-grep.ps1 -Pattern "<keyword>"
+```
+
+The helper fails loudly if the sibling repo is not cloned locally. First-
+time setup on a fresh machine:
+
+```bash
+git clone git@github-degailen:degailen/open-brain-planning.git ../open-brain-planning
+```
+
+Do not duplicate or contradict existing design work without explicitly
+superseding the relevant plan (same belief-revision semantics as memory
+supersedes).
 
 ## 1. Branch Rules: Non-Negotiable
 
