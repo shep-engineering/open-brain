@@ -7,7 +7,7 @@ Run with:  python scripts/migrate_v8_active_sessions_pid_create_time.py
 
 Fixes the PID reuse false-positive: the v0.23.0 probe would see a pid
 exists and bump heartbeat_at even if the OS had reassigned that pid to
-an unrelated process (e.g. DAVE-PC had pid 41712 registered by a Claude
+an unrelated process (e.g. a workstation had pid 41712 registered by a Claude
 MCP server, the OS later gave that pid to ChatGPT.exe, and the probe
 happily reported "alive" for a session row that was long dead).
 

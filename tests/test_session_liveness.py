@@ -41,7 +41,7 @@ def cleanup():
 # ============================================================
 
 def test_normalize_host_strips_and_lowercases():
-    assert sl.normalize_host("DAVE-PC") == "dave-pc"
+    assert sl.normalize_host("WORKSTATION-A") == "workstation-a"
     assert sl.normalize_host("  HostName  ") == "hostname"
 
 
@@ -191,11 +191,11 @@ def test_probe_and_mark_ended_case_insensitive_host_match():
             "INSERT INTO active_sessions "
             "(source, project, cwd, pid, host, current_task, status) "
             "VALUES (%s, %s, %s, %s, %s, %s, 'active') RETURNING id",
-            (TEST_SOURCE, "__test__", "F:/case", dead, "DAVE-PC", "mixed case"),
+            (TEST_SOURCE, "__test__", "F:/case", dead, "WORKSTATION-A", "mixed case"),
         )
         row_id = cur.fetchone()[0]
-    row = {"id": row_id, "host": "DAVE-PC", "pid": dead}
-    ended = sl.probe_and_mark_ended(_get_conn(), [row], "dave-pc")
+    row = {"id": row_id, "host": "WORKSTATION-A", "pid": dead}
+    ended = sl.probe_and_mark_ended(_get_conn(), [row], "workstation-a")
     assert row_id in ended
     assert _get_status(row_id) == "ended"
 

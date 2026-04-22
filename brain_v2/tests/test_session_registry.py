@@ -28,7 +28,7 @@ class TestRegisterSession:
     def test_register_returns_id(self, conn):
         sid = store.register_session(
             conn, source="claude", project="test",
-            cwd="F:/open-brain", pid=12345, host="DAVE-PC",
+            cwd="/test/repo", pid=12345, host="WORKSTATION-A",
         )
         assert isinstance(sid, int)
         assert sid > 0
@@ -36,7 +36,7 @@ class TestRegisterSession:
     def test_register_writes_row(self, conn):
         sid = store.register_session(
             conn, source="claude", project="test",
-            cwd="F:/open-brain", pid=12345,
+            cwd="/test/repo", pid=12345,
         )
         with conn.cursor() as cur:
             cur.execute("SELECT status, source, project, pid FROM active_sessions WHERE id = %s", (sid,))
@@ -46,11 +46,11 @@ class TestRegisterSession:
     def test_supersede_same_pid_cwd_source(self, conn):
         sid1 = store.register_session(
             conn, source="claude", project="test",
-            cwd="F:/open-brain", pid=12345,
+            cwd="/test/repo", pid=12345,
         )
         sid2 = store.register_session(
             conn, source="claude", project="test",
-            cwd="F:/open-brain", pid=12345,
+            cwd="/test/repo", pid=12345,
         )
         with conn.cursor() as cur:
             cur.execute("SELECT status FROM active_sessions WHERE id = %s", (sid1,))
@@ -61,11 +61,11 @@ class TestRegisterSession:
     def test_different_pid_not_superseded(self, conn):
         sid1 = store.register_session(
             conn, source="claude", project="test",
-            cwd="F:/open-brain", pid=111,
+            cwd="/test/repo", pid=111,
         )
         sid2 = store.register_session(
             conn, source="claude", project="test",
-            cwd="F:/open-brain", pid=222,
+            cwd="/test/repo", pid=222,
         )
         with conn.cursor() as cur:
             cur.execute("SELECT status FROM active_sessions WHERE id IN (%s, %s) ORDER BY id",
@@ -203,7 +203,7 @@ class TestBootIntegration:
     def test_boot_registers_session(self, conn):
         payload = boot.build(
             conn, project="test", task="doing a thing", source="claude",
-            cwd="F:/open-brain", pid=5555, host="DAVE-PC",
+            cwd="/test/repo", pid=5555, host="WORKSTATION-A",
         )
         assert payload.session_id is not None
         with conn.cursor() as cur:
@@ -215,7 +215,7 @@ class TestBootIntegration:
     def test_boot_excludes_self_from_siblings(self, conn):
         payload = boot.build(
             conn, project="test", task="solo", source="claude",
-            cwd="F:/open-brain", pid=5555,
+            cwd="/test/repo", pid=5555,
         )
         sibling_ids = [s["id"] for s in payload.other_active_sessions]
         assert payload.session_id not in sibling_ids
@@ -224,7 +224,7 @@ class TestBootIntegration:
         store.register_session(conn, source="windsurf", project="test", pid=99)
         payload = boot.build(
             conn, project="test", task="joining", source="claude",
-            cwd="F:/open-brain", pid=100,
+            cwd="/test/repo", pid=100,
         )
         sibling_sources = {s["source"] for s in payload.other_active_sessions}
         assert "windsurf" in sibling_sources
@@ -239,7 +239,7 @@ class TestBootIntegration:
         # New session boot
         payload = boot.build(
             conn, project="test", task="continuing", source="claude",
-            cwd="F:/open-brain", pid=2,
+            cwd="/test/repo", pid=2,
         )
         assert "step 4" in payload.handoff
         assert payload.handoff_source is not None
@@ -318,11 +318,11 @@ class TestHostNormalization:
     def test_register_lowercases_host_on_insert(self, conn):
         sid = store.register_session(
             conn, source="claude", project="test",
-            cwd="F:/x", pid=1, host="DAVE-PC",
+            cwd="F:/x", pid=1, host="WORKSTATION-A",
         )
         with conn.cursor() as cur:
             cur.execute("SELECT host FROM active_sessions WHERE id = %s", (sid,))
-            assert cur.fetchone()[0] == "dave-pc"
+            assert cur.fetchone()[0] == "workstation-a"
 
     def test_register_empty_host_defaults_to_this_machine(self, conn):
         """v2.1.2: empty host at register time falls through to

@@ -122,7 +122,7 @@ def _fetch_local_active(host_filter: str, url: str = None) -> list[dict]:
 
     Host matching is case-insensitive via `lower(host)`. Legacy rows
     written before normalize_host was wired in (mixed-case like
-    'DAVE-PC') still match correctly.
+    'WORKSTATION-A') still match correctly.
 
     `url` defaults to `DATABASE_URL` for test back-compat. Pass an
     explicit url in multi-brain deployments.
