@@ -210,3 +210,117 @@ class TestWriteBlocking:
             conn, item_id=a2, decision="will_execute", source="test",
         )
         assert store.count_pending_action_items(conn, project="test") == 0
+
+
+# ──────────────────────────────────────────────────────────────────────
+# brain_v2 2.2.0 — action_item kind field (task vs rule)
+# ──────────────────────────────────────────────────────────────────────
+
+
+class TestActionItemKind:
+    """Rule-kind items reject 'already_done' — rules are ongoing and
+    don't complete. Closes the memory-capture-avoidance loophole."""
+
+    def _rule(self, conn):
+        return store.remember_rule(
+            conn, headline="Test rule for kind-field tests",
+            body="Placeholder body — exists to link action items.",
+            severity="BLOCKER", project="test", source="test",
+        )
+
+    def test_create_defaults_kind_to_task(self, conn):
+        rule = self._rule(conn)
+        aid = store.create_action_item(
+            conn, source_kind="rule", source_id=rule.id,
+            text="default kind check", project="test",
+        )
+        pending = store.get_pending_action_items(conn, project="test")
+        item = next(p for p in pending if p["id"] == aid)
+        assert item["kind"] == "task"
+
+    def test_create_explicit_rule_kind(self, conn):
+        rule = self._rule(conn)
+        aid = store.create_action_item(
+            conn, source_kind="rule", source_id=rule.id,
+            text="ongoing discipline", project="test", kind="rule",
+        )
+        pending = store.get_pending_action_items(conn, project="test")
+        item = next(p for p in pending if p["id"] == aid)
+        assert item["kind"] == "rule"
+
+    def test_create_rejects_unknown_kind(self, conn):
+        rule = self._rule(conn)
+        with pytest.raises(ValueError, match="kind"):
+            store.create_action_item(
+                conn, source_kind="rule", source_id=rule.id,
+                text="bad kind", project="test", kind="maybe_rule",
+            )
+
+    def test_ack_rule_rejects_already_done(self, conn):
+        rule = self._rule(conn)
+        aid = store.create_action_item(
+            conn, source_kind="rule", source_id=rule.id,
+            text="rule — must always do X", project="test", kind="rule",
+        )
+        with pytest.raises(ValueError, match="don't complete"):
+            store.acknowledge_action_item(
+                conn, item_id=aid, decision="already_done",
+                source="test", reason="tried to bypass",
+            )
+        # Still pending — rejection didn't flip the row.
+        assert store.count_pending_action_items(conn, project="test") == 1
+
+    def test_ack_rule_accepts_will_execute(self, conn):
+        rule = self._rule(conn)
+        aid = store.create_action_item(
+            conn, source_kind="rule", source_id=rule.id,
+            text="rule to follow", project="test", kind="rule",
+        )
+        result = store.acknowledge_action_item(
+            conn, item_id=aid, decision="will_execute", source="test",
+        )
+        assert result["success"] is True
+        assert result["kind"] == "rule"
+
+    def test_ack_rule_accepts_not_relevant_with_reason(self, conn):
+        rule = self._rule(conn)
+        aid = store.create_action_item(
+            conn, source_kind="rule", source_id=rule.id,
+            text="rule to bypass", project="test", kind="rule",
+        )
+        result = store.acknowledge_action_item(
+            conn, item_id=aid, decision="not_relevant",
+            source="test", reason="task is read-only, rule does not apply",
+        )
+        assert result["success"] is True
+        assert result["kind"] == "rule"
+
+    def test_ack_task_kind_still_supports_already_done(self, conn):
+        """Task-kind (default) preserves existing ack semantics."""
+        rule = self._rule(conn)
+        aid = store.create_action_item(
+            conn, source_kind="rule", source_id=rule.id,
+            text="one-shot task", project="test", kind="task",
+        )
+        result = store.acknowledge_action_item(
+            conn, item_id=aid, decision="already_done",
+            source="test", reason="done in prior session",
+        )
+        assert result["success"] is True
+        assert result["kind"] == "task"
+        assert result["status"] == "already_done"
+
+    def test_pending_list_includes_kind(self, conn):
+        rule = self._rule(conn)
+        store.create_action_item(
+            conn, source_kind="rule", source_id=rule.id,
+            text="task item", project="test", kind="task",
+        )
+        store.create_action_item(
+            conn, source_kind="rule", source_id=rule.id,
+            text="rule item", project="test", kind="rule",
+        )
+        pending = store.get_pending_action_items(conn, project="test")
+        kinds = {p["text"]: p["kind"] for p in pending}
+        assert kinds["task item"] == "task"
+        assert kinds["rule item"] == "rule"

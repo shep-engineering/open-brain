@@ -102,8 +102,38 @@ def test_extract_action_items_returns_entries():
     out = _extract_action_items_from_memory(mem, origin="recent_history")
     assert len(out) == 2
     assert out[0] == {"memory_id": 42, "index": 0,
-                       "text": "do X", "origin": "recent_history"}
+                       "text": "do X", "kind": "task",
+                       "origin": "recent_history"}
     assert out[1]["index"] == 1
+    # v0.24.0: plain strings default to kind='task' (back-compat).
+    assert all(e["kind"] == "task" for e in out)
+
+
+def test_extract_action_items_dict_form_with_kind():
+    """v0.24.0: dict-form items carry explicit kind ('task' or 'rule')."""
+    mem = {"id": 10, "metadata": {"action_items": [
+        {"text": "follow ongoing rule", "kind": "rule"},
+        {"text": "finish one-shot", "kind": "task"},
+        {"text": "no kind set"},          # defaults to 'task'
+        {"description": "legacy dict"},    # legacy shape — kind='task'
+    ]}}
+    out = _extract_action_items_from_memory(mem, origin="recent_history")
+    assert len(out) == 4
+    kinds = [e["kind"] for e in out]
+    assert kinds == ["rule", "task", "task", "task"]
+    texts = [e["text"] for e in out]
+    assert texts == ["follow ongoing rule", "finish one-shot",
+                     "no kind set", "legacy dict"]
+
+
+def test_extract_action_items_rejects_unknown_kind_falls_back_to_task():
+    """Unknown kind values fall back to 'task' — never raises."""
+    mem = {"id": 5, "metadata": {"action_items": [
+        {"text": "weird", "kind": "something_else"},
+    ]}}
+    out = _extract_action_items_from_memory(mem, origin="recent_history")
+    assert len(out) == 1
+    assert out[0]["kind"] == "task"
 
 
 def test_extract_skips_empty_and_non_string():
@@ -283,3 +313,81 @@ def test_acknowledge_idempotent_on_unknown_item():
     ))
     assert out["success"] is True
     assert out["removed"] == 0
+
+
+# ============================================================
+# 7. v0.24.0 — kind field: rules reject 'already_done'
+# ============================================================
+
+def test_acknowledge_rejects_already_done_for_rule_kind():
+    """Rule-kind items cannot be 'already_done' — rules don't complete."""
+    mid = _make_memory("Rule memory.", action_items=[
+        {"text": "always use feature branches", "kind": "rule"},
+    ])
+    boot_session(source=TEST_SOURCE, project=TEST_PROJECT)
+    out = json.loads(acknowledge_action_item(
+        source=TEST_SOURCE, memory_id=mid,
+        text="always use feature branches",
+        decision="already_done", reason="did it before",
+    ))
+    assert out["success"] is False
+    assert out.get("blocked_by") == "rule_kind_already_done"
+    assert out.get("kind") == "rule"
+    # Item should STILL be pending — ack was rejected.
+    assert len(_pending_action_items[TEST_SOURCE]) == 1
+
+
+def test_acknowledge_accepts_will_execute_for_rule_kind():
+    """Rules can be committed to via 'will_execute'."""
+    mid = _make_memory("Rule memory.", action_items=[
+        {"text": "follow the rule", "kind": "rule"},
+    ])
+    boot_session(source=TEST_SOURCE, project=TEST_PROJECT)
+    out = json.loads(acknowledge_action_item(
+        source=TEST_SOURCE, memory_id=mid,
+        text="follow the rule", decision="will_execute",
+    ))
+    assert out["success"] is True
+    assert _pending_action_items[TEST_SOURCE] == []
+
+
+def test_acknowledge_accepts_not_relevant_for_rule_kind_with_reason():
+    """Rules can be explicitly bypassed via 'not_relevant' + reason."""
+    mid = _make_memory("Rule memory.", action_items=[
+        {"text": "follow the rule", "kind": "rule"},
+    ])
+    boot_session(source=TEST_SOURCE, project=TEST_PROJECT)
+    out = json.loads(acknowledge_action_item(
+        source=TEST_SOURCE, memory_id=mid,
+        text="follow the rule", decision="not_relevant",
+        reason="task is read-only exploration, no code changes",
+    ))
+    assert out["success"] is True
+    assert _pending_action_items[TEST_SOURCE] == []
+
+
+def test_acknowledge_already_done_still_works_for_task_kind():
+    """Task-kind (default) preserves existing behavior."""
+    mid = _make_memory("Task memory.", action_items=[
+        {"text": "finish migration v7", "kind": "task"},
+    ])
+    boot_session(source=TEST_SOURCE, project=TEST_PROJECT)
+    out = json.loads(acknowledge_action_item(
+        source=TEST_SOURCE, memory_id=mid,
+        text="finish migration v7",
+        decision="already_done", reason="migration landed in v0.23.0",
+    ))
+    assert out["success"] is True
+    assert _pending_action_items[TEST_SOURCE] == []
+
+
+def test_acknowledge_already_done_works_for_plain_string_items():
+    """Back-compat: plain string action_items default to kind='task'
+    and still support already_done."""
+    mid = _make_memory("Legacy.", action_items=["legacy task"])
+    boot_session(source=TEST_SOURCE, project=TEST_PROJECT)
+    out = json.loads(acknowledge_action_item(
+        source=TEST_SOURCE, memory_id=mid, text="legacy task",
+        decision="already_done", reason="done ages ago",
+    ))
+    assert out["success"] is True

@@ -283,6 +283,150 @@ def compute_staleness(rows) -> tuple[int | None, bool]:
     return (seconds, trustworthy)
 
 
+def sweep_host_stale(conn, host, max_age_seconds: int,
+                     dry_run: bool = True) -> dict:
+    """Admin: mark cross-host sessions ended based on heartbeat staleness.
+
+    Same-host rows are kept honest by `probe_and_mark_ended` (psutil-based,
+    authoritative). Rows on other hosts can't be pid-probed from here — if
+    the heartbeat_agent on that host stops (crash, sleep, uninstall), its
+    rows never clean up and pollute every caller's OTHER ACTIVE SESSIONS.
+
+    This function gives an operator an explicit, opt-in reaper: select
+    active rows for `host` whose latest `heartbeat_at` is older than
+    `max_age_seconds`, and (unless dry_run) mark them ended. Staleness-
+    based, not identity-based — the caller commits to "that host's
+    sessions are dead if they haven't bumped heartbeat in this long."
+
+    Args:
+        conn:            psycopg2 connection (V1 openbrain or V2 open_brain_v2).
+        host:            Target hostname. Normalized case-insensitively.
+        max_age_seconds: Rows with heartbeat_at > now() - this many seconds
+                         are candidates. Must be positive; typical 3600+.
+        dry_run:         If True (default), return candidates without writing.
+                         Flip to False to actually mark ended.
+
+    Returns:
+        {
+          "success": True,
+          "host": "<normalized>",
+          "max_age_seconds": N,
+          "dry_run": bool,
+          "candidates":   [ {id, pid, heartbeat_age_seconds, source, project}, ... ],
+          "marked_ended": [ id, ... ],   # [] when dry_run
+        }
+
+    Safety:
+      - NEVER sweeps if host is empty/None.
+      - NEVER sweeps the local host (reject with success=False). Callers
+        who want same-host cleanup use probe_and_mark_ended.
+      - Cap at 200 rows per call to bound blast radius; repeat the call
+        if you need more swept.
+    """
+    target = normalize_host(host)
+    if target is None:
+        return {
+            "success": False,
+            "error": "host is required and must be non-empty",
+        }
+    if not isinstance(max_age_seconds, int) or max_age_seconds <= 0:
+        return {
+            "success": False,
+            "error": "max_age_seconds must be a positive int",
+        }
+    try:
+        import socket as _socket
+        local = normalize_host(_socket.gethostname())
+    except Exception:
+        local = None
+    if local is not None and target == local:
+        return {
+            "success": False,
+            "error": (f"sweep_host_stale refuses to sweep the local host "
+                       f"({local!r}). Same-host rows are reaped by the "
+                       f"local heartbeat_agent + probe_and_mark_ended."),
+            "host": target,
+        }
+
+    cap = 200
+    candidates: list[dict] = []
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, pid, source, project, "
+                "       EXTRACT(EPOCH FROM (NOW() - heartbeat_at))::int "
+                "         AS heartbeat_age_seconds "
+                "  FROM active_sessions "
+                " WHERE status = 'active' "
+                "   AND lower(host) = %s "
+                "   AND heartbeat_at < (NOW() - make_interval(secs => %s)) "
+                " ORDER BY heartbeat_at ASC "
+                " LIMIT %s",
+                (target, max_age_seconds, cap),
+            )
+            rows = cur.fetchall() or []
+            colnames = [d[0] for d in cur.description]
+            for r in rows:
+                if isinstance(r, dict):
+                    candidates.append({
+                        "id":  r.get("id"),
+                        "pid": r.get("pid"),
+                        "source": r.get("source"),
+                        "project": r.get("project"),
+                        "heartbeat_age_seconds": r.get("heartbeat_age_seconds"),
+                    })
+                else:
+                    row = dict(zip(colnames, r))
+                    candidates.append({
+                        "id":  row.get("id"),
+                        "pid": row.get("pid"),
+                        "source": row.get("source"),
+                        "project": row.get("project"),
+                        "heartbeat_age_seconds": row.get("heartbeat_age_seconds"),
+                    })
+    except Exception as exc:
+        return {
+            "success": False,
+            "error":   f"query failed: {exc}",
+            "host":    target,
+        }
+
+    marked_ended: list[int] = []
+    if not dry_run and candidates:
+        ids = [c["id"] for c in candidates if c.get("id") is not None]
+        if ids:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE active_sessions "
+                        "   SET status = 'ended', ended_at = NOW() "
+                        " WHERE id = ANY(%s) "
+                        "   AND status = 'active'",
+                        (ids,),
+                    )
+                try:
+                    conn.commit()
+                except Exception:
+                    pass
+                marked_ended = ids
+            except Exception as exc:
+                return {
+                    "success": False,
+                    "error":   f"update failed: {exc}",
+                    "host":    target,
+                    "candidates": candidates,
+                }
+
+    return {
+        "success":         True,
+        "host":            target,
+        "max_age_seconds": max_age_seconds,
+        "dry_run":         dry_run,
+        "candidates":      candidates,
+        "marked_ended":    marked_ended,
+    }
+
+
 def probe_and_mark_ended(conn, rows, my_host, cap: int = _OPPORTUNISTIC_PROBE_CAP) -> list[int]:
     """Opportunistically mark dead same-host session rows as ended.
 

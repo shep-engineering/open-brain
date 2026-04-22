@@ -653,31 +653,45 @@ def get_latest_handoff(conn, *, project: str = "",
 
 # ── ACTION ITEMS ─────────────────────────────────────────────────────
 def create_action_item(conn, *, source_kind: str, source_id: int,
-                       text: str, project: str = "") -> int:
-    """Create a pending action item linked to a memory."""
+                       text: str, project: str = "",
+                       kind: str = "task") -> int:
+    """Create a pending action item linked to a memory.
+
+    kind ∈ {'task', 'rule'}:
+      - 'task' (default): one-shot obligation; 'already_done' is valid.
+      - 'rule':           ongoing discipline; cannot be 'already_done'
+                          (rules don't complete). Agents must use
+                          'not_relevant' + reason to bypass — audited.
+    (v2.2.0+)
+    """
+    if kind not in ("task", "rule"):
+        raise ValueError(f"kind must be 'task' or 'rule', got {kind!r}")
     with conn.cursor() as cur:
         cur.execute(
             """
-            INSERT INTO action_items (source_kind, source_id, text, project)
-            VALUES (%s, %s, %s, %s)
+            INSERT INTO action_items (source_kind, source_id, text, project, kind)
+            VALUES (%s, %s, %s, %s, %s)
             RETURNING id
             """,
-            (source_kind, source_id, text, project),
+            (source_kind, source_id, text, project, kind),
         )
         aid = cur.fetchone()[0]
         _audit(cur, "INSERT", "action_item", aid,
-               {"source_kind": source_kind, "source_id": source_id, "text": text[:100]}, "system")
+               {"source_kind": source_kind, "source_id": source_id,
+                "text": text[:100], "kind": kind}, "system")
     conn.commit()
-    log.info("action_item created id=%d for %s:%d: %s", aid, source_kind, source_id, text[:60])
+    log.info("action_item created id=%d kind=%s for %s:%d: %s",
+             aid, kind, source_kind, source_id, text[:60])
     return aid
 
 
 def get_pending_action_items(conn, *, project: str = "") -> list[dict]:
-    """Return all pending (unacknowledged) action items for a project."""
+    """Return all pending (unacknowledged) action items for a project.
+    Each row includes `kind` (v2.2.0+)."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
             """
-            SELECT id, source_kind, source_id, text, project, created_at
+            SELECT id, source_kind, source_id, text, project, kind, created_at
             FROM action_items
             WHERE status = 'pending'
               AND (project = %s OR project = '')
@@ -694,6 +708,10 @@ def acknowledge_action_item(conn, *, item_id: int, decision: str,
 
     decision must be one of: 'will_execute', 'already_done', 'not_relevant'.
     reason is required for 'already_done' and 'not_relevant'.
+
+    v2.2.0: rule-kind items reject 'already_done' (rules don't complete).
+    Forces agents to either commit ('will_execute') or explicitly bypass
+    with a justification ('not_relevant' + reason) — auditable.
     """
     valid_decisions = ("will_execute", "already_done", "not_relevant")
     if decision not in valid_decisions:
@@ -702,14 +720,23 @@ def acknowledge_action_item(conn, *, item_id: int, decision: str,
         raise ValueError(f"reason is required for decision={decision!r}")
 
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute("SELECT id, status, text FROM action_items WHERE id = %s", (item_id,))
+        cur.execute("SELECT id, status, text, kind FROM action_items WHERE id = %s", (item_id,))
         row = cur.fetchone()
         if not row:
             raise ValueError(f"action_item id={item_id} not found")
         if row["status"] != "pending":
             # Idempotent: already acked
             return {"success": True, "id": item_id, "status": row["status"],
-                    "text": row["text"], "already_acked": True}
+                    "text": row["text"], "kind": row["kind"],
+                    "already_acked": True}
+
+        # v2.2.0 — block the already_done loophole for ongoing rules.
+        if row["kind"] == "rule" and decision == "already_done":
+            raise ValueError(
+                "rule-kind action items cannot be 'already_done' — rules "
+                "don't complete. Use 'will_execute' to commit, or "
+                "'not_relevant' + reason to explicitly bypass (audited)."
+            )
 
         cur.execute(
             """
@@ -720,11 +747,13 @@ def acknowledge_action_item(conn, *, item_id: int, decision: str,
             (decision, reason, source, item_id),
         )
         _audit(cur, "ACK", "action_item", item_id,
-               {"decision": decision, "reason": reason}, source)
+               {"decision": decision, "reason": reason, "kind": row["kind"]}, source)
     conn.commit()
-    log.info("action_item id=%d acknowledged: %s (source=%s)", item_id, decision, source)
+    log.info("action_item id=%d kind=%s acknowledged: %s (source=%s)",
+             item_id, row["kind"], decision, source)
     return {"success": True, "id": item_id, "status": decision,
-            "text": row["text"], "already_acked": False}
+            "text": row["text"], "kind": row["kind"],
+            "already_acked": False}
 
 
 def count_pending_action_items(conn, *, project: str = "") -> int:

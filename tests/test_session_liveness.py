@@ -461,3 +461,104 @@ def test_scrub_cmdline_secrets_noop_on_clean_input():
     """Normal cmdlines without secrets pass through unchanged."""
     clean = "node.exe C:\\claude-code\\cli.js --stdio --project my-app"
     assert sl._scrub_cmdline_secrets(clean) == clean
+
+
+# ============================================================
+# sweep_host_stale (v0.24.0 — cross-host admin reaper)
+# ============================================================
+
+def _make_stale_row(age_seconds: int, host: str, pid_val: int = 0):
+    """Register a row and backdate its heartbeat_at by age_seconds."""
+    r = db_register_session(TEST_SOURCE, "__test__",
+                             f"F:/xh-{age_seconds}",
+                             pid_val or os.getpid(), host, "cross-host test")
+    conn = _get_conn()
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE active_sessions "
+            "SET heartbeat_at = NOW() - make_interval(secs => %s) "
+            "WHERE id = %s",
+            (age_seconds, r["id"]),
+        )
+    return r
+
+
+def test_sweep_host_stale_refuses_empty_host():
+    result = sl.sweep_host_stale(_get_conn(), host="", max_age_seconds=60)
+    assert result["success"] is False
+    assert "host is required" in result["error"]
+
+
+def test_sweep_host_stale_refuses_invalid_max_age():
+    result = sl.sweep_host_stale(_get_conn(), host="someone-else",
+                                  max_age_seconds=0)
+    assert result["success"] is False
+    result = sl.sweep_host_stale(_get_conn(), host="someone-else",
+                                  max_age_seconds=-1)
+    assert result["success"] is False
+
+
+def test_sweep_host_stale_refuses_local_host():
+    """Safety — same-host sweeping is probe_and_mark_ended's job."""
+    result = sl.sweep_host_stale(_get_conn(),
+                                  host=socket.gethostname(),
+                                  max_age_seconds=60)
+    assert result["success"] is False
+    assert "local host" in result["error"]
+
+
+def test_sweep_host_stale_dry_run_returns_candidates_without_writing():
+    remote = "remote-host-dry"
+    stale = _make_stale_row(7200, remote)
+    result = sl.sweep_host_stale(_get_conn(), host=remote,
+                                  max_age_seconds=3600, dry_run=True)
+    assert result["success"] is True
+    assert result["dry_run"] is True
+    ids = [c["id"] for c in result["candidates"]]
+    assert stale["id"] in ids
+    assert result["marked_ended"] == []
+    assert _get_status(stale["id"]) == "active"
+
+
+def test_sweep_host_stale_writes_when_dry_run_false():
+    remote = "remote-host-write"
+    stale = _make_stale_row(7200, remote)
+    result = sl.sweep_host_stale(_get_conn(), host=remote,
+                                  max_age_seconds=3600, dry_run=False)
+    assert result["success"] is True
+    assert result["dry_run"] is False
+    assert stale["id"] in result["marked_ended"]
+    assert _get_status(stale["id"]) == "ended"
+
+
+def test_sweep_host_stale_ignores_fresh_rows():
+    remote = "remote-host-fresh"
+    fresh = _make_stale_row(10, remote)
+    result = sl.sweep_host_stale(_get_conn(), host=remote,
+                                  max_age_seconds=3600, dry_run=False)
+    ids = [c["id"] for c in result["candidates"]]
+    assert fresh["id"] not in ids
+    assert result["marked_ended"] == []
+    assert _get_status(fresh["id"]) == "active"
+
+
+def test_sweep_host_stale_ignores_other_hosts():
+    """Must only touch rows for the specified host."""
+    target = "remote-target"
+    bystander = "remote-bystander"
+    target_row = _make_stale_row(7200, target)
+    bystander_row = _make_stale_row(7200, bystander)
+    result = sl.sweep_host_stale(_get_conn(), host=target,
+                                  max_age_seconds=3600, dry_run=False)
+    assert target_row["id"] in result["marked_ended"]
+    assert bystander_row["id"] not in result["marked_ended"]
+    assert _get_status(bystander_row["id"]) == "active"
+
+
+def test_sweep_host_stale_case_insensitive_match():
+    remote = "Remote-Mixed-Case"
+    stale = _make_stale_row(7200, remote)
+    # Normalize internally → lowercase; caller passes mixed case.
+    result = sl.sweep_host_stale(_get_conn(), host="remote-MIXED-case",
+                                  max_age_seconds=3600, dry_run=False)
+    assert stale["id"] in result["marked_ended"]

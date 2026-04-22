@@ -5,6 +5,114 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.0] + [brain_v2 2.2.0] - 2026-04-22
+
+### Cross-host session reaper (`sweep_host` / `sweep_host_v2`) — admin tool
+
+The heartbeat agent can only pid-probe same-host rows (psutil is
+local-only). When another machine's heartbeat_agent is down, or the
+machine itself is offline, its `active_sessions` rows never reap and
+pollute every sibling's boot_session OTHER_ACTIVE_SESSIONS list.
+
+New admin-only MCP tool, one per brain:
+
+- `sweep_host(source, host, max_age_minutes=60, dry_run=True)` (V1)
+- `sweep_host_v2(host, max_age_minutes=60, dry_run=True)` (V2)
+
+Marks rows ended for `host` whose `heartbeat_at` is staler than
+`max_age_minutes`. Staleness-based (not psutil-based) — operator
+explicitly commits to the age threshold.
+
+Safety:
+
+- Refuses empty/None host.
+- **Refuses the local host** — same-host cleanup is `probe_and_mark_ended`'s
+  job, not this tool's. Prevents a slip-of-the-finger mass reap.
+- `dry_run=True` default. Callers must explicitly pass `dry_run=False`
+  to write.
+- Cap of 200 rows per call.
+
+Implementation in shared `session_liveness.sweep_host_stale(conn, host,
+max_age_seconds, dry_run)` so both brains use one code path.
+
+**Changes:**
+
+- `session_liveness.py` — new `sweep_host_stale()` function (pure SQL,
+  no psutil — by design).
+- `server.py` — new `@mcp.tool() sweep_host` (V1).
+- `brain_v2/server.py` — new `@mcp.tool() sweep_host_v2` (V2).
+- `tests/test_session_liveness.py` — 8 new tests (empty host, invalid
+  max_age, local-host refuse, dry_run candidates, write when not dry,
+  ignore fresh, ignore other hosts, case-insensitive).
+- `brain_v2/tests/test_session_registry.py` — 8 mirror tests in new
+  `TestSweepHostStale` class.
+
+### Action-item gate `kind` field — close the already_done loophole
+
+Action items can now carry a `kind`: `'task'` (one-shot, default,
+back-compat) or `'rule'` (ongoing discipline). Rule-kind items
+**reject** the `already_done` ack decision — rules don't complete.
+Agents must either commit via `will_execute` or explicitly bypass with
+`not_relevant` + reason (audited).
+
+Closes the memory-capture-avoidance loophole flagged by V2 fact #1:
+agents could mark any surfaced guardrail as "already_done" to bypass
+the gate, then not follow the rule. Now the only way to bypass is an
+auditable `not_relevant` + reason — detectable in the ack log.
+
+**V2 DB change** (idempotent):
+
+- `action_items` table: new `kind TEXT NOT NULL DEFAULT 'task'
+  CHECK (kind IN ('task', 'rule'))` column. Inline in `CREATE TABLE`
+  plus separate `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` + a
+  `pg_constraint`-guarded CHECK add for existing DBs.
+
+**V1 metadata parsing** (no schema change):
+
+- `_extract_action_items_from_memory` now accepts per-item dicts
+  `{text, kind?}` OR plain strings (back-compat → kind='task'). Unknown
+  kind values fall back to 'task' (never raises).
+
+**Validation** (both brains):
+
+- `acknowledge_action_item` rejects `decision='already_done'` when the
+  matching pending item has `kind='rule'`. Returns
+  `blocked_by='rule_kind_already_done'` in V1, `ValueError` in V2.
+- `_check_action_item_gate` blocked-payload now surfaces `kind` per
+  item + explanatory hint text.
+
+**Changes:**
+
+- `brain_v2/schema.py` — `action_items.kind` column added (+ idempotent
+  ALTER + CHECK add).
+- `brain_v2/store.py` — `create_action_item(kind='task')` accepts kind;
+  `get_pending_action_items` returns it; `acknowledge_action_item`
+  validates combo.
+- `brain_v2/server.py::create_action_item_v2` — accepts `kind` param.
+- `server.py::_extract_action_items_from_memory` — dict-form support.
+- `server.py::_check_action_item_gate` — kind in payload + hint.
+- `server.py::acknowledge_action_item` — rule + already_done rejection.
+- `tests/test_action_item_gate.py` — 7 new tests (dict form, rule
+  rejects already_done, rule accepts will_execute, rule accepts
+  not_relevant+reason, task preserves already_done, plain-string
+  back-compat still works).
+- `brain_v2/tests/test_action_items.py` — 8 new tests in new
+  `TestActionItemKind` class.
+
+### Safe to ship mid-soak
+
+Both features are additive:
+
+- Cross-host reaper: new admin tool. Does not change any existing
+  heartbeat/probe/boot path. Existing agents never call it.
+- Action-item kind: all V1 parsing is back-compat (plain strings →
+  kind='task', same as prior behavior). V2 column defaults to 'task'
+  on every existing row. The only **new** behavior surfaces when a
+  writer opts in by passing `kind='rule'`.
+
+Minor bump (0.24.0 / 2.2.0) per semver — new tools + new field on an
+existing tool's shape.
+
 ## [0.23.2] + [brain_v2 2.1.2] - 2026-04-21
 
 ### MCP client identification metadata on active_sessions
