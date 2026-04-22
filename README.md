@@ -2,6 +2,20 @@
 
 > **Agent-readable second brain**: one PostgreSQL database, one MCP server, every AI you use.
 
+---
+
+## ⚠️ Not Affiliated with Open Brain AI
+
+**This project is NOT related to [openbrainai.com](https://openbrainai.com)** — a clinical language assessment platform for healthcare.
+
+We are an **independent, open-source project** for personal AI memory management. Any similarity in naming is purely coincidental:
+
+- **We do**: Store your AI conversation memories locally using vector embeddings
+- **We do NOT**: Analyze speech, diagnose language disorders, or provide clinical tools
+- **Audience**: AI users who want a personal "second brain" — not clinicians or patients
+
+See [DISAMBIGUATION.md](DISAMBIGUATION.md) for full details.
+
 Stores your thoughts as vector embeddings so any AI tool (Claude, ChatGPT, Cursor, Windsurf, VS Code, etc.) can search your memory **by meaning**, not just keywords. Local-first. You own the data. ~$0.10-$0.30/month to run.
 
 Supports both MCP stdio (editors/CLI) and streamable HTTP transport, plus a `wire` command to auto-register common MCP clients.
