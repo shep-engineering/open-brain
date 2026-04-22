@@ -18,7 +18,7 @@
         <link rel="prev" href="../memory-model/">
       
       
-        <link rel="next" href="../../tools/">
+        <link rel="next" href="../v2-architecture/">
       
       
         
@@ -29,7 +29,7 @@
     
     
       
-        <title>Smart Batching - Open Brain</title>
+        <title>v1 Smart Batching - Open Brain</title>
       
     
     
@@ -82,7 +82,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#smart-batching" class="md-skip">
+        <a href="#smart-batching-v1" class="md-skip">
           Skip to content
         </a>
       
@@ -118,7 +118,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Smart Batching
+              v1 Smart Batching
             
           </span>
         </div>
@@ -473,7 +473,7 @@
   <span class="md-ellipsis">
     
   
-    Overview
+    v1 Overview
   
 
     
@@ -501,7 +501,7 @@
   <span class="md-ellipsis">
     
   
-    Memory Model
+    v1 Memory Model
   
 
     
@@ -538,7 +538,7 @@
   <span class="md-ellipsis">
     
   
-    Smart Batching
+    v1 Smart Batching
   
 
     
@@ -556,7 +556,7 @@
   <span class="md-ellipsis">
     
   
-    Smart Batching
+    v1 Smart Batching
   
 
     
@@ -679,6 +679,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../v2-architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v2 Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -946,6 +974,33 @@
   
 
     
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../disambiguation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Disambiguation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -1083,8 +1138,12 @@
 
 
 
-<h1 id="smart-batching">Smart Batching</h1>
-<p>The <code>capture_context</code> tool uses a multi-phase batching algorithm to efficiently process session text on local hardware.</p>
+<h1 id="smart-batching-v1">Smart Batching (v1)</h1>
+<div class="admonition info">
+<p class="admonition-title">v2 does not use smart batching</p>
+<p>v2's <code>capture_context_v2</code> uses keyword-based heuristic classification instead of an LLM, and embeds each chunk individually. There is no metadata LLM in v2's write path — this eliminates the model-swapping problem entirely. See <a href="../v2-architecture/">v2 Architecture</a>.</p>
+</div>
+<p>The v1 <code>capture_context</code> tool uses a multi-phase batching algorithm to efficiently process session text on local hardware.</p>
 <hr />
 <h2 id="the-problem">The Problem</h2>
 <p>On systems with limited VRAM, Ollama can only load 1-2 models at a time. A naive approach (embed one memory, extract metadata for it, embed the next, extract metadata) causes constant model swapping. Each swap takes 10-40 seconds as models are loaded/unloaded from GPU memory.</p>

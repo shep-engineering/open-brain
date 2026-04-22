@@ -473,7 +473,7 @@
   <span class="md-ellipsis">
     
   
-    Overview
+    v1 Overview
   
 
     
@@ -501,7 +501,7 @@
   <span class="md-ellipsis">
     
   
-    Memory Model
+    v1 Memory Model
   
 
     
@@ -529,7 +529,35 @@
   <span class="md-ellipsis">
     
   
-    Smart Batching
+    v1 Smart Batching
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/v2-architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v2 Architecture
   
 
     
@@ -786,6 +814,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#v2-via-sse" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v2 via SSE
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -885,6 +924,33 @@
   
 
     
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../disambiguation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Disambiguation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -944,6 +1010,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#v2-via-sse" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v2 via SSE
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -996,6 +1073,12 @@
 <li>Paste the contents of <code>prompts/generic-system-prompt.md</code> into the "What would you like ChatGPT to know?" field</li>
 </ol>
 <p>This tells ChatGPT to silently capture and recall memories using the Open Brain tools.</p>
+<hr />
+<h2 id="v2-via-sse">v2 via SSE</h2>
+<p>To connect ChatGPT Desktop to brain_v2, run a second SSE proxy on a different port:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>.venv<span class="se">\S</span>cripts<span class="se">\p</span>ython.exe<span class="w"> </span>-m<span class="w"> </span>mcp.server.sse<span class="w"> </span>--port<span class="w"> </span><span class="m">8766</span><span class="w"> </span>--<span class="w"> </span>python<span class="w"> </span>brain_v2/server.py
+</code></pre></div>
+<p>Then add <code>http://localhost:8766/sse</code> as a second MCP server in ChatGPT Desktop settings.</p>
 
 
 

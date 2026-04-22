@@ -473,7 +473,7 @@
   <span class="md-ellipsis">
     
   
-    Overview
+    v1 Overview
   
 
     
@@ -501,7 +501,7 @@
   <span class="md-ellipsis">
     
   
-    Memory Model
+    v1 Memory Model
   
 
     
@@ -529,7 +529,35 @@
   <span class="md-ellipsis">
     
   
-    Smart Batching
+    v1 Smart Batching
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/v2-architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v2 Architecture
   
 
     
@@ -785,6 +813,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#v2-monitoring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v2 Monitoring
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -940,6 +979,33 @@
   
 
     
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../disambiguation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Disambiguation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -1048,6 +1114,17 @@
     <span class="md-ellipsis">
       
         Troubleshooting
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v2-monitoring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v2 Monitoring
       
     </span>
   </a>
@@ -1205,6 +1282,16 @@
 </tr>
 </tbody>
 </table>
+<hr />
+<h2 id="v2-monitoring">v2 Monitoring</h2>
+<p>The v1 dashboard does not currently show brain_v2 stats. During the v2 soak period, use these MCP tools from any agent session to monitor v2 health:</p>
+<ul>
+<li><strong><code>health_v2</code></strong> — DB connectivity, Ollama reachability, table row counts, server uptime, tool list</li>
+<li><strong><code>metrics_v2</code></strong> — per-tool call counts, error rates, avg/p99 latency</li>
+<li><strong><code>recent_errors_v2</code></strong> — last N errors from the in-memory ring buffer</li>
+</ul>
+<p>v2 also writes persistent telemetry to the <code>tool_events</code> table (every tool call with timing) and structured JSONL to <code>logs/brain_v2.jsonl</code> (rotating, 5MB x 5 files).</p>
+<p>A unified dashboard covering both v1 and v2 is planned for post-soak.</p>
 
 
 

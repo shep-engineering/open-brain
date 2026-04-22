@@ -12,13 +12,13 @@
         <meta name="author" content="shep-engineering">
       
       
-        <link rel="canonical" href="https://shep-engineering.github.io/open-brain/guides/migration/">
+        <link rel="canonical" href="https://shep-engineering.github.io/open-brain/architecture/v2-architecture/">
       
       
-        <link rel="prev" href="../testing/">
+        <link rel="prev" href="../smart-batching/">
       
       
-        <link rel="next" href="../../references/">
+        <link rel="next" href="../../tools/">
       
       
         
@@ -29,7 +29,7 @@
     
     
       
-        <title>Migration - Open Brain</title>
+        <title>v2 Architecture - Open Brain</title>
       
     
     
@@ -82,7 +82,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#migration" class="md-skip">
+        <a href="#brain_v2-architecture" class="md-skip">
           Skip to content
         </a>
       
@@ -118,7 +118,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Migration
+              v2 Architecture
             
           </span>
         </div>
@@ -409,8 +409,10 @@
       
   
   
+    
   
   
+  
     
     
     
@@ -421,13 +423,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-          
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
         
           
           <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
@@ -448,7 +448,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_3">
             <span class="md-nav__icon md-icon"></span>
             
@@ -466,7 +466,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../architecture/overview/" class="md-nav__link">
+      <a href="../overview/" class="md-nav__link">
         
   
   
@@ -494,7 +494,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../architecture/memory-model/" class="md-nav__link">
+      <a href="../memory-model/" class="md-nav__link">
         
   
   
@@ -522,7 +522,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../architecture/smart-batching/" class="md-nav__link">
+      <a href="../smart-batching/" class="md-nav__link">
         
   
   
@@ -547,10 +547,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../architecture/v2-architecture/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v2 Architecture
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -566,6 +593,136 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#why-v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why v2?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#system-diagram" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        System Diagram
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#four-atomic-memory-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Four Atomic Memory Types
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#write-gate-5-steps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Write Gate (5 steps)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#boot-payload" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Boot Payload
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#observability" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Observability
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#session-registry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Session Registry
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#skills-layer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Skills Layer
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#database" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Database
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v1-vs-v2-at-a-glance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v1 vs v2 at a Glance
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -609,8 +766,6 @@
       
   
   
-    
-  
   
   
     
@@ -623,11 +778,13 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
         
           
           <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
@@ -648,7 +805,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             
@@ -666,7 +823,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../dashboard/" class="md-nav__link">
+      <a href="../../guides/dashboard/" class="md-nav__link">
         
   
   
@@ -694,7 +851,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../auto-capture/" class="md-nav__link">
+      <a href="../../guides/auto-capture/" class="md-nav__link">
         
   
   
@@ -722,7 +879,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../chatgpt-desktop/" class="md-nav__link">
+      <a href="../../guides/chatgpt-desktop/" class="md-nav__link">
         
   
   
@@ -750,7 +907,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../testing/" class="md-nav__link">
+      <a href="../../guides/testing/" class="md-nav__link">
         
   
   
@@ -775,37 +932,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Migration
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../guides/migration/" class="md-nav__link">
         
   
   
@@ -821,109 +951,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#v1-schema-migrations-internal" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        v1 Schema Migrations (internal)
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#v1-to-brain_v2-architecture-migration" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        v1 to brain_v2 (architecture migration)
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="v1 to brain_v2 (architecture migration)">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#whats-different" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What's different
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#running-both-simultaneously" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Running both simultaneously
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#manual-data-seeding-optional" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Manual data seeding (optional)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#cutover-future" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Cutover (future)
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#migrating-from-another-memory-system" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Migrating from Another Memory System
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1017,10 +1044,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#v1-schema-migrations-internal" class="md-nav__link">
+  <a href="#why-v2" class="md-nav__link">
     <span class="md-ellipsis">
       
-        v1 Schema Migrations (internal)
+        Why v2?
       
     </span>
   </a>
@@ -1028,71 +1055,98 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#v1-to-brain_v2-architecture-migration" class="md-nav__link">
+  <a href="#system-diagram" class="md-nav__link">
     <span class="md-ellipsis">
       
-        v1 to brain_v2 (architecture migration)
+        System Diagram
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="v1 to brain_v2 (architecture migration)">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#whats-different" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What's different
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#running-both-simultaneously" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Running both simultaneously
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#manual-data-seeding-optional" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Manual data seeding (optional)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#cutover-future" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Cutover (future)
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#migrating-from-another-memory-system" class="md-nav__link">
+  <a href="#four-atomic-memory-types" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Migrating from Another Memory System
+        Four Atomic Memory Types
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#write-gate-5-steps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Write Gate (5 steps)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#boot-payload" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Boot Payload
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#observability" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Observability
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#session-registry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Session Registry
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#skills-layer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Skills Layer
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#database" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Database
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v1-vs-v2-at-a-glance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v1 vs v2 at a Glance
       
     </span>
   </a>
@@ -1116,16 +1170,256 @@
 
 
 
-<h1 id="migration">Migration</h1>
-<h2 id="v1-schema-migrations-internal">v1 Schema Migrations (internal)</h2>
-<p>v1 has had several internal schema migrations (adding columns, indexes, audit triggers). These are applied automatically by <code>scripts/setup_db.py</code> or on first server boot:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>python<span class="w"> </span>scripts/setup_db.py
-</code></pre></div>
-<p>Safe to re-run. Existing memories are unaffected.</p>
+<h1 id="brain_v2-architecture">brain_v2 Architecture</h1>
+<p>brain_v2 is a ground-up redesign of Open Brain's memory storage, retrieval, and observability.
+It runs alongside v1 as a separate MCP server on its own database. v1 remains untouched.</p>
 <hr />
-<h2 id="v1-to-brain_v2-architecture-migration">v1 to brain_v2 (architecture migration)</h2>
-<p>brain_v2 is a separate system running alongside v1, not an in-place upgrade. There is no automated v1→v2 data migration — this is intentional per the <a href="../../architecture/v2-architecture/">bifurcation guardrail</a>.</p>
-<h3 id="whats-different">What's different</h3>
+<h2 id="why-v2">Why v2?</h2>
+<p>v1 stores every memory in a single <code>memories</code> table with a JSONB <code>metadata</code> column.
+This worked until:</p>
+<ul>
+<li><strong>Boot payloads bloated to 15K+ tokens</strong> — every pinned guardrail loaded in full at every session start.</li>
+<li><strong>Merge pathology</strong> — the smart-merge LLM concatenated related guardrails into walls of text. One memory reached 2,000 words across 6 date-stamped updates.</li>
+<li><strong>Type confusion</strong> — a behavioral rule and a project fact are fundamentally different objects with different lifecycles, but v1 treats them as the same row with a different <code>metadata.type</code> tag.</li>
+<li><strong>No write gate</strong> — any agent could store anything with no structural validation.</li>
+</ul>
+<p>v2 fixes these by separating types at the schema level, enforcing structure at write time,
+and delivering headline-only boot payloads with bodies fetched on demand.</p>
+<hr />
+<h2 id="system-diagram">System Diagram</h2>
+<pre class="mermaid"><code>graph TD
+    A[Agent prompt / conversation] --&gt; B{v2 Tool Call}
+    B --&gt;|write| C[Write Gate&lt;br/&gt;5-step validation]
+    C --&gt;|pass| D[Typed Table&lt;br/&gt;rules / facts / incidents / tasks]
+    C --&gt;|duplicate| E[DuplicateHit → supersede]
+    C --&gt;|reject| F[WriteGateError]
+    D --&gt; G[memory_index&lt;br/&gt;headline + embedding]
+    D --&gt; H[v2_audit&lt;br/&gt;every mutation logged]
+
+    B --&gt;|read| I[memory_index&lt;br/&gt;HNSW cosine search]
+    I --&gt; J[Headline-only results]
+    J --&gt;|on demand| K[recall_v2 → full body]
+
+    L[boot_session_v2] --&gt; M{Token Budget}
+    M --&gt; N[5 BLOCKERs&lt;br/&gt;5 PATTERNs&lt;br/&gt;Active TASKs&lt;br/&gt;2K token cap]
+    M --&gt; O[Handoff from prior session]
+    M --&gt; P[Other active sessions]
+    M --&gt; Q[Pending action items]
+
+    subgraph Infrastructure
+        R[(PostgreSQL 16&lt;br/&gt;open_brain_v2&lt;br/&gt;port 5433)]
+        S[Ollama&lt;br/&gt;nomic-embed-text]
+        T[tool_events&lt;br/&gt;persistent telemetry]
+        U[observability.py&lt;br/&gt;JSONL + ring buffer + metrics]
+    end</code></pre>
+<hr />
+<h2 id="four-atomic-memory-types">Four Atomic Memory Types</h2>
+<p>v2 enforces memory type at the schema level. Each type has its own table,
+its own retrieval policy, and its own lifecycle.</p>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Table</th>
+<th>Lifecycle</th>
+<th>Retrieval at Boot</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>RULE</strong></td>
+<td><code>rules</code></td>
+<td>Immutable body. Modify via <code>supersede_rule_v2</code> only. Never decays. Never deleted.</td>
+<td>BLOCKERs: top 5 headlines. PATTERNs: top 5 by task-relevance cosine.</td>
+</tr>
+<tr>
+<td><strong>FACT</strong></td>
+<td><code>facts</code></td>
+<td>Access-based Ebbinghaus decay (halflife 7 days default). Hard TTL optional. Reactivates on recall.</td>
+<td>Not loaded at boot. Available via <code>search_v2</code> + <code>recall_v2</code>.</td>
+</tr>
+<tr>
+<td><strong>INCIDENT</strong></td>
+<td><code>incidents</code></td>
+<td>Soft archive after 90 days no access. Searchable but not in boot.</td>
+<td>Not loaded at boot.</td>
+</tr>
+<tr>
+<td><strong>TASK</strong></td>
+<td><code>tasks</code></td>
+<td>Lifecycle states: <code>open</code> / <code>blocked</code> / <code>done</code> / <code>stale</code>. Cross-session obligations.</td>
+<td>Active tasks loaded (up to 20, priority-ordered).</td>
+</tr>
+</tbody>
+</table>
+<p>A shared <code>memory_index</code> table holds the headline + embedding projection for cross-type
+search without materializing bodies from four tables.</p>
+<hr />
+<h2 id="write-gate-5-steps">Write Gate (5 steps)</h2>
+<p>Every write passes through <code>write_gate.run_gate()</code> before landing in a typed table:</p>
+<ol>
+<li><strong>Type declared and valid</strong> — kind must be <code>rule</code>, <code>fact</code>, <code>incident</code>, or <code>task</code>.</li>
+<li><strong>Severity valid</strong> (rules only) — must be <code>BLOCKER</code> or <code>PATTERN</code>. <code>DEPRECATED</code> is set only by supersede.</li>
+<li><strong>Headline present, &lt;=15 words</strong> — forces atomic, scannable summaries.</li>
+<li><strong>Atomicity check</strong> — body must be &lt;=400 words. Bodies with multiple date-stamped GUARDRAIL markers are rejected (the v1 merge pathology).</li>
+<li><strong>Duplicate detection</strong> — cosine similarity &gt;0.75 against same-kind active entries returns a <code>DuplicateHit</code>. Caller must route to <code>supersede_rule_v2</code> instead of creating a parallel rule.</li>
+</ol>
+<p><strong>Merge is an invalid operation for RULE type.</strong> Rules are immutable. The only legal
+modification path is supersede — old rule goes DEPRECATED, new rule links to it,
+audit trail preserved.</p>
+<hr />
+<h2 id="boot-payload">Boot Payload</h2>
+<p><code>boot_session_v2</code> returns a <strong>headline-only</strong> payload with hard caps:</p>
+<table>
+<thead>
+<tr>
+<th>Section</th>
+<th>Cap</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>BLOCKER rules</td>
+<td>5 headlines</td>
+<td>Pinned + severity=BLOCKER, project-scoped</td>
+</tr>
+<tr>
+<td>PATTERN rules</td>
+<td>5 headlines</td>
+<td>Task-relevance ranked by cosine similarity</td>
+</tr>
+<tr>
+<td>Active tasks</td>
+<td>20 (configurable)</td>
+<td>Priority-ordered, <code>open</code> or <code>blocked</code> status</td>
+</tr>
+<tr>
+<td>Working context</td>
+<td>Regenerated</td>
+<td>Ephemeral — built from <code>task</code> arg, never stored</td>
+</tr>
+<tr>
+<td>Handoff</td>
+<td>2000 chars</td>
+<td>Auto-populated from prior session's handoff note</td>
+</tr>
+<tr>
+<td>Other sessions</td>
+<td>All active</td>
+<td>Sibling sessions in the same project</td>
+</tr>
+<tr>
+<td>Action items</td>
+<td>All pending</td>
+<td>Block writes until acknowledged</td>
+</tr>
+<tr>
+<td><strong>Total token cap</strong></td>
+<td><strong>2000</strong></td>
+<td>Truncation order: tasks, then patterns, then blockers</td>
+</tr>
+</tbody>
+</table>
+<p>Bodies are fetched on demand via <code>recall_v2(kind, memory_id)</code>.</p>
+<p>Skills with <code>always_on: false</code> are excluded from boot — they surface only on keyword
+match via <code>search_v2</code> or explicit <code>load_skill_v2</code>.</p>
+<hr />
+<h2 id="observability">Observability</h2>
+<p>v2 ships a full observability stack:</p>
+<table>
+<thead>
+<tr>
+<th>Component</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>observability.py</code></td>
+<td>JSONL rotating log (5MB x 5 files), in-memory ring buffer (500 entries), per-tool call counts / error counts / avg+p99 latency, Windows desktop toast alerts on errors</td>
+</tr>
+<tr>
+<td><code>tool_events</code> table</td>
+<td>Persistent telemetry for every MCP tool call (reads AND writes). <code>session_id</code> is NOT NULL — pre-boot events buffered to JSONL on disk, flushed on <code>boot_session_v2</code></td>
+</tr>
+<tr>
+<td><code>metrics_v2</code> tool</td>
+<td>Per-tool call counts, error rates, avg/p99 ms — queryable from any MCP client</td>
+</tr>
+<tr>
+<td><code>recent_errors_v2</code> tool</td>
+<td>Last N errors from ring buffer</td>
+</tr>
+<tr>
+<td><code>health_v2</code> tool</td>
+<td>DB connectivity, Ollama reachability (socket-level, respects 5s timeout), table row counts, server uptime, tool list</td>
+</tr>
+<tr>
+<td><code>v2_audit</code> table</td>
+<td>Every write mutation (INSERT, SUPERSEDE, UPDATE, FORGET, PRUNE) with snapshot</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="session-registry">Session Registry</h2>
+<p>Same liveness model as v1 v0.14.0 — process lifecycle is authoritative, no TTL.</p>
+<ul>
+<li><code>boot_session_v2</code> registers a row, returns sibling sessions + auto-loaded handoff</li>
+<li><code>update_active_task_v2</code> bumps heartbeat + updates task description</li>
+<li><code>end_session_v2</code> marks session ended, optionally writes a handoff note</li>
+<li>Supersede-on-reboot: same (source, cwd, pid) tuple ends the prior row</li>
+</ul>
+<hr />
+<h2 id="skills-layer">Skills Layer</h2>
+<p>Ported from v1 v0.12.0. Skills are rules with a <code>skill_trigger</code> JSONB column:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="p">{</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;ollama-shutdown-graceful&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span><span class="nt">&quot;keywords&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;ollama&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;shutdown&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;graceful&quot;</span><span class="p">],</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span><span class="nt">&quot;projects&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">  </span><span class="nt">&quot;always_on&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="p">}</span>
+</code></pre></div>
+<ul>
+<li><code>always_on: false</code> — excluded from boot, surfaces on keyword match in <code>search_v2</code> or via <code>load_skill_v2</code></li>
+<li><code>always_on: true</code> — loaded at boot like a legacy pinned guardrail</li>
+<li><code>skill_trigger: null</code> — backwards compatible, loads at boot if pinned</li>
+</ul>
+<hr />
+<h2 id="database">Database</h2>
+<table>
+<thead>
+<tr>
+<th>Container</th>
+<th>Port</th>
+<th>Database</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>open-brain-db</code></td>
+<td>5432</td>
+<td><code>openbrain</code></td>
+<td>v1 production</td>
+</tr>
+<tr>
+<td><code>open-brain-v2-db</code></td>
+<td>5433</td>
+<td><code>open_brain_v2</code></td>
+<td>v2 production</td>
+</tr>
+<tr>
+<td><code>open-brain-test-db</code></td>
+<td>5434</td>
+<td><code>openbrain_test</code></td>
+<td>Test isolation</td>
+</tr>
+</tbody>
+</table>
+<p>v2 uses a separate Postgres container. v1's data is never touched.</p>
+<hr />
+<h2 id="v1-vs-v2-at-a-glance">v1 vs v2 at a Glance</h2>
 <table>
 <thead>
 <tr>
@@ -1136,9 +1430,34 @@
 </thead>
 <tbody>
 <tr>
-<td>Database</td>
-<td><code>openbrain</code> on port 5432</td>
-<td><code>open_brain_v2</code> on port 5433</td>
+<td>Storage</td>
+<td>Single <code>memories</code> table</td>
+<td>4 typed tables + shared <code>memory_index</code></td>
+</tr>
+<tr>
+<td>Write path</td>
+<td>Auto-detect type via LLM, merge on overlap</td>
+<td>5-step write gate, no LLM in write path</td>
+</tr>
+<tr>
+<td>Rule modification</td>
+<td>Direct update (history lost)</td>
+<td>Immutable bodies, supersede-only</td>
+</tr>
+<tr>
+<td>Boot payload</td>
+<td>Full content of pinned memories (15K+ tokens)</td>
+<td>Headline-only, 2K token cap</td>
+</tr>
+<tr>
+<td>Decay</td>
+<td>None</td>
+<td>Ebbinghaus access-based for facts, 90-day archive for incidents</td>
+</tr>
+<tr>
+<td>Observability</td>
+<td><code>observability.py</code> + <code>telemetry.py</code></td>
+<td>Full stack + persistent <code>tool_events</code> table</td>
 </tr>
 <tr>
 <td>MCP namespace</td>
@@ -1146,61 +1465,22 @@
 <td><code>mcp__open-brain-v2__*</code></td>
 </tr>
 <tr>
-<td>Storage</td>
-<td>Single <code>memories</code> table</td>
-<td>4 typed tables + <code>memory_index</code></td>
+<td>Tool count</td>
+<td>26</td>
+<td>39</td>
 </tr>
 <tr>
-<td>Write path</td>
-<td>Auto-detect type via LLM</td>
-<td>5-step write gate, no LLM</td>
+<td>Tests</td>
+<td>~90</td>
+<td>203 (all real Postgres + real Ollama)</td>
 </tr>
 <tr>
-<td>Boot payload</td>
-<td>Full content (15K+ tokens)</td>
-<td>Headline-only (2K token cap)</td>
-</tr>
-<tr>
-<td>Rule modification</td>
-<td>Direct update</td>
-<td>Immutable bodies, supersede-only</td>
+<td>Version</td>
+<td>0.14.0</td>
+<td>2.0.0</td>
 </tr>
 </tbody>
 </table>
-<h3 id="running-both-simultaneously">Running both simultaneously</h3>
-<p>Both servers run side by side. All MCP clients connect to both:</p>
-<ol>
-<li>Start v1: <code>python server.py</code> (or via MCP client config)</li>
-<li>Start v2: <code>python brain_v2/server.py</code> (or via MCP client config)</li>
-<li>Start v2 database: <code>docker compose -f docker-compose.v2.yml up -d</code></li>
-</ol>
-<p>v1 remains authoritative until explicit cutover. v2 builds its own corpus from new agent interactions during the soak period.</p>
-<h3 id="manual-data-seeding-optional">Manual data seeding (optional)</h3>
-<p>If you want to seed v2 with important v1 memories:</p>
-<ol>
-<li>Query v1 for pinned guardrails: <code>search(query="guardrail", project="your-project")</code></li>
-<li>For each important memory, store in v2 as the appropriate type:</li>
-<li>Behavioral rules → <code>remember_rule_v2(headline, body, severity="BLOCKER")</code></li>
-<li>Project facts → <code>remember_fact_v2(headline, body)</code></li>
-<li>Past incidents → <code>remember_incident_v2(headline, body, root_cause, resolution)</code></li>
-</ol>
-<p>v2's write gate will enforce atomic headlines (&lt;=15 words) and body limits (&lt;=400 words), so v1 memories that were merged walls of text will need to be split into atomic units.</p>
-<h3 id="cutover-future">Cutover (future)</h3>
-<p>Cutover from v1 to v2 is explicitly out of scope during the soak period. The plan:</p>
-<ol>
-<li>Soak v2 for 2+ weeks with all agents actively using it</li>
-<li>Review <code>metrics_v2</code> for error patterns, <code>tool_events</code> for usage data</li>
-<li>Once v2 is proven stable under real multi-agent load, plan the cutover</li>
-<li>Cutover requires Dave's explicit sign-off</li>
-</ol>
-<hr />
-<h2 id="migrating-from-another-memory-system">Migrating from Another Memory System</h2>
-<p>If you're moving from a different AI memory tool (Claude's built-in memory, ChatGPT memory, etc.), run this prompt in your current AI:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>Export everything you know about me, including my projects, preferences, key people,
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>past decisions, ongoing work, and constraints, as a series of plain-text
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>notes, one per line. I&#39;m migrating to a new memory system.
-</code></pre></div>
-<p>Then feed each line to <code>remember</code> (v1) or <code>capture_context_v2</code> (v2) to seed your Open Brain.</p>
 
 
 

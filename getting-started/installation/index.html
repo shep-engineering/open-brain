@@ -436,10 +436,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-5-set-up-the-test-database-optional" class="md-nav__link">
+  <a href="#step-5-start-brain_v2-database-recommended" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 5: Set up the test database (optional)
+        Step 5: Start brain_v2 database (recommended)
       
     </span>
   </a>
@@ -447,10 +447,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-6-pull-the-embedding-model" class="md-nav__link">
+  <a href="#step-6-set-up-the-test-database-optional" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 6: Pull the embedding model
+        Step 6: Set up the test database (optional)
       
     </span>
   </a>
@@ -458,10 +458,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-7-verify" class="md-nav__link">
+  <a href="#step-7-pull-the-embedding-model" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 7: Verify
+        Step 7: Pull the embedding model
       
     </span>
   </a>
@@ -469,10 +469,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-8-launch-the-dashboard-windows" class="md-nav__link">
+  <a href="#step-8-verify" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 8: Launch the Dashboard (Windows)
+        Step 8: Verify
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#step-9-launch-the-dashboard-windows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 9: Launch the Dashboard (Windows)
       
     </span>
   </a>
@@ -619,7 +630,7 @@
   <span class="md-ellipsis">
     
   
-    Overview
+    v1 Overview
   
 
     
@@ -647,7 +658,7 @@
   <span class="md-ellipsis">
     
   
-    Memory Model
+    v1 Memory Model
   
 
     
@@ -675,7 +686,35 @@
   <span class="md-ellipsis">
     
   
-    Smart Batching
+    v1 Smart Batching
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/v2-architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v2 Architecture
   
 
     
@@ -951,6 +990,33 @@
   
 
     
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../disambiguation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Disambiguation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -1033,10 +1099,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-5-set-up-the-test-database-optional" class="md-nav__link">
+  <a href="#step-5-start-brain_v2-database-recommended" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 5: Set up the test database (optional)
+        Step 5: Start brain_v2 database (recommended)
       
     </span>
   </a>
@@ -1044,10 +1110,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-6-pull-the-embedding-model" class="md-nav__link">
+  <a href="#step-6-set-up-the-test-database-optional" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 6: Pull the embedding model
+        Step 6: Set up the test database (optional)
       
     </span>
   </a>
@@ -1055,10 +1121,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-7-verify" class="md-nav__link">
+  <a href="#step-7-pull-the-embedding-model" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 7: Verify
+        Step 7: Pull the embedding model
       
     </span>
   </a>
@@ -1066,10 +1132,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-8-launch-the-dashboard-windows" class="md-nav__link">
+  <a href="#step-8-verify" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 8: Launch the Dashboard (Windows)
+        Step 8: Verify
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#step-9-launch-the-dashboard-windows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 9: Launch the Dashboard (Windows)
       
     </span>
   </a>
@@ -1171,38 +1248,43 @@
 </code></pre></div>
 <p>This creates the <code>memories</code> table, pgvector extension, HNSW index, and all supporting indexes.</p>
 <hr />
-<h2 id="step-5-set-up-the-test-database-optional">Step 5: Set up the test database (optional)</h2>
+<h2 id="step-5-start-brain_v2-database-recommended">Step 5: Start brain_v2 database (recommended)</h2>
+<p>v2 runs on a separate Postgres container alongside v1:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>docker<span class="w"> </span>compose<span class="w"> </span>-f<span class="w"> </span>docker-compose.v2.yml<span class="w"> </span>up<span class="w"> </span>-d
+</code></pre></div>
+<p>This starts <code>open-brain-v2-db</code> on port <strong>5433</strong> with database <code>open_brain_v2</code>. The schema is applied automatically on first <code>boot_session_v2</code> call.</p>
+<h2 id="step-6-set-up-the-test-database-optional">Step 6: Set up the test database (optional)</h2>
 <p>Open Brain uses a separate Docker container for tests so they never touch your production data.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>docker<span class="w"> </span>compose<span class="w"> </span>-f<span class="w"> </span>docker-compose.test.yml<span class="w"> </span>up<span class="w"> </span>-d
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>docker<span class="w"> </span>compose<span class="w"> </span>-f<span class="w"> </span>docker-compose.test.yml<span class="w"> </span>up<span class="w"> </span>-d
 </code></pre></div>
 <p>This starts <code>open-brain-test-db</code> on port <strong>5434</strong> with database <code>openbrain_test</code>. No persistent volume — test data is wiped on container removal.</p>
 <p>Run tests:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>pytest<span class="w"> </span>tests/<span class="w"> </span>-v
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>pytest<span class="w"> </span>tests/<span class="w"> </span>-v
 </code></pre></div>
 <p>See the full <a href="../../guides/testing/">Testing guide</a> for details on safety layers, fake embeddings, and troubleshooting.</p>
 <hr />
-<h2 id="step-6-pull-the-embedding-model">Step 6: Pull the embedding model</h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>ollama<span class="w"> </span>pull<span class="w"> </span>nomic-embed-text
+<h2 id="step-7-pull-the-embedding-model">Step 7: Pull the embedding model</h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>ollama<span class="w"> </span>pull<span class="w"> </span>nomic-embed-text
 </code></pre></div>
 <p>Optional but recommended. Pull a metadata LLM for richer extraction:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>ollama<span class="w"> </span>pull<span class="w"> </span>qwen2.5:32b
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>ollama<span class="w"> </span>pull<span class="w"> </span>qwen2.5:32b
 </code></pre></div>
 <div class="admonition tip">
 <p class="admonition-title">Dual model setup</p>
 <p>If you use both <code>nomic-embed-text</code> and a metadata model, start Ollama with <code>OLLAMA_MAX_LOADED_MODELS=2</code> to avoid repeated model evictions.</p>
 </div>
 <hr />
-<h2 id="step-7-verify">Step 7: Verify</h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>python<span class="w"> </span>server.py
+<h2 id="step-8-verify">Step 8: Verify</h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>python<span class="w"> </span>server.py
 </code></pre></div>
 <p>The server should start without errors. Now <a href="../wiring-agents/">wire it into your AI tools</a>.</p>
 <hr />
-<h2 id="step-8-launch-the-dashboard-windows">Step 8: Launch the Dashboard (Windows)</h2>
+<h2 id="step-9-launch-the-dashboard-windows">Step 9: Launch the Dashboard (Windows)</h2>
 <p>Open Brain includes a dark-themed monitoring dashboard. It auto-detects whether services are running and starts them if needed.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>.venv<span class="se">\S</span>cripts<span class="se">\p</span>ythonw.exe<span class="w"> </span>dashboard.py
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>.venv<span class="se">\S</span>cripts<span class="se">\p</span>ythonw.exe<span class="w"> </span>dashboard.py
 </code></pre></div>
 <p>To create Desktop shortcuts (ON, OFF, SSE Proxy, Dashboard):</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="n">powershell</span> <span class="n">-ExecutionPolicy</span> <span class="n">Bypass</span> <span class="o">-File</span> <span class="n">scripts</span><span class="p">\</span><span class="n">windows</span><span class="p">\</span><span class="n">create-desktop-shortcuts</span><span class="p">.</span><span class="n">ps1</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="n">powershell</span> <span class="n">-ExecutionPolicy</span> <span class="n">Bypass</span> <span class="o">-File</span> <span class="n">scripts</span><span class="p">\</span><span class="n">windows</span><span class="p">\</span><span class="n">create-desktop-shortcuts</span><span class="p">.</span><span class="n">ps1</span>
 </code></pre></div>
 <p>See the full <a href="../../guides/dashboard/">Dashboard guide</a> for details on event-driven refresh, observability, and troubleshooting.</p>
 

@@ -452,6 +452,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#brain_v2-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        brain_v2 Configuration
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -564,7 +575,7 @@
   <span class="md-ellipsis">
     
   
-    Overview
+    v1 Overview
   
 
     
@@ -592,7 +603,7 @@
   <span class="md-ellipsis">
     
   
-    Memory Model
+    v1 Memory Model
   
 
     
@@ -620,7 +631,35 @@
   <span class="md-ellipsis">
     
   
-    Smart Batching
+    v1 Smart Batching
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/v2-architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v2 Architecture
   
 
     
@@ -896,6 +935,33 @@
   
 
     
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../disambiguation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Disambiguation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -960,6 +1026,17 @@
     <span class="md-ellipsis">
       
         Transport Modes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#brain_v2-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        brain_v2 Configuration
       
     </span>
   </a>
@@ -1155,6 +1232,124 @@
 <a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="c1"># Both simultaneously</span>
 <a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>python<span class="w"> </span>server.py<span class="w"> </span>--transport<span class="w"> </span>both
 </code></pre></div>
+<hr />
+<h2 id="brain_v2-configuration">brain_v2 Configuration</h2>
+<p>v2 has its own environment variables. All are optional — defaults target the v2 container on port 5433.</p>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>OPEN_BRAIN_V2_DATABASE_URL</code></td>
+<td><code>postgresql://postgres:password@localhost:5433/open_brain_v2</code></td>
+<td>v2 PostgreSQL connection string</td>
+</tr>
+<tr>
+<td><code>OLLAMA_BASE_URL</code></td>
+<td><code>http://127.0.0.1:11434</code></td>
+<td>Shared with v1</td>
+</tr>
+<tr>
+<td><code>OLLAMA_EMBEDDING_MODEL</code></td>
+<td><code>nomic-embed-text</code></td>
+<td>Embedding model (v2 does not use a metadata LLM)</td>
+</tr>
+<tr>
+<td><code>OPEN_BRAIN_V2_EMBED_TIMEOUT</code></td>
+<td><code>120</code></td>
+<td>Seconds for Ollama embedding calls (handles cold model loads)</td>
+</tr>
+<tr>
+<td><code>OPEN_BRAIN_V2_EMBEDDING_DIMS</code></td>
+<td><code>768</code></td>
+<td>Must match your embedding model</td>
+</tr>
+<tr>
+<td><code>OPEN_BRAIN_V2_BOOT_TOKEN_CAP</code></td>
+<td><code>2000</code></td>
+<td>Maximum tokens in boot payload</td>
+</tr>
+<tr>
+<td><code>OPEN_BRAIN_V2_BOOT_BLOCKER_CAP</code></td>
+<td><code>5</code></td>
+<td>Max BLOCKER rules in boot</td>
+</tr>
+<tr>
+<td><code>OPEN_BRAIN_V2_BOOT_PATTERN_CAP</code></td>
+<td><code>5</code></td>
+<td>Max PATTERN rules in boot</td>
+</tr>
+<tr>
+<td><code>OPEN_BRAIN_V2_BOOT_TASK_CAP</code></td>
+<td><code>20</code></td>
+<td>Max active tasks in boot</td>
+</tr>
+<tr>
+<td><code>OPEN_BRAIN_V2_BOOT_HANDOFF_CAP</code></td>
+<td><code>200</code></td>
+<td>Max tokens for handoff note</td>
+</tr>
+<tr>
+<td><code>OPEN_BRAIN_V2_DUPLICATE_COSINE</code></td>
+<td><code>0.75</code></td>
+<td>Cosine threshold for duplicate detection</td>
+</tr>
+<tr>
+<td><code>OPEN_BRAIN_V2_FACT_HALFLIFE_DAYS</code></td>
+<td><code>7.0</code></td>
+<td>Ebbinghaus decay halflife for facts</td>
+</tr>
+<tr>
+<td><code>OPEN_BRAIN_V2_FACT_DECAY_THRESHOLD</code></td>
+<td><code>0.1</code></td>
+<td>Score below which facts deactivate</td>
+</tr>
+<tr>
+<td><code>OPEN_BRAIN_V2_INCIDENT_ARCHIVE_DAYS</code></td>
+<td><code>90</code></td>
+<td>Days before incidents auto-archive</td>
+</tr>
+<tr>
+<td><code>OPEN_BRAIN_V2_PRUNE_MIN_DAYS</code></td>
+<td><code>30</code></td>
+<td>Hard floor — never prune anything newer</td>
+</tr>
+<tr>
+<td><code>OPEN_BRAIN_V2_PRUNE_MAX_DELETE</code></td>
+<td><code>50</code></td>
+<td>Max rows deleted per prune call</td>
+</tr>
+<tr>
+<td><code>OPEN_BRAIN_V2_SKILL_TRIGGER_MAX</code></td>
+<td><code>5</code></td>
+<td>Max skills surfaced per search query</td>
+</tr>
+<tr>
+<td><code>OPEN_BRAIN_V2_SLOW_CALL_MS</code></td>
+<td><code>10000</code></td>
+<td>Threshold for slow-call alerts (ms)</td>
+</tr>
+<tr>
+<td><code>OPEN_BRAIN_V2_HEADLINE_WORD_CAP</code></td>
+<td><code>15</code></td>
+<td>Max words in a headline</td>
+</tr>
+<tr>
+<td><code>OPEN_BRAIN_V2_BODY_WORD_CAP</code></td>
+<td><code>200</code></td>
+<td>Soft ceiling for body length (hard ceiling = 2x)</td>
+</tr>
+</tbody>
+</table>
+<div class="admonition note">
+<p class="admonition-title">No metadata LLM</p>
+<p>v2 intentionally does NOT use a metadata LLM in the write path. Type classification in <code>capture_context_v2</code> is keyword-based heuristic. This eliminates the Ollama model-thrashing cost documented in the <a href="../../architecture/v2-architecture/">infra cost addendum</a>.</p>
+</div>
 
 
 

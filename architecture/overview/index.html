@@ -29,7 +29,7 @@
     
     
       
-        <title>Overview - Open Brain</title>
+        <title>v1 Overview - Open Brain</title>
       
     
     
@@ -82,7 +82,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#architecture-overview" class="md-skip">
+        <a href="#architecture-overview-v1" class="md-skip">
           Skip to content
         </a>
       
@@ -118,7 +118,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Overview
+              v1 Overview
             
           </span>
         </div>
@@ -482,7 +482,7 @@
   <span class="md-ellipsis">
     
   
-    Overview
+    v1 Overview
   
 
     
@@ -500,7 +500,7 @@
   <span class="md-ellipsis">
     
   
-    Overview
+    v1 Overview
   
 
     
@@ -631,7 +631,7 @@
   <span class="md-ellipsis">
     
   
-    Memory Model
+    v1 Memory Model
   
 
     
@@ -659,7 +659,35 @@
   <span class="md-ellipsis">
     
   
-    Smart Batching
+    v1 Smart Batching
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../v2-architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v2 Architecture
   
 
     
@@ -935,6 +963,33 @@
   
 
     
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../disambiguation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Disambiguation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -1061,8 +1116,12 @@
 
 
 
-<h1 id="architecture-overview">Architecture Overview</h1>
-<p>Open Brain is a single Python MCP server (<code>server.py</code>) backed by PostgreSQL + pgvector. It exposes 19 tools over stdio or HTTP that any MCP-compatible AI client can call.</p>
+<h1 id="architecture-overview-v1">Architecture Overview (v1)</h1>
+<div class="admonition info">
+<p class="admonition-title">Looking for v2?</p>
+<p>This page documents v1's architecture. For the v2 ground-up redesign (typed memory tables, write gate, headline-only boot, observability), see <a href="../v2-architecture/">v2 Architecture</a>.</p>
+</div>
+<p>Open Brain v1 is a single Python MCP server (<code>server.py</code>) backed by PostgreSQL + pgvector. It exposes 26 tools over stdio or HTTP that any MCP-compatible AI client can call.</p>
 <hr />
 <h2 id="system-diagram">System Diagram</h2>
 <pre class="mermaid"><code>graph TD

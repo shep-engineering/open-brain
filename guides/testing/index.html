@@ -473,7 +473,7 @@
   <span class="md-ellipsis">
     
   
-    Overview
+    v1 Overview
   
 
     
@@ -501,7 +501,7 @@
   <span class="md-ellipsis">
     
   
-    Memory Model
+    v1 Memory Model
   
 
     
@@ -529,7 +529,35 @@
   <span class="md-ellipsis">
     
   
-    Smart Batching
+    v1 Smart Batching
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/v2-architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v2 Architecture
   
 
     
@@ -937,6 +965,45 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#brain_v2-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        brain_v2 Tests
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="brain_v2 Tests">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#key-differences-from-v1-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key differences from v1 tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#test-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Test structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#troubleshooting" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1045,6 +1112,33 @@
     
   
     Further Reading
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../disambiguation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Disambiguation
   
 
     
@@ -1235,6 +1329,45 @@
       
     </span>
   </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#brain_v2-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        brain_v2 Tests
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="brain_v2 Tests">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#key-differences-from-v1-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key differences from v1 tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#test-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Test structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -1445,14 +1578,76 @@ the harness should gate the deploy on green.</p>
 </code></pre></div>
 <p>Since there's no volume, all data is gone.</p>
 <hr />
+<h2 id="brain_v2-tests">brain_v2 Tests</h2>
+<p>v2 has its own test suite in <code>brain_v2/tests/</code> with 203 tests. These run against the <strong>v2 database</strong> (<code>open_brain_v2</code> on port 5433), not the test database on port 5434.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Start the v2 database</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>docker<span class="w"> </span>compose<span class="w"> </span>-f<span class="w"> </span>docker-compose.v2.yml<span class="w"> </span>up<span class="w"> </span>-d
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="c1"># Run v2 tests</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>pytest<span class="w"> </span>brain_v2/tests/<span class="w"> </span>-v<span class="w"> </span>--tb<span class="o">=</span>short
+</code></pre></div>
+<h3 id="key-differences-from-v1-tests">Key differences from v1 tests</h3>
+<table>
+<thead>
+<tr>
+<th>Aspect</th>
+<th>v1 Tests</th>
+<th>v2 Tests</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Database</td>
+<td><code>openbrain_test</code> on port 5434</td>
+<td><code>open_brain_v2</code> on port 5433</td>
+</tr>
+<tr>
+<td>Embeddings</td>
+<td>Fake (deterministic hash)</td>
+<td><strong>Real Ollama</strong> (requires <code>nomic-embed-text</code> running)</td>
+</tr>
+<tr>
+<td>Isolation</td>
+<td>Separate container, no persistent volume</td>
+<td>Same container, tables truncated per test</td>
+</tr>
+<tr>
+<td>Connection</td>
+<td>New connection per test</td>
+<td>Shared connection (reuse for performance)</td>
+</tr>
+<tr>
+<td>Runtime</td>
+<td>~30 seconds</td>
+<td>~3 minutes (real embeddings)</td>
+</tr>
+</tbody>
+</table>
+<p>v2 tests use real Postgres and real Ollama — no mocks. This is by design per guardrail #3347: "smoke tests are not feature tests."</p>
+<h3 id="test-structure">Test structure</h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>brain_v2/tests/
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>  conftest.py                  # Shared connection, table truncation per test
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>  test_action_items.py         # 16 tests: create, ack, blocking gate
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>  test_boot_payload.py         # 11 tests: caps, truncation, token budget
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>  test_capture_context.py      # 18 tests: decomposition, typed routing
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>  test_maintenance.py          # 23 tests: fact decay, incident archive
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>  test_operational.py          # 20 tests: forget, stats, list_recent
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>  test_parity.py               # 25 tests: annotate, rate, pin, scratch, checkpoint
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a>  test_parity_final.py         # 24 tests: forget_many, unsupersede, prune
+<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a>  test_recall_search_cache.py  # 10 tests: recall, search, temporal cache
+<a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a>  test_session_registry.py     # 27 tests: register, end, handoff, boot integration
+<a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a>  test_skills_layer_v2.py      # 11 tests: skill storage, boot filtering, keyword match
+<a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a>  test_write_gate.py           # 18 tests: type, severity, headline, atomicity, dedup
+</code></pre></div>
+<hr />
 <h2 id="troubleshooting">Troubleshooting</h2>
 <h3 id="tests-skip-with-test-database-not-running">Tests skip with "Test database not running"</h3>
 <p>Start the container:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>docker<span class="w"> </span>compose<span class="w"> </span>-f<span class="w"> </span>docker-compose.test.yml<span class="w"> </span>up<span class="w"> </span>-d
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>docker<span class="w"> </span>compose<span class="w"> </span>-f<span class="w"> </span>docker-compose.test.yml<span class="w"> </span>up<span class="w"> </span>-d
 </code></pre></div>
 <h3 id="port-5434-is-in-use">Port 5434 is in use</h3>
 <p>Check what's using it:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>docker<span class="w"> </span>ps<span class="w"> </span>--format<span class="w"> </span><span class="s2">&quot;table {{.Names}}\t{{.Ports}}&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span><span class="m">5434</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>docker<span class="w"> </span>ps<span class="w"> </span>--format<span class="w"> </span><span class="s2">&quot;table {{.Names}}\t{{.Ports}}&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span><span class="m">5434</span>
 </code></pre></div>
 <h3 id="tests-accidentally-hit-production">Tests accidentally hit production</h3>
 <p>This should be impossible with the three safety layers. If you see it, check that <code>conftest.py</code> is at the project root (not inside <code>tests/</code>). pytest must discover it before any test module imports <code>server</code>.</p>

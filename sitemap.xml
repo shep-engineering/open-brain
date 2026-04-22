@@ -2,58 +2,66 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://shep-engineering.github.io/open-brain/</loc>
-         <lastmod>2026-04-15</lastmod>
+         <lastmod>2026-04-22</lastmod>
+    </url>
+    <url>
+         <loc>https://shep-engineering.github.io/open-brain/disambiguation/</loc>
+         <lastmod>2026-04-22</lastmod>
     </url>
     <url>
          <loc>https://shep-engineering.github.io/open-brain/references/</loc>
-         <lastmod>2026-04-15</lastmod>
+         <lastmod>2026-04-22</lastmod>
     </url>
     <url>
          <loc>https://shep-engineering.github.io/open-brain/tools/</loc>
-         <lastmod>2026-04-15</lastmod>
+         <lastmod>2026-04-22</lastmod>
     </url>
     <url>
          <loc>https://shep-engineering.github.io/open-brain/architecture/memory-model/</loc>
-         <lastmod>2026-04-15</lastmod>
+         <lastmod>2026-04-22</lastmod>
     </url>
     <url>
          <loc>https://shep-engineering.github.io/open-brain/architecture/overview/</loc>
-         <lastmod>2026-04-15</lastmod>
+         <lastmod>2026-04-22</lastmod>
     </url>
     <url>
          <loc>https://shep-engineering.github.io/open-brain/architecture/smart-batching/</loc>
-         <lastmod>2026-04-15</lastmod>
+         <lastmod>2026-04-22</lastmod>
+    </url>
+    <url>
+         <loc>https://shep-engineering.github.io/open-brain/architecture/v2-architecture/</loc>
+         <lastmod>2026-04-22</lastmod>
     </url>
     <url>
          <loc>https://shep-engineering.github.io/open-brain/getting-started/configuration/</loc>
-         <lastmod>2026-04-15</lastmod>
+         <lastmod>2026-04-22</lastmod>
     </url>
     <url>
          <loc>https://shep-engineering.github.io/open-brain/getting-started/installation/</loc>
-         <lastmod>2026-04-15</lastmod>
+         <lastmod>2026-04-22</lastmod>
     </url>
     <url>
          <loc>https://shep-engineering.github.io/open-brain/getting-started/wiring-agents/</loc>
-         <lastmod>2026-04-15</lastmod>
+         <lastmod>2026-04-22</lastmod>
     </url>
     <url>
          <loc>https://shep-engineering.github.io/open-brain/guides/auto-capture/</loc>
-         <lastmod>2026-04-15</lastmod>
+         <lastmod>2026-04-22</lastmod>
     </url>
     <url>
          <loc>https://shep-engineering.github.io/open-brain/guides/chatgpt-desktop/</loc>
-         <lastmod>2026-04-15</lastmod>
+         <lastmod>2026-04-22</lastmod>
     </url>
     <url>
          <loc>https://shep-engineering.github.io/open-brain/guides/dashboard/</loc>
-         <lastmod>2026-04-15</lastmod>
+         <lastmod>2026-04-22</lastmod>
     </url>
     <url>
          <loc>https://shep-engineering.github.io/open-brain/guides/migration/</loc>
-         <lastmod>2026-04-15</lastmod>
+         <lastmod>2026-04-22</lastmod>
     </url>
     <url>
          <loc>https://shep-engineering.github.io/open-brain/guides/testing/</loc>
-         <lastmod>2026-04-15</lastmod>
+         <lastmod>2026-04-22</lastmod>
     </url>
 </urlset>

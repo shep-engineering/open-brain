@@ -15,7 +15,7 @@
         <link rel="canonical" href="https://shep-engineering.github.io/open-brain/tools/">
       
       
-        <link rel="prev" href="../architecture/smart-batching/">
+        <link rel="prev" href="../architecture/v2-architecture/">
       
       
         <link rel="next" href="../guides/dashboard/">
@@ -473,7 +473,7 @@
   <span class="md-ellipsis">
     
   
-    Overview
+    v1 Overview
   
 
     
@@ -501,7 +501,7 @@
   <span class="md-ellipsis">
     
   
-    Memory Model
+    v1 Memory Model
   
 
     
@@ -529,7 +529,35 @@
   <span class="md-ellipsis">
     
   
-    Smart Batching
+    v1 Smart Batching
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/v2-architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v2 Architecture
   
 
     
@@ -615,6 +643,17 @@
       Table of contents
     </label>
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#v1-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v1 Tools
+      
+    </span>
+  </a>
+  
+</li>
       
         <li class="md-nav__item">
   <a href="#core-tools" class="md-nav__link">
@@ -1131,6 +1170,617 @@
       
     </span>
   </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#-" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ---
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v2-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v2 Tools
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="v2 Tools">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#boot-session" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Boot + Session
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Boot + Session">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#boot_session_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        boot_session_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#end_session_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        end_session_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#update_active_task_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        update_active_task_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#list_active_sessions_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        list_active_sessions_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#write_handoff_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        write_handoff_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#write-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Write Tools
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Write Tools">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#remember_rule_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        remember_rule_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#remember_fact_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        remember_fact_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#remember_incident_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        remember_incident_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#remember_task_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        remember_task_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#capture_context_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        capture_context_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#supersede_rule_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        supersede_rule_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#update_task_status_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        update_task_status_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#read-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Read Tools
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Read Tools">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#recall_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        recall_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#search_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        search_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#list_recent_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        list_recent_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stats_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stats_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#curation-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Curation Tools
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Curation Tools">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#annotate_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        annotate_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rate_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rate_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pin_v2-unpin_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        pin_v2 / unpin_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cleanup-tools_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cleanup Tools
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Cleanup Tools">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#forget_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        forget_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#forget_many_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        forget_many_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#unsupersede_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        unsupersede_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#prune_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        prune_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#maintenance-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Maintenance Tools
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Maintenance Tools">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#run_maintenance_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        run_maintenance_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#run_maintenance_if_due_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        run_maintenance_if_due_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#decay_facts_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        decay_facts_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#archive_incidents_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        archive_incidents_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#action-items" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Action Items
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Action Items">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#acknowledge_action_item_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        acknowledge_action_item_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#create_action_item_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        create_action_item_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#skills" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Skills
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Skills">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#load_skill_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_skill_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#working-memory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Working Memory
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Working Memory">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#scratch_set_v2-scratch_get_v2-scratch_list_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        scratch_set_v2 / scratch_get_v2 / scratch_list_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#observability" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Observability
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Observability">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#health_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        health_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#metrics_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        metrics_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#recent_errors_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        recent_errors_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cognitive-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cognitive Architecture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Cognitive Architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#brain_checkpoint_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        brain_checkpoint_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#brain_startup_reminder_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        brain_startup_reminder_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
         
@@ -1375,6 +2025,33 @@
   
 
     
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../disambiguation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Disambiguation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -1400,6 +2077,17 @@
       Table of contents
     </label>
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#v1-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v1 Tools
+      
+    </span>
+  </a>
+  
+</li>
       
         <li class="md-nav__item">
   <a href="#core-tools" class="md-nav__link">
@@ -1924,6 +2612,617 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#-" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ---
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v2-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v2 Tools
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="v2 Tools">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#boot-session" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Boot + Session
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Boot + Session">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#boot_session_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        boot_session_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#end_session_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        end_session_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#update_active_task_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        update_active_task_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#list_active_sessions_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        list_active_sessions_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#write_handoff_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        write_handoff_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#write-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Write Tools
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Write Tools">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#remember_rule_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        remember_rule_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#remember_fact_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        remember_fact_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#remember_incident_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        remember_incident_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#remember_task_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        remember_task_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#capture_context_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        capture_context_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#supersede_rule_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        supersede_rule_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#update_task_status_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        update_task_status_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#read-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Read Tools
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Read Tools">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#recall_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        recall_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#search_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        search_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#list_recent_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        list_recent_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stats_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stats_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#curation-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Curation Tools
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Curation Tools">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#annotate_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        annotate_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rate_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rate_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pin_v2-unpin_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        pin_v2 / unpin_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cleanup-tools_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cleanup Tools
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Cleanup Tools">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#forget_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        forget_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#forget_many_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        forget_many_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#unsupersede_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        unsupersede_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#prune_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        prune_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#maintenance-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Maintenance Tools
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Maintenance Tools">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#run_maintenance_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        run_maintenance_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#run_maintenance_if_due_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        run_maintenance_if_due_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#decay_facts_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        decay_facts_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#archive_incidents_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        archive_incidents_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#action-items" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Action Items
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Action Items">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#acknowledge_action_item_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        acknowledge_action_item_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#create_action_item_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        create_action_item_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#skills" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Skills
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Skills">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#load_skill_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_skill_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#working-memory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Working Memory
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Working Memory">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#scratch_set_v2-scratch_get_v2-scratch_list_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        scratch_set_v2 / scratch_get_v2 / scratch_list_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#observability" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Observability
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Observability">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#health_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        health_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#metrics_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        metrics_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#recent_errors_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        recent_errors_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cognitive-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cognitive Architecture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Cognitive Architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#brain_checkpoint_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        brain_checkpoint_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#brain_startup_reminder_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        brain_startup_reminder_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1942,7 +3241,14 @@
 
 
 <h1 id="tools-reference">Tools Reference</h1>
-<p>Open Brain exposes 26 MCP tools: 23 user-facing tools and 3 cognitive architecture tools for agent compliance enforcement.</p>
+<p>Open Brain runs two MCP servers side by side:</p>
+<ul>
+<li><strong>v1</strong> (<code>mcp__open-brain__*</code>) — 26 tools. Single <code>memories</code> table.</li>
+<li><strong>v2</strong> (<code>mcp__open-brain-v2__*</code>) — 39 tools. Typed tables, write gate, headline-only boot. See <a href="../architecture/v2-architecture/">v2 Architecture</a>.</li>
+</ul>
+<hr />
+<h2 id="v1-tools">v1 Tools</h2>
+<p>The v1 tools below use the <code>mcp__open-brain__</code> namespace.</p>
 <hr />
 <h2 id="core-tools">Core Tools</h2>
 <h3 id="remember"><code>remember</code></h3>
@@ -2880,6 +4186,1079 @@
 <li>Generic API key patterns</li>
 </ul>
 <p><strong>Mode:</strong> Reject (default) -- blocks storage entirely and returns an error. The secrets filter runs before embedding, so sensitive content never reaches the embedding model.</p>
+<h2 id="-">---</h2>
+<h2 id="v2-tools">v2 Tools</h2>
+<p>All v2 tools use the <code>mcp__open-brain-v2__</code> namespace. v2 enforces typed memories — every write specifies a <code>kind</code> (<code>rule</code>, <code>fact</code>, <code>incident</code>, <code>task</code>). Bodies are immutable for rules (supersede-only). See <a href="../architecture/v2-architecture/">v2 Architecture</a> for the full design.</p>
+<hr />
+<h3 id="boot-session">Boot + Session</h3>
+<h4 id="boot_session_v2"><code>boot_session_v2</code></h4>
+<p>Initialize v2 for a new session. Returns headline-only payload (2K token cap).</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>project</code></td>
+<td>string</td>
+<td>No</td>
+<td>Project to load context for</td>
+</tr>
+<tr>
+<td><code>task</code></td>
+<td>string</td>
+<td>No</td>
+<td>What this session is about to work on</td>
+</tr>
+<tr>
+<td><code>source</code></td>
+<td>string</td>
+<td>No</td>
+<td>Agent name (<code>claude</code>, <code>windsurf</code>, <code>cursor</code>)</td>
+</tr>
+<tr>
+<td><code>handoff</code></td>
+<td>string</td>
+<td>No</td>
+<td>Explicit handoff text (auto-populated from prior session if empty)</td>
+</tr>
+<tr>
+<td><code>cwd</code></td>
+<td>string</td>
+<td>No</td>
+<td>Caller's working directory</td>
+</tr>
+<tr>
+<td><code>pid</code></td>
+<td>int</td>
+<td>No</td>
+<td>Caller's process ID (defaults to server's PID)</td>
+</tr>
+<tr>
+<td><code>host</code></td>
+<td>string</td>
+<td>No</td>
+<td>Caller's hostname</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> BLOCKERs (5 max), PATTERNs (5 max, task-relevance ranked), active tasks, working context, pending action items, other active sessions, handoff, token estimate.</p>
+<h4 id="end_session_v2"><code>end_session_v2</code></h4>
+<p>End a session, optionally writing a handoff note for the next session.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>handoff</code></td>
+<td>string</td>
+<td>No</td>
+<td>Handoff note (&lt;=2000 chars)</td>
+</tr>
+<tr>
+<td><code>session_id</code></td>
+<td>int</td>
+<td>No</td>
+<td>Defaults to this server's session</td>
+</tr>
+<tr>
+<td><code>source</code></td>
+<td>string</td>
+<td>No</td>
+<td>For audit</td>
+</tr>
+</tbody>
+</table>
+<h4 id="update_active_task_v2"><code>update_active_task_v2</code></h4>
+<p>Update task description + bump heartbeat.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>task</code></td>
+<td>string</td>
+<td>Yes</td>
+<td>New task description</td>
+</tr>
+<tr>
+<td><code>session_id</code></td>
+<td>int</td>
+<td>No</td>
+<td>Defaults to this server's session</td>
+</tr>
+</tbody>
+</table>
+<h4 id="list_active_sessions_v2"><code>list_active_sessions_v2</code></h4>
+<p>List live sessions, optionally filtered by project.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>project</code></td>
+<td>string</td>
+<td>No</td>
+<td>Filter by project</td>
+</tr>
+<tr>
+<td><code>exclude_self</code></td>
+<td>bool</td>
+<td>No</td>
+<td>Hide this session (default true)</td>
+</tr>
+</tbody>
+</table>
+<h4 id="write_handoff_v2"><code>write_handoff_v2</code></h4>
+<p>Write a handoff note without ending the session (mid-session checkpoint).</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>content</code></td>
+<td>string</td>
+<td>Yes</td>
+<td>Handoff text (&lt;=2000 chars)</td>
+</tr>
+<tr>
+<td><code>source</code></td>
+<td>string</td>
+<td>No</td>
+<td>For audit</td>
+</tr>
+<tr>
+<td><code>project</code></td>
+<td>string</td>
+<td>No</td>
+<td>Project scope</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="write-tools">Write Tools</h3>
+<p>All write tools are blocked if pending action items exist. Call <code>acknowledge_action_item_v2</code> first.</p>
+<h4 id="remember_rule_v2"><code>remember_rule_v2</code></h4>
+<p>Write a new RULE. Rejects duplicates (&gt;0.75 cosine) — caller must route to <code>supersede_rule_v2</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>headline</code></td>
+<td>string</td>
+<td>Yes</td>
+<td>&lt;=15 words</td>
+</tr>
+<tr>
+<td><code>body</code></td>
+<td>string</td>
+<td>Yes</td>
+<td>&lt;=400 words (hard ceiling)</td>
+</tr>
+<tr>
+<td><code>severity</code></td>
+<td>string</td>
+<td>No</td>
+<td><code>BLOCKER</code> or <code>PATTERN</code> (default <code>PATTERN</code>)</td>
+</tr>
+<tr>
+<td><code>project</code></td>
+<td>string</td>
+<td>No</td>
+<td>Project scope</td>
+</tr>
+<tr>
+<td><code>source</code></td>
+<td>string</td>
+<td>No</td>
+<td>Agent identifier</td>
+</tr>
+<tr>
+<td><code>skill_trigger</code></td>
+<td>dict</td>
+<td>No</td>
+<td>Tag as a skill: <code>{name, keywords, projects, always_on}</code></td>
+</tr>
+</tbody>
+</table>
+<h4 id="remember_fact_v2"><code>remember_fact_v2</code></h4>
+<p>Write a new FACT. Subject to Ebbinghaus decay.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>headline</code></td>
+<td>string</td>
+<td>Yes</td>
+<td>&lt;=15 words</td>
+</tr>
+<tr>
+<td><code>body</code></td>
+<td>string</td>
+<td>Yes</td>
+<td>&lt;=400 words</td>
+</tr>
+<tr>
+<td><code>project</code></td>
+<td>string</td>
+<td>No</td>
+<td>Project scope</td>
+</tr>
+<tr>
+<td><code>tags</code></td>
+<td>string[]</td>
+<td>No</td>
+<td>Searchable tags</td>
+</tr>
+<tr>
+<td><code>ttl</code></td>
+<td>string</td>
+<td>No</td>
+<td>ISO 8601 expiry timestamp (hard TTL)</td>
+</tr>
+<tr>
+<td><code>source</code></td>
+<td>string</td>
+<td>No</td>
+<td>Agent identifier</td>
+</tr>
+</tbody>
+</table>
+<h4 id="remember_incident_v2"><code>remember_incident_v2</code></h4>
+<p>Write a new INCIDENT (episodic record). Duplicate check skipped — same event can recur.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>headline</code></td>
+<td>string</td>
+<td>Yes</td>
+<td>&lt;=15 words</td>
+</tr>
+<tr>
+<td><code>body</code></td>
+<td>string</td>
+<td>Yes</td>
+<td>&lt;=400 words</td>
+</tr>
+<tr>
+<td><code>project</code></td>
+<td>string</td>
+<td>No</td>
+<td>Project scope</td>
+</tr>
+<tr>
+<td><code>root_cause</code></td>
+<td>string</td>
+<td>No</td>
+<td>What caused it</td>
+</tr>
+<tr>
+<td><code>resolution</code></td>
+<td>string</td>
+<td>No</td>
+<td>How it was fixed</td>
+</tr>
+<tr>
+<td><code>linked_rule_ids</code></td>
+<td>int[]</td>
+<td>No</td>
+<td>Rules related to this incident</td>
+</tr>
+<tr>
+<td><code>source</code></td>
+<td>string</td>
+<td>No</td>
+<td>Agent identifier</td>
+</tr>
+</tbody>
+</table>
+<h4 id="remember_task_v2"><code>remember_task_v2</code></h4>
+<p>Write a cross-session TASK obligation.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>content</code></td>
+<td>string</td>
+<td>Yes</td>
+<td>Task description (headline auto-generated from first line)</td>
+</tr>
+<tr>
+<td><code>project</code></td>
+<td>string</td>
+<td>No</td>
+<td>Project scope</td>
+</tr>
+<tr>
+<td><code>priority</code></td>
+<td>string</td>
+<td>No</td>
+<td><code>low</code>, <code>medium</code> (default), or <code>high</code></td>
+</tr>
+<tr>
+<td><code>due_condition</code></td>
+<td>string</td>
+<td>No</td>
+<td>When this task should be done</td>
+</tr>
+<tr>
+<td><code>source</code></td>
+<td>string</td>
+<td>No</td>
+<td>Agent identifier</td>
+</tr>
+</tbody>
+</table>
+<h4 id="capture_context_v2"><code>capture_context_v2</code></h4>
+<p>Auto-decompose raw text into typed atomic memories. Classification is keyword-based heuristic (no LLM).</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>context</code></td>
+<td>string</td>
+<td>Yes</td>
+<td>Raw text to capture</td>
+</tr>
+<tr>
+<td><code>source</code></td>
+<td>string</td>
+<td>No</td>
+<td>Agent identifier</td>
+</tr>
+<tr>
+<td><code>project</code></td>
+<td>string</td>
+<td>No</td>
+<td>Project scope</td>
+</tr>
+</tbody>
+</table>
+<h4 id="supersede_rule_v2"><code>supersede_rule_v2</code></h4>
+<p>Revise a rule. Old rule goes DEPRECATED, new rule links to it. This is the ONLY way to modify a rule.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>old_id</code></td>
+<td>int</td>
+<td>Yes</td>
+<td>Rule to supersede</td>
+</tr>
+<tr>
+<td><code>new_headline</code></td>
+<td>string</td>
+<td>Yes</td>
+<td>&lt;=15 words</td>
+</tr>
+<tr>
+<td><code>new_body</code></td>
+<td>string</td>
+<td>Yes</td>
+<td>&lt;=400 words</td>
+</tr>
+<tr>
+<td><code>reason</code></td>
+<td>string</td>
+<td>Yes</td>
+<td>Why the old rule is wrong</td>
+</tr>
+<tr>
+<td><code>source</code></td>
+<td>string</td>
+<td>No</td>
+<td>Agent identifier</td>
+</tr>
+<tr>
+<td><code>severity</code></td>
+<td>string</td>
+<td>No</td>
+<td>Override severity (defaults to old rule's severity)</td>
+</tr>
+</tbody>
+</table>
+<h4 id="update_task_status_v2"><code>update_task_status_v2</code></h4>
+<p>Transition a task's lifecycle state.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>task_id</code></td>
+<td>int</td>
+<td>Yes</td>
+<td>Task to update</td>
+</tr>
+<tr>
+<td><code>status</code></td>
+<td>string</td>
+<td>Yes</td>
+<td><code>open</code>, <code>blocked</code>, <code>done</code>, or <code>stale</code></td>
+</tr>
+<tr>
+<td><code>source</code></td>
+<td>string</td>
+<td>No</td>
+<td>Agent identifier</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="read-tools">Read Tools</h3>
+<h4 id="recall_v2"><code>recall_v2</code></h4>
+<p>Fetch full body of a memory by kind + ID. Forgotten memories still return (with a banner).</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>kind</code></td>
+<td>string</td>
+<td>Yes</td>
+<td><code>rule</code>, <code>fact</code>, <code>incident</code>, or <code>task</code></td>
+</tr>
+<tr>
+<td><code>memory_id</code></td>
+<td>int</td>
+<td>Yes</td>
+<td>ID within that kind</td>
+</tr>
+</tbody>
+</table>
+<h4 id="search_v2"><code>search_v2</code></h4>
+<p>Semantic search over headlines. Bodies NOT returned — call <code>recall_v2</code> for full content.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>query</code></td>
+<td>string</td>
+<td>Yes</td>
+<td>Natural language query</td>
+</tr>
+<tr>
+<td><code>kind</code></td>
+<td>string</td>
+<td>No</td>
+<td>Filter by memory kind</td>
+</tr>
+<tr>
+<td><code>project</code></td>
+<td>string</td>
+<td>No</td>
+<td>Filter by project</td>
+</tr>
+<tr>
+<td><code>limit</code></td>
+<td>int</td>
+<td>No</td>
+<td>Max results (default 10)</td>
+</tr>
+</tbody>
+</table>
+<p>Skill keyword matches are merged into results with <code>via_skill_trigger</code> annotation.</p>
+<h4 id="list_recent_v2"><code>list_recent_v2</code></h4>
+<p>Browse recent memories (headline-only), newest first.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>limit</code></td>
+<td>int</td>
+<td>No</td>
+<td>Max rows (default 20, hard cap 200)</td>
+</tr>
+<tr>
+<td><code>days</code></td>
+<td>int</td>
+<td>No</td>
+<td>Only last N days (0 = no limit)</td>
+</tr>
+<tr>
+<td><code>kind</code></td>
+<td>string</td>
+<td>No</td>
+<td>Filter by kind</td>
+</tr>
+<tr>
+<td><code>project</code></td>
+<td>string</td>
+<td>No</td>
+<td>Filter by project</td>
+</tr>
+<tr>
+<td><code>include_forgotten</code></td>
+<td>bool</td>
+<td>No</td>
+<td>Include forgotten rows (default false)</td>
+</tr>
+</tbody>
+</table>
+<h4 id="stats_v2"><code>stats_v2</code></h4>
+<p>Corpus statistics: per-kind totals, severity breakdown, task status, pending action items, active sessions.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>project</code></td>
+<td>string</td>
+<td>No</td>
+<td>Scope to project (empty = global)</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="curation-tools">Curation Tools</h3>
+<h4 id="annotate_v2"><code>annotate_v2</code></h4>
+<p>Attach or clear a persistent note on a memory.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>kind</code></td>
+<td>string</td>
+<td>Yes</td>
+<td><code>rule</code>, <code>fact</code>, <code>incident</code>, or <code>task</code></td>
+</tr>
+<tr>
+<td><code>memory_id</code></td>
+<td>int</td>
+<td>Yes</td>
+<td>ID within that kind</td>
+</tr>
+<tr>
+<td><code>note</code></td>
+<td>string</td>
+<td>No</td>
+<td>Text to set (omit to read current)</td>
+</tr>
+<tr>
+<td><code>clear</code></td>
+<td>bool</td>
+<td>No</td>
+<td>True to remove annotation</td>
+</tr>
+</tbody>
+</table>
+<h4 id="rate_v2"><code>rate_v2</code></h4>
+<p>Upvote or downvote a memory.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>kind</code></td>
+<td>string</td>
+<td>Yes</td>
+<td>Memory kind</td>
+</tr>
+<tr>
+<td><code>memory_id</code></td>
+<td>int</td>
+<td>Yes</td>
+<td>ID within that kind</td>
+</tr>
+<tr>
+<td><code>direction</code></td>
+<td>string</td>
+<td>Yes</td>
+<td><code>up</code> or <code>down</code></td>
+</tr>
+</tbody>
+</table>
+<h4 id="pin_v2-unpin_v2"><code>pin_v2</code> / <code>unpin_v2</code></h4>
+<p>Pin/unpin a memory. Only project-scoped memories can be pinned.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>kind</code></td>
+<td>string</td>
+<td>Yes</td>
+<td>Memory kind</td>
+</tr>
+<tr>
+<td><code>memory_id</code></td>
+<td>int</td>
+<td>Yes</td>
+<td>ID within that kind</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="cleanup-tools_1">Cleanup Tools</h3>
+<h4 id="forget_v2"><code>forget_v2</code></h4>
+<p>Soft-delete. Deactivates the memory_index row. Body preserved for audit.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>kind</code></td>
+<td>string</td>
+<td>Yes</td>
+<td>Memory kind</td>
+</tr>
+<tr>
+<td><code>memory_id</code></td>
+<td>int</td>
+<td>Yes</td>
+<td>ID within that kind</td>
+</tr>
+<tr>
+<td><code>reason</code></td>
+<td>string</td>
+<td>No</td>
+<td>Why it's being forgotten</td>
+</tr>
+<tr>
+<td><code>source</code></td>
+<td>string</td>
+<td>No</td>
+<td>Agent identifier</td>
+</tr>
+</tbody>
+</table>
+<h4 id="forget_many_v2"><code>forget_many_v2</code></h4>
+<p>Batch soft-delete. Partial success allowed.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>kinds</code></td>
+<td>string[]</td>
+<td>Yes</td>
+<td>Parallel list of kinds</td>
+</tr>
+<tr>
+<td><code>memory_ids</code></td>
+<td>int[]</td>
+<td>Yes</td>
+<td>Parallel list of IDs</td>
+</tr>
+<tr>
+<td><code>reason</code></td>
+<td>string</td>
+<td>No</td>
+<td>Applied to all</td>
+</tr>
+<tr>
+<td><code>source</code></td>
+<td>string</td>
+<td>No</td>
+<td>Agent identifier</td>
+</tr>
+</tbody>
+</table>
+<h4 id="unsupersede_v2"><code>unsupersede_v2</code></h4>
+<p>Reverse a rule supersession. Both rules end up active.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>old_id</code></td>
+<td>int</td>
+<td>Yes</td>
+<td>Rule whose supersession to reverse</td>
+</tr>
+<tr>
+<td><code>source</code></td>
+<td>string</td>
+<td>Yes</td>
+<td>Agent identifier</td>
+</tr>
+</tbody>
+</table>
+<h4 id="prune_v2"><code>prune_v2</code></h4>
+<p>Hard-delete stale memories with safeguards. Rules are never pruned.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>days</code></td>
+<td>int</td>
+<td>No</td>
+<td>Age threshold (minimum 30, default 90)</td>
+</tr>
+<tr>
+<td><code>min_access</code></td>
+<td>int</td>
+<td>No</td>
+<td>Facts with access_count &gt; this are kept</td>
+</tr>
+<tr>
+<td><code>dry_run</code></td>
+<td>bool</td>
+<td>No</td>
+<td>Preview only (default true)</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="maintenance-tools">Maintenance Tools</h3>
+<h4 id="run_maintenance_v2"><code>run_maintenance_v2</code></h4>
+<p>Run all maintenance jobs: fact decay + incident archive.</p>
+<h4 id="run_maintenance_if_due_v2"><code>run_maintenance_if_due_v2</code></h4>
+<p>Run maintenance only if the last run was more than <code>hours</code> ago. Safe to fire on every boot.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>hours</code></td>
+<td>float</td>
+<td>No</td>
+<td>Rate-limit window (default 24)</td>
+</tr>
+</tbody>
+</table>
+<h4 id="decay_facts_v2"><code>decay_facts_v2</code></h4>
+<p>Run only the Ebbinghaus fact decay job.</p>
+<h4 id="archive_incidents_v2"><code>archive_incidents_v2</code></h4>
+<p>Run only the incident archive job (90-day default).</p>
+<hr />
+<h3 id="action-items">Action Items</h3>
+<h4 id="acknowledge_action_item_v2"><code>acknowledge_action_item_v2</code></h4>
+<p>Acknowledge a pending action item. Writes are blocked until all are acknowledged.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>item_id</code></td>
+<td>int</td>
+<td>Yes</td>
+<td>Action item ID</td>
+</tr>
+<tr>
+<td><code>decision</code></td>
+<td>string</td>
+<td>Yes</td>
+<td><code>will_execute</code>, <code>already_done</code>, or <code>not_relevant</code></td>
+</tr>
+<tr>
+<td><code>source</code></td>
+<td>string</td>
+<td>No</td>
+<td>Agent identifier</td>
+</tr>
+<tr>
+<td><code>reason</code></td>
+<td>string</td>
+<td>Conditional</td>
+<td>Required for <code>already_done</code> and <code>not_relevant</code></td>
+</tr>
+</tbody>
+</table>
+<h4 id="create_action_item_v2"><code>create_action_item_v2</code></h4>
+<p>Manually create an action item linked to a memory.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>source_kind</code></td>
+<td>string</td>
+<td>Yes</td>
+<td>Kind of the source memory</td>
+</tr>
+<tr>
+<td><code>source_id</code></td>
+<td>int</td>
+<td>Yes</td>
+<td>ID of the source memory</td>
+</tr>
+<tr>
+<td><code>text</code></td>
+<td>string</td>
+<td>Yes</td>
+<td>Action item text</td>
+</tr>
+<tr>
+<td><code>project</code></td>
+<td>string</td>
+<td>No</td>
+<td>Project scope</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="skills">Skills</h3>
+<h4 id="load_skill_v2"><code>load_skill_v2</code></h4>
+<p>Load a specific skill by its trigger name.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name</code></td>
+<td>string</td>
+<td>Yes</td>
+<td>Skill trigger name</td>
+</tr>
+<tr>
+<td><code>source</code></td>
+<td>string</td>
+<td>No</td>
+<td>Agent identifier</td>
+</tr>
+<tr>
+<td><code>project</code></td>
+<td>string</td>
+<td>No</td>
+<td>Project scope (required for project-scoped skills)</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="working-memory">Working Memory</h3>
+<h4 id="scratch_set_v2-scratch_get_v2-scratch_list_v2"><code>scratch_set_v2</code> / <code>scratch_get_v2</code> / <code>scratch_list_v2</code></h4>
+<p>Ephemeral key-value store. Cleared on server restart.</p>
+<hr />
+<h3 id="observability">Observability</h3>
+<h4 id="health_v2"><code>health_v2</code></h4>
+<p>DB connectivity, Ollama reachability (socket-level, 5s timeout), table row counts, server uptime, tool list.</p>
+<h4 id="metrics_v2"><code>metrics_v2</code></h4>
+<p>Per-tool call counts, error rates, avg/p99 latency for the current server process lifetime.</p>
+<h4 id="recent_errors_v2"><code>recent_errors_v2</code></h4>
+<p>Last N errors from the in-memory ring buffer.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>n</code></td>
+<td>int</td>
+<td>No</td>
+<td>Number of errors to return (default 20)</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="cognitive-architecture">Cognitive Architecture</h3>
+<h4 id="brain_checkpoint_v2"><code>brain_checkpoint_v2</code></h4>
+<p>Check the brain before a risky action. Surfaces pinned BLOCKER rules + task-relevant PATTERN rules.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>action</code></td>
+<td>string</td>
+<td>Yes</td>
+<td>What you're about to do</td>
+</tr>
+<tr>
+<td><code>source</code></td>
+<td>string</td>
+<td>Yes</td>
+<td>Agent identifier</td>
+</tr>
+<tr>
+<td><code>context</code></td>
+<td>string</td>
+<td>No</td>
+<td>Additional context</td>
+</tr>
+<tr>
+<td><code>project</code></td>
+<td>string</td>
+<td>No</td>
+<td>Project scope</td>
+</tr>
+</tbody>
+</table>
+<p>5-minute cooldown per action per source.</p>
+<h4 id="brain_startup_reminder_v2"><code>brain_startup_reminder_v2</code></h4>
+<p>Returns the v2 mandatory boot-first system message. Display at session start.</p>
 
 
 

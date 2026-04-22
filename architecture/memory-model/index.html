@@ -29,7 +29,7 @@
     
     
       
-        <title>Memory Model - Open Brain</title>
+        <title>v1 Memory Model - Open Brain</title>
       
     
     
@@ -82,7 +82,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#memory-model" class="md-skip">
+        <a href="#memory-model-v1" class="md-skip">
           Skip to content
         </a>
       
@@ -118,7 +118,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Memory Model
+              v1 Memory Model
             
           </span>
         </div>
@@ -473,7 +473,7 @@
   <span class="md-ellipsis">
     
   
-    Overview
+    v1 Overview
   
 
     
@@ -510,7 +510,7 @@
   <span class="md-ellipsis">
     
   
-    Memory Model
+    v1 Memory Model
   
 
     
@@ -528,7 +528,7 @@
   <span class="md-ellipsis">
     
   
-    Memory Model
+    v1 Memory Model
   
 
     
@@ -714,7 +714,35 @@
   <span class="md-ellipsis">
     
   
-    Smart Batching
+    v1 Smart Batching
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../v2-architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v2 Architecture
   
 
     
@@ -990,6 +1018,33 @@
   
 
     
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../disambiguation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Disambiguation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -1171,8 +1226,12 @@
 
 
 
-<h1 id="memory-model">Memory Model</h1>
-<p>Every memory in Open Brain is a row in PostgreSQL with a dense vector embedding, structured metadata, and quality signals.</p>
+<h1 id="memory-model-v1">Memory Model (v1)</h1>
+<div class="admonition info">
+<p class="admonition-title">v2 Memory Model</p>
+<p>v2 replaces the single <code>memories</code> table with four typed tables (<code>rules</code>, <code>facts</code>, <code>incidents</code>, <code>tasks</code>) and a shared <code>memory_index</code> for cross-type search. See <a href="../v2-architecture/#four-atomic-memory-types">v2 Architecture</a>.</p>
+</div>
+<p>Every memory in Open Brain v1 is a row in PostgreSQL with a dense vector embedding, structured metadata, and quality signals.</p>
 <hr />
 <h2 id="schema">Schema</h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">CREATE</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="n">memories</span><span class="w"> </span><span class="p">(</span>

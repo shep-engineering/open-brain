@@ -573,7 +573,7 @@
   <span class="md-ellipsis">
     
   
-    Overview
+    v1 Overview
   
 
     
@@ -601,7 +601,7 @@
   <span class="md-ellipsis">
     
   
-    Memory Model
+    v1 Memory Model
   
 
     
@@ -629,7 +629,35 @@
   <span class="md-ellipsis">
     
   
-    Smart Batching
+    v1 Smart Batching
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="architecture/v2-architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v2 Architecture
   
 
     
@@ -905,6 +933,33 @@
   
 
     
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="disambiguation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Disambiguation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -1009,9 +1064,17 @@
 </video>
 
 <blockquote>
-<p><strong>Agent-readable second brain.</strong> One PostgreSQL database, one MCP server, every AI you use.</p>
+<p><strong>Agent-readable second brain.</strong> PostgreSQL + pgvector, two MCP servers (v1 + v2), every AI you use.</p>
 </blockquote>
 <p>Open Brain stores your thoughts as vector embeddings so any AI tool (Claude Code, Cursor, Windsurf, ChatGPT Desktop, VS Code Copilot) can search your memory <strong>by meaning</strong>, not just keywords. Local-first. You own the data. ~$0/month to run.</p>
+<div class="admonition warning">
+<p class="admonition-title">Which 'Open Brain'?</p>
+<p>Several unrelated projects share the name "Open Brain" or a variant — including Nate B. Jones' <a href="https://github.com/NateBJones-Projects/OB1">OB1</a>, <a href="https://github.com/impara/openBrain"><code>impara/openBrain</code></a>, <a href="https://github.com/Mihai-Codes/OpenBrain"><code>Mihai-Codes/OpenBrain</code></a>, <a href="https://github.com/rolders/open-brain"><code>rolders/open-brain</code></a>, the clinical platform <a href="https://openbrainai.com">openbrainai.com</a>, and the <a href="https://www.openbraininstitute.org/">Open Brain Institute</a> neuroscience research org. We're none of those. This is David Sheppard's personal AI memory server (<code>shep-engineering/open-brain</code>). See <a href="disambiguation/">Disambiguation</a> for the full list and how to tell us apart.</p>
+</div>
+<div class="admonition info">
+<p class="admonition-title">brain_v2 (2.0.0) is live</p>
+<p>v2 is a ground-up architecture redesign running alongside v1. Four typed memory tables, headline-only boot payloads, immutable rules with supersede-only modification, full observability stack. See <a href="architecture/v2-architecture/">v2 Architecture</a> for details.</p>
+</div>
 <hr />
 <h2 id="the-problem">The Problem</h2>
 <p>Every AI coding tool has amnesia. Close the chat, lose the context. Switch from Cursor to Claude Code? Start from scratch. That decision you made last Tuesday? Gone.</p>
@@ -1032,7 +1095,7 @@
 <a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>    (+ annotations, ratings, access tracking)
 <a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>              |
 <a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>              v
-<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>    MCP Server (stdio / HTTP)  &lt;--  server.py  (21 tools)
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>    MCP Server (stdio / HTTP)  &lt;--  server.py  (v1: 26 tools, v2: 39 tools)
 <a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>              |
 <a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>    +---------+-----------+
 <a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>    v         v           v
@@ -1121,8 +1184,9 @@
 <li><a href="getting-started/installation/">Installation</a>: Get up and running in ~15 minutes</li>
 <li><a href="getting-started/wiring-agents/">Wiring Agents</a>: Connect your AI tools to the brain</li>
 <li><a href="guides/dashboard/">Dashboard</a>: Monitor your brain in real time</li>
-<li><a href="tools/">Tools Reference</a>: All 21 MCP tools explained</li>
-<li><a href="architecture/overview/">Architecture</a>: How it all fits together</li>
+<li><a href="tools/">Tools Reference</a>: All MCP tools explained (v1 + v2)</li>
+<li><a href="architecture/overview/">Architecture</a>: v1 architecture</li>
+<li><a href="architecture/v2-architecture/">v2 Architecture</a>: The ground-up redesign</li>
 </ul>
 
 

@@ -473,7 +473,7 @@
   <span class="md-ellipsis">
     
   
-    Overview
+    v1 Overview
   
 
     
@@ -501,7 +501,7 @@
   <span class="md-ellipsis">
     
   
-    Memory Model
+    v1 Memory Model
   
 
     
@@ -529,7 +529,35 @@
   <span class="md-ellipsis">
     
   
-    Smart Batching
+    v1 Smart Batching
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/v2-architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v2 Architecture
   
 
     
@@ -830,6 +858,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#v2-differences" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v2 Differences
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -945,6 +984,33 @@
     
   
     Further Reading
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../disambiguation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Disambiguation
   
 
     
@@ -1088,6 +1154,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#v2-differences" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v2 Differences
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1169,6 +1246,16 @@
 <li><strong>Decision:</strong> Use integration tests for auth, not mocks (type: <code>decision</code>)</li>
 </ol>
 <p>Each gets its own embedding, metadata, and dedup check.</p>
+<hr />
+<h2 id="v2-differences">v2 Differences</h2>
+<p>In brain_v2, <code>capture_context_v2</code> works similarly but with key differences:</p>
+<ul>
+<li><strong>No LLM in the write path</strong> — classification uses keyword-based heuristics (regex patterns for rule/incident/task keywords), not a metadata LLM. This eliminates model-swapping cost entirely.</li>
+<li><strong>Typed output</strong> — each chunk is classified as <code>rule</code>, <code>fact</code>, <code>incident</code>, or <code>task</code> and routed to the appropriate typed table through the <a href="../../architecture/v2-architecture/#write-gate-5-steps">write gate</a>.</li>
+<li><strong>Atomicity enforcement</strong> — the write gate rejects bodies &gt;400 words and bodies with multiple stacked GUARDRAIL markers (the v1 merge pathology).</li>
+<li><strong>Headline generation</strong> — each chunk gets an auto-generated headline (first sentence, &lt;=15 words) that appears in boot payloads and search results without materializing the full body.</li>
+</ul>
+<p>The philosophy is the same: agents capture silently, recall automatically. The mechanics are stricter.</p>
 
 
 

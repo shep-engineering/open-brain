@@ -18,6 +18,8 @@
         <link rel="prev" href="../guides/migration/">
       
       
+        <link rel="next" href="../disambiguation/">
+      
       
         
       
@@ -471,7 +473,7 @@
   <span class="md-ellipsis">
     
   
-    Overview
+    v1 Overview
   
 
     
@@ -499,7 +501,7 @@
   <span class="md-ellipsis">
     
   
-    Memory Model
+    v1 Memory Model
   
 
     
@@ -527,7 +529,35 @@
   <span class="md-ellipsis">
     
   
-    Smart Batching
+    v1 Smart Batching
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/v2-architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v2 Architecture
   
 
     
@@ -875,10 +905,48 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#brain_v2-design-sources" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        brain_v2 design sources
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
       
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../disambiguation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Disambiguation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -942,6 +1010,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#brain_v2-design-sources" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        brain_v2 design sources
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -974,6 +1053,14 @@ space Open Brain operates in.</p>
 <h2 id="protocol">Protocol</h2>
 <ul>
 <li><strong><a href="https://modelcontextprotocol.io">Model Context Protocol</a></strong> — The open standard every Open Brain tool speaks. Any MCP-compatible client (Claude Code, Cursor, Windsurf, ChatGPT Desktop) can connect.</li>
+</ul>
+<h2 id="brain_v2-design-sources">brain_v2 design sources</h2>
+<p>The v2 redesign was informed by parallel synthesis documents from three AI agents, each independently analyzing v1's failure modes and proposing architectural fixes:</p>
+<ul>
+<li>Windsurf memory-architecture synthesis <em>(internal design note)</em> — selected as best-of-breed by Dave. Key contributions: headline-only boot with token cap, typed stores, ephemeral working context, temporal+spatial locality retrieval.</li>
+<li>Claude memory-architecture synthesis <em>(internal design note)</em> — complementary analysis. Key contributions: write gate atomicity checks, immutable rule bodies.</li>
+<li>GPT memory-architecture synthesis <em>(internal design note)</em> — complementary analysis. Key contributions: predictive context positioning, composite scoring.</li>
+<li>Infra-cost addendum <em>(internal design note)</em> — falsifiable Ollama runtime cost check. Proved v2's write path does not trigger metadata LLM eviction.</li>
 </ul>
 
 
