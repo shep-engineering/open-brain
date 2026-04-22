@@ -4,17 +4,21 @@
 
 ---
 
-## ⚠️ Not Affiliated with Open Brain AI
+## ⚠️ Which "Open Brain"?
 
-**This project is NOT related to [openbrainai.com](https://openbrainai.com)** — a clinical language assessment platform for healthcare.
+**"Open Brain" is a surprisingly common project name.** This repo is **David Sheppard's personal AI memory server** (`shep-engineering/open-brain`). Multiple other projects share the name or a variant, including:
 
-We are an **independent, open-source project** for personal AI memory management. Any similarity in naming is purely coincidental:
+- [`NateBJones-Projects/OB1`](https://github.com/NateBJones-Projects/OB1) (Nate B. Jones' "Open Brain" — cloud-hosted personal memory)
+- [`impara/openBrain`](https://github.com/impara/openBrain), [`Mihai-Codes/OpenBrain`](https://github.com/Mihai-Codes/OpenBrain), [`rolders/open-brain`](https://github.com/rolders/open-brain) (all AI-memory projects with similar tag lines)
+- [openbrainai.com](https://openbrainai.com) (clinical language-assessment platform for healthcare)
+- [Open Brain Institute](https://www.openbraininstitute.org/) (neuroscience simulation research)
 
-- **We do**: Store your AI conversation memories locally using vector embeddings
-- **We do NOT**: Analyze speech, diagnose language disorders, or provide clinical tools
-- **Audience**: AI users who want a personal "second brain" — not clinicians or patients
+**We are not affiliated with any of them.** Any naming overlap is coincidental convergent-naming.
 
-See [DISAMBIGUATION.md](DISAMBIGUATION.md) for full details.
+- **We do**: Store AI conversation memories locally using vector embeddings; expose them via MCP to Claude, Cursor, Windsurf, ChatGPT Desktop, and VS Code Copilot.
+- **We do NOT**: Analyze speech, diagnose language disorders, provide clinical tools, simulate biological brains, or provide hosted/SaaS infrastructure.
+
+See [DISAMBIGUATION.md](DISAMBIGUATION.md) for the full rundown and how to tell us apart from each similarly-named project.
 
 Stores your thoughts as vector embeddings so any AI tool (Claude, ChatGPT, Cursor, Windsurf, VS Code, etc.) can search your memory **by meaning**, not just keywords. Local-first. You own the data. ~$0.10-$0.30/month to run.
 

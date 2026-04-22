@@ -45,6 +45,7 @@ nav:
     - Testing: guides/testing.md
     - Migration: guides/migration.md
   - Further Reading: references.md
+  - Disambiguation: disambiguation.md
 
 exclude_docs: |
   planning/

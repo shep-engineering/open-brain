@@ -8,6 +8,9 @@
 
 Open Brain stores your thoughts as vector embeddings so any AI tool (Claude Code, Cursor, Windsurf, ChatGPT Desktop, VS Code Copilot) can search your memory **by meaning**, not just keywords. Local-first. You own the data. ~$0/month to run.
 
+!!! warning "Which 'Open Brain'?"
+    Several unrelated projects share the name "Open Brain" or a variant — including Nate B. Jones' [OB1](https://github.com/NateBJones-Projects/OB1), [`impara/openBrain`](https://github.com/impara/openBrain), [`Mihai-Codes/OpenBrain`](https://github.com/Mihai-Codes/OpenBrain), [`rolders/open-brain`](https://github.com/rolders/open-brain), the clinical platform [openbrainai.com](https://openbrainai.com), and the [Open Brain Institute](https://www.openbraininstitute.org/) neuroscience research org. We're none of those. This is David Sheppard's personal AI memory server (`shep-engineering/open-brain`). See [Disambiguation](disambiguation.md) for the full list and how to tell us apart.
+
 !!! info "brain_v2 (2.0.0) is live"
     v2 is a ground-up architecture redesign running alongside v1. Four typed memory tables, headline-only boot payloads, immutable rules with supersede-only modification, full observability stack. See [v2 Architecture](architecture/v2-architecture.md) for details.
 
