@@ -664,3 +664,112 @@ class TestIdentityMetadata:
                         (payload.session_id,))
             (stored,) = cur.fetchone()
         assert stored == md
+
+
+# ──────────────────────────────────────────────────────────────────────
+# brain_v2 2.2.0 — cross-host admin reaper (sweep_host_stale)
+# ──────────────────────────────────────────────────────────────────────
+
+
+class TestSweepHostStale:
+    """Cross-host reaper for sessions on hosts whose heartbeat_agent is
+    down. Staleness-based (not psutil-based) — operator explicitly trusts
+    the age threshold."""
+
+    _counter = [0]
+
+    def _make_stale(self, conn, age_seconds: int, host: str,
+                    source: str = "claude"):
+        # Unique cwd + pid per call so register_session never supersedes
+        # a sibling row set up earlier in the same test.
+        self._counter[0] += 1
+        n = self._counter[0]
+        sid = store.register_session(
+            conn, source=source, project="xh-sweep",
+            cwd=f"F:/xh-{host}-{age_seconds}-{n}",
+            pid=10000 + n, host=host,
+        )
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE active_sessions "
+                "SET heartbeat_at = NOW() - make_interval(secs => %s) "
+                "WHERE id = %s",
+                (age_seconds, sid),
+            )
+        return sid
+
+    def _status(self, conn, sid):
+        with conn.cursor() as cur:
+            cur.execute("SELECT status FROM active_sessions WHERE id = %s", (sid,))
+            row = cur.fetchone()
+            return row[0] if row else ""
+
+    def test_refuses_empty_host(self, conn):
+        import session_liveness as sl
+        result = sl.sweep_host_stale(conn, host="", max_age_seconds=60)
+        assert result["success"] is False
+        assert "host is required" in result["error"]
+
+    def test_refuses_invalid_max_age(self, conn):
+        import session_liveness as sl
+        assert sl.sweep_host_stale(conn, host="elsewhere",
+                                    max_age_seconds=0)["success"] is False
+        assert sl.sweep_host_stale(conn, host="elsewhere",
+                                    max_age_seconds=-1)["success"] is False
+
+    def test_refuses_local_host(self, conn):
+        """Same-host cleanup is probe_and_mark_ended's job. Refuse local."""
+        import session_liveness as sl
+        result = sl.sweep_host_stale(conn, host=socket.gethostname(),
+                                      max_age_seconds=60)
+        assert result["success"] is False
+        assert "local host" in result["error"]
+
+    def test_dry_run_returns_candidates_without_writing(self, conn):
+        import session_liveness as sl
+        sid = self._make_stale(conn, 7200, "remote-xh-dry")
+        result = sl.sweep_host_stale(conn, host="remote-xh-dry",
+                                      max_age_seconds=3600, dry_run=True)
+        assert result["success"] is True
+        assert result["dry_run"] is True
+        ids = [c["id"] for c in result["candidates"]]
+        assert sid in ids
+        assert result["marked_ended"] == []
+        assert self._status(conn, sid) == "active"
+
+    def test_writes_when_dry_run_false(self, conn):
+        import session_liveness as sl
+        sid = self._make_stale(conn, 7200, "remote-xh-write")
+        result = sl.sweep_host_stale(conn, host="remote-xh-write",
+                                      max_age_seconds=3600, dry_run=False)
+        assert sid in result["marked_ended"]
+        assert self._status(conn, sid) == "ended"
+
+    def test_ignores_fresh_rows(self, conn):
+        import session_liveness as sl
+        sid = self._make_stale(conn, 10, "remote-xh-fresh")
+        result = sl.sweep_host_stale(conn, host="remote-xh-fresh",
+                                      max_age_seconds=3600, dry_run=False)
+        ids = [c["id"] for c in result["candidates"]]
+        assert sid not in ids
+        assert result["marked_ended"] == []
+        assert self._status(conn, sid) == "active"
+
+    def test_ignores_other_hosts(self, conn):
+        import session_liveness as sl
+        target = self._make_stale(conn, 7200, "xh-target")
+        bystander = self._make_stale(conn, 7200, "xh-bystander")
+        result = sl.sweep_host_stale(conn, host="xh-target",
+                                      max_age_seconds=3600, dry_run=False)
+        assert target in result["marked_ended"]
+        assert bystander not in result["marked_ended"]
+        assert self._status(conn, bystander) == "active"
+
+    def test_case_insensitive_host(self, conn):
+        import session_liveness as sl
+        sid = self._make_stale(conn, 7200, "Remote-Xh-Case")
+        # Caller passes mixed case; internal normalize_host lowercases
+        # both sides.
+        result = sl.sweep_host_stale(conn, host="REMOTE-XH-CASE",
+                                      max_age_seconds=3600, dry_run=False)
+        assert sid in result["marked_ended"]

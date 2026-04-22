@@ -155,11 +155,35 @@ CREATE TABLE IF NOT EXISTS action_items (
     project        TEXT        NOT NULL DEFAULT '',
     status         TEXT        NOT NULL DEFAULT 'pending'
                    CHECK (status IN ('pending', 'will_execute', 'already_done', 'not_relevant')),
+    -- v2.2.0: 'task' = one-shot, 'rule' = ongoing. Rules cannot be
+    -- 'already_done' (nonsensical — rules don't complete), forcing
+    -- agents to explicitly justify bypass via 'not_relevant' + reason
+    -- (audited). Closes memory-capture-avoidance loophole flagged by
+    -- V2 fact #1.
+    kind           TEXT        NOT NULL DEFAULT 'task'
+                   CHECK (kind IN ('task', 'rule')),
     ack_reason     TEXT,
     ack_source     TEXT,                   -- which agent acked it
     ack_at         TIMESTAMPTZ,
     created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+-- Idempotent ALTER for DBs created pre-v2.2.0.
+ALTER TABLE action_items ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'task';
+-- The CHECK constraint is added via DO block to avoid DuplicateObject on
+-- existing DBs. Idempotent pattern: drop + re-add is not safe here
+-- (would need IF EXISTS on constraint name we may not know), so we only
+-- add if the named constraint doesn't exist.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'action_items_kind_check'
+    ) THEN
+        ALTER TABLE action_items
+            ADD CONSTRAINT action_items_kind_check
+            CHECK (kind IN ('task', 'rule'));
+    END IF;
+END$$;
 CREATE INDEX IF NOT EXISTS action_items_pending_idx
     ON action_items (project, status) WHERE status = 'pending';
 

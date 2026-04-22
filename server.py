@@ -252,9 +252,19 @@ def _source_required_error(tool: str) -> str:
 def _extract_action_items_from_memory(mem: dict, origin: str) -> list[dict]:
     """Pull action_items from a memory's metadata into gate-entry shape.
 
-    Returns a list of {memory_id, index, text, origin} dicts — one per
-    non-empty action_item in the memory. Swallows malformed metadata
+    Returns a list of {memory_id, index, text, kind, origin} dicts — one
+    per non-empty action_item in the memory. Swallows malformed metadata
     silently; this runs in a boot path that must never fail.
+
+    Each action_item in metadata may be:
+      - a plain string       → kind='task' (back-compat, the long-time form)
+      - a dict {text, kind?} → kind explicit ('task' or 'rule'); default 'task'
+      - a dict {description} → treated as text (legacy shape seen on some
+                                memories), kind='task'
+
+    v0.24.0: kind-aware surfacing. Rule-kind items reject the
+    'already_done' ack path at acknowledge_action_item, closing the
+    memory-capture-avoidance loophole flagged in V2 fact #1.
     """
     try:
         meta = mem.get("metadata")
@@ -266,13 +276,25 @@ def _extract_action_items_from_memory(mem: dict, origin: str) -> list[dict]:
         if not isinstance(items, list):
             return []
         out: list[dict] = []
-        for i, text in enumerate(items):
+        for i, raw in enumerate(items):
+            text: str = ""
+            kind: str = "task"
+            if isinstance(raw, str):
+                text = raw
+            elif isinstance(raw, dict):
+                t = raw.get("text") or raw.get("description") or ""
+                if isinstance(t, str):
+                    text = t
+                k = raw.get("kind")
+                if isinstance(k, str) and k.strip().lower() in ("task", "rule"):
+                    kind = k.strip().lower()
             if not isinstance(text, str) or not text.strip():
                 continue
             out.append({
                 "memory_id": mem.get("id"),
                 "index":     i,
                 "text":      text.strip(),
+                "kind":      kind,
                 "origin":    origin,
             })
         return out
@@ -329,11 +351,15 @@ def _check_action_item_gate(source: str, tool_name: str) -> dict | None:
         "blocked_by": "action_items_pending",
         "error":      f"BLOCKED: {len(pending)} action_item(s) from boot_session must be "
                        "acknowledged before write tools unlock.",
-        "pending":    [{"memory_id": p["memory_id"], "text": p["text"], "origin": p["origin"]}
+        "pending":    [{"memory_id": p["memory_id"], "text": p["text"],
+                         "kind": p.get("kind", "task"), "origin": p["origin"]}
                        for p in pending],
         "hint":       "Call acknowledge_action_item(source, memory_id, text, decision, reason) "
                        "for each. decision ∈ {'will_execute', 'already_done', 'not_relevant'}. "
-                       "reason is required for already_done and not_relevant.",
+                       "reason is required for already_done and not_relevant. "
+                       "v0.24.0: kind='rule' items reject 'already_done' — rules are "
+                       "ongoing and don't complete; use 'will_execute' to commit or "
+                       "'not_relevant' + reason to explicitly bypass (audited).",
     }
 
 
@@ -2144,6 +2170,50 @@ def list_active_sessions(source: str, project: str = "",
 
 
 @mcp.tool()
+@instrument("sweep_host")
+def sweep_host(source: str, host: str, max_age_minutes: int = 60,
+               dry_run: bool = True) -> str:
+    """Admin: reap stale active_sessions rows for a NON-local host.
+
+    When a machine's heartbeat_agent stops (crash, sleep, uninstall) or
+    the machine itself is down, its active rows can't be reaped by the
+    local probe (psutil only sees local processes). Their stale
+    heartbeat_at values pollute every boot_session's sibling list.
+
+    This tool lets an operator explicitly mark rows ended for a remote
+    host whose sessions are staler than `max_age_minutes`.
+
+    NOT for same-host cleanup — use the heartbeat_agent + probe_and_mark_ended
+    for that. This tool refuses the local host for safety.
+
+    Args:
+        source:          REQUIRED. Caller's source identifier.
+        host:            Target remote hostname (case-insensitive).
+        max_age_minutes: Minimum heartbeat staleness to consider a row dead.
+                         Default 60; increase for flaky/intermittent hosts.
+        dry_run:         Default True. Returns the candidate list without
+                         writing. Set False to actually mark ended.
+
+    Returns dict with candidates[] and marked_ended[] (empty when dry_run).
+    (v0.24.0+)
+    """
+    try:
+        if not source:
+            return _source_required_error("sweep_host")
+        max_age_seconds = int(max_age_minutes) * 60
+        conn = _get_conn()
+        result = session_liveness.sweep_host_stale(
+            conn, host=host,
+            max_age_seconds=max_age_seconds,
+            dry_run=bool(dry_run),
+        )
+        _record_search(source, "")
+        return json.dumps(result, indent=2, default=str)
+    except Exception as exc:
+        return json.dumps({"success": False, "error": str(exc)})
+
+
+@mcp.tool()
 @instrument("end_session")
 def end_session(source: str, session_id: int = 0) -> str:
     """Mark this session ended (clean shutdown). Optional — dead sessions
@@ -2218,6 +2288,26 @@ def acknowledge_action_item(source: str, memory_id: int, text: str,
             return json.dumps({"success": False, "error": "text is required"})
 
         pending = _pending_action_items.get(source) or []
+
+        # v0.24.0 — rule-kind items reject 'already_done'. Rules are
+        # ongoing; they can't be "done." Agents must either commit
+        # (will_execute) or explicitly bypass with a reason
+        # (not_relevant + reason) — both auditable. Closes the
+        # memory-capture-avoidance loophole flagged by V2 fact #1.
+        matched = [p for p in pending
+                   if p.get("memory_id") == memory_id
+                   and p.get("text") == text.strip()]
+        matched_kind = next((p.get("kind") for p in matched if p.get("kind")), "task")
+        if matched_kind == "rule" and decision == "already_done":
+            return json.dumps({"success": False,
+                "blocked_by": "rule_kind_already_done",
+                "error": ("rule-kind action items cannot be 'already_done' — "
+                           "rules are ongoing and don't complete. Use "
+                           "'will_execute' to commit, or 'not_relevant' + reason "
+                           "to explicitly bypass (audited)."),
+                "kind": matched_kind,
+            })
+
         before = len(pending)
         after = [p for p in pending
                  if not (p.get("memory_id") == memory_id
@@ -2230,6 +2320,7 @@ def acknowledge_action_item(source: str, memory_id: int, text: str,
             "source":    source,
             "memory_id": memory_id,
             "text":      text.strip(),
+            "kind":      matched_kind,
             "decision":  decision,
             "reason":    reason.strip() if reason else "",
             "removed":   removed,

@@ -696,6 +696,43 @@ def list_active_sessions_v2(project: str = "", exclude_self: bool = True) -> str
 
 
 @mcp.tool()
+def sweep_host_v2(host: str, max_age_minutes: int = 60,
+                  dry_run: bool = True) -> str:
+    """Admin: reap stale active_sessions rows for a NON-local host.
+
+    When a machine's heartbeat_agent stops or the machine is down, its
+    active rows can't be reaped by the local probe (psutil only sees
+    local processes). This tool lets an operator explicitly mark rows
+    ended for a remote host whose sessions are staler than
+    `max_age_minutes`.
+
+    NOT for same-host cleanup — refuses the local host. Use the
+    heartbeat_agent for same-host.
+
+    Args:
+        host:            Target remote hostname (case-insensitive).
+        max_age_minutes: Minimum heartbeat staleness. Default 60.
+        dry_run:         Default True. Returns candidates without writing.
+
+    Returns dict with candidates[] and marked_ended[] (empty when dry_run).
+    (brain_v2 2.2.0+)
+    """
+    ensure_schema()
+    import session_liveness as _sl
+    try:
+        with store.connect() as conn:
+            result = _sl.sweep_host_stale(
+                conn, host=host,
+                max_age_seconds=int(max_age_minutes) * 60,
+                dry_run=bool(dry_run),
+            )
+    except Exception as exc:
+        _log.exception("sweep_host_v2 failed")
+        return _err(f"sweep failed: {exc}")
+    return _ok(result)
+
+
+@mcp.tool()
 def update_active_task_v2(task: str, session_id: int = 0) -> str:
     """Update the current_task of a live session (+ bumps heartbeat_at).
 
@@ -833,23 +870,35 @@ def acknowledge_action_item_v2(item_id: int, decision: str,
 
 @mcp.tool()
 def create_action_item_v2(source_kind: str, source_id: int, text: str,
-                          project: str = "") -> str:
+                          project: str = "", kind: str = "task") -> str:
     """Create a new action item linked to a memory.
 
     Action items are surfaced at boot and block writes until acknowledged.
     Typically created automatically (e.g., from rules with action_items),
     but can also be created manually.
+
+    Args:
+        source_kind: The memory kind producing this item ('rule', 'fact',
+                     'incident', 'task').
+        source_id:   Memory id.
+        text:        Item text.
+        project:     Project scope (empty = global).
+        kind:        'task' (default) or 'rule'. Rules cannot be
+                     'already_done' at ack time — forcing agents to
+                     commit or explicitly justify bypass. (v2.2.0+)
     """
     ensure_schema()
     try:
         with store.connect() as conn:
             aid = store.create_action_item(
                 conn, source_kind=source_kind, source_id=source_id,
-                text=text, project=project,
+                text=text, project=project, kind=kind,
             )
+    except ValueError as exc:
+        return _err(str(exc))
     except Exception as exc:
         return _err(f"create_action_item failed: {exc}")
-    return _ok({"success": True, "id": aid, "text": text})
+    return _ok({"success": True, "id": aid, "text": text, "kind": kind})
 
 
 @mcp.tool()
