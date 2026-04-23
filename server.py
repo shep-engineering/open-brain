@@ -2183,19 +2183,24 @@ def sweep_host(source: str, host: str, max_age_minutes: int = 60,
     This tool lets an operator explicitly mark rows ended for a remote
     host whose sessions are staler than `max_age_minutes`.
 
-    NOT for same-host cleanup — use the heartbeat_agent + probe_and_mark_ended
-    for that. This tool refuses the local host for safety.
+    Preferred for same-host cleanup is still the heartbeat_agent +
+    probe_and_mark_ended (authoritative psutil check). Passing the
+    local host IS allowed (v0.24.1+) but returns a `warning` field so
+    you know you're using the weaker staleness-only check. dry_run=True
+    default remains the guardrail.
 
     Args:
         source:          REQUIRED. Caller's source identifier.
-        host:            Target remote hostname (case-insensitive).
+        host:            Target hostname (case-insensitive). Local host
+                         is allowed with a warning.
         max_age_minutes: Minimum heartbeat staleness to consider a row dead.
                          Default 60; increase for flaky/intermittent hosts.
         dry_run:         Default True. Returns the candidate list without
                          writing. Set False to actually mark ended.
 
-    Returns dict with candidates[] and marked_ended[] (empty when dry_run).
-    (v0.24.0+)
+    Returns dict with candidates[] and marked_ended[] (empty when dry_run),
+    and `warning` when sweeping the local host.
+    (v0.24.0; local-host warning v0.24.1)
     """
     try:
         if not source:

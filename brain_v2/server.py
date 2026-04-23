@@ -706,16 +706,20 @@ def sweep_host_v2(host: str, max_age_minutes: int = 60,
     ended for a remote host whose sessions are staler than
     `max_age_minutes`.
 
-    NOT for same-host cleanup — refuses the local host. Use the
-    heartbeat_agent for same-host.
+    Preferred for same-host cleanup is still the heartbeat_agent
+    (authoritative psutil check). Local-host sweeps are allowed
+    (brain_v2 2.2.1+) and return a `warning` field; dry_run=True
+    default remains the guardrail.
 
     Args:
-        host:            Target remote hostname (case-insensitive).
+        host:            Target hostname (case-insensitive). Local is
+                         allowed with a warning.
         max_age_minutes: Minimum heartbeat staleness. Default 60.
         dry_run:         Default True. Returns candidates without writing.
 
-    Returns dict with candidates[] and marked_ended[] (empty when dry_run).
-    (brain_v2 2.2.0+)
+    Returns dict with candidates[], marked_ended[] (empty when dry_run),
+    and `warning` when sweeping the local host.
+    (brain_v2 2.2.0; local-host warning 2.2.1)
     """
     ensure_schema()
     import session_liveness as _sl
