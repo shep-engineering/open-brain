@@ -717,13 +717,16 @@ class TestSweepHostStale:
         assert sl.sweep_host_stale(conn, host="elsewhere",
                                     max_age_seconds=-1)["success"] is False
 
-    def test_refuses_local_host(self, conn):
-        """Same-host cleanup is probe_and_mark_ended's job. Refuse local."""
+    def test_warns_on_local_host_but_proceeds(self, conn):
+        """brain_v2 2.2.1: local-host sweeps proceed with a warning
+        field. Refusing was too restrictive; dry_run=True default is the
+        real guardrail."""
         import session_liveness as sl
         result = sl.sweep_host_stale(conn, host=socket.gethostname(),
-                                      max_age_seconds=60)
-        assert result["success"] is False
-        assert "local host" in result["error"]
+                                      max_age_seconds=60, dry_run=True)
+        assert result["success"] is True
+        assert "warning" in result
+        assert "LOCAL host" in result["warning"]
 
     def test_dry_run_returns_candidates_without_writing(self, conn):
         import session_liveness as sl

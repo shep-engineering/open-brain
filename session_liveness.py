@@ -318,8 +318,12 @@ def sweep_host_stale(conn, host, max_age_seconds: int,
 
     Safety:
       - NEVER sweeps if host is empty/None.
-      - NEVER sweeps the local host (reject with success=False). Callers
-        who want same-host cleanup use probe_and_mark_ended.
+      - Local-host sweeps proceed with a WARNING attached to the result
+        (v0.24.1+). Same-host rows are normally reaped by the
+        heartbeat_agent (psutil-based, authoritative); this tool uses
+        staleness only and could reap your own live session if the
+        operator mis-sets max_age_minutes. `dry_run=True` default
+        remains the load-bearing guardrail.
       - Cap at 200 rows per call to bound blast radius; repeat the call
         if you need more swept.
     """
@@ -339,14 +343,16 @@ def sweep_host_stale(conn, host, max_age_seconds: int,
         local = normalize_host(_socket.gethostname())
     except Exception:
         local = None
+    warning: str | None = None
     if local is not None and target == local:
-        return {
-            "success": False,
-            "error": (f"sweep_host_stale refuses to sweep the local host "
-                       f"({local!r}). Same-host rows are reaped by the "
-                       f"local heartbeat_agent + probe_and_mark_ended."),
-            "host": target,
-        }
+        warning = (
+            f"sweep_host_stale was called against the LOCAL host "
+            f"({local!r}). Same-host rows are normally reaped by the "
+            f"heartbeat_agent (authoritative psutil check). This tool "
+            f"uses staleness only and could end your own live session "
+            f"if max_age_minutes is too aggressive. Verify the "
+            f"candidates list before flipping dry_run=False."
+        )
 
     cap = 200
     candidates: list[dict] = []
@@ -417,7 +423,7 @@ def sweep_host_stale(conn, host, max_age_seconds: int,
                     "candidates": candidates,
                 }
 
-    return {
+    result = {
         "success":         True,
         "host":            target,
         "max_age_seconds": max_age_seconds,
@@ -425,6 +431,9 @@ def sweep_host_stale(conn, host, max_age_seconds: int,
         "candidates":      candidates,
         "marked_ended":    marked_ended,
     }
+    if warning:
+        result["warning"] = warning
+    return result
 
 
 def probe_and_mark_ended(conn, rows, my_host, cap: int = _OPPORTUNISTIC_PROBE_CAP) -> list[int]:

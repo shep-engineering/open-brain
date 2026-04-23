@@ -498,13 +498,31 @@ def test_sweep_host_stale_refuses_invalid_max_age():
     assert result["success"] is False
 
 
-def test_sweep_host_stale_refuses_local_host():
-    """Safety — same-host sweeping is probe_and_mark_ended's job."""
+def test_sweep_host_stale_warns_on_local_host_but_proceeds():
+    """v0.24.1: local-host sweeps proceed with a warning field attached.
+    Refusal was too restrictive; dry_run=True default remains the
+    load-bearing guardrail."""
     result = sl.sweep_host_stale(_get_conn(),
                                   host=socket.gethostname(),
-                                  max_age_seconds=60)
-    assert result["success"] is False
-    assert "local host" in result["error"]
+                                  max_age_seconds=60,
+                                  dry_run=True)
+    assert result["success"] is True
+    assert result["host"] == socket.gethostname().strip().lower()
+    assert "warning" in result
+    assert "LOCAL host" in result["warning"]
+
+
+def test_sweep_host_stale_local_host_dry_run_does_not_write():
+    """Local-host sweep with dry_run=True returns candidates without
+    marking anything ended — same contract as remote-host dry_run."""
+    host = socket.gethostname()
+    stale = _make_stale_row(7200, host, pid_val=os.getpid())
+    result = sl.sweep_host_stale(_get_conn(), host=host,
+                                  max_age_seconds=3600, dry_run=True)
+    assert result["success"] is True
+    assert "warning" in result
+    assert result["marked_ended"] == []
+    assert _get_status(stale["id"]) == "active"
 
 
 def test_sweep_host_stale_dry_run_returns_candidates_without_writing():

@@ -5,6 +5,48 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.1] + [brain_v2 2.2.1] - 2026-04-23
+
+### sweep_host: relax local-host refusal to a warning
+
+Patch to v0.24.0's cross-host reaper. The initial release hard-refused
+`sweep_host(host=<local>)` on the principle that same-host cleanup is
+the heartbeat_agent's job. Dave flagged that this is an overly-
+restrictive safety layer on top of the already-load-bearing
+`dry_run=True` default + explicit-host-arg guardrails — risk of
+unintended consequences if the heartbeat_agent ever goes down and the
+operator needs an admin cleanup path.
+
+**New behavior:** local-host sweeps proceed and attach a `warning`
+field to the result dict explaining that same-host rows are normally
+reaped by the heartbeat_agent (stricter psutil check) and that this
+tool uses staleness only. `dry_run=True` default remains the
+load-bearing guardrail.
+
+**Changes:**
+
+- `session_liveness.py::sweep_host_stale` — local-host branch sets a
+  `warning` string instead of returning `success=False`. Warning is
+  attached to the successful result.
+- `server.py::sweep_host` — updated docstring.
+- `brain_v2/server.py::sweep_host_v2` — updated docstring.
+- `tests/test_session_liveness.py` — replaced
+  `test_sweep_host_stale_refuses_local_host` with 2 tests: warns on
+  local host (check warning field), local-host dry_run does not write.
+- `brain_v2/tests/test_session_registry.py` — same replacement in
+  `TestSweepHostStale`.
+
+Net test delta: -2 refuse tests + 3 warn tests = +1 test. Full
+regression still green.
+
+### Design lesson captured
+
+Don't stack safety checks when an existing guardrail already covers the
+concern. `dry_run=True` + explicit-host-arg made the tool safe by
+default; refusing local on top of those was belt-and-belt-and-
+suspenders that cost an edge-case capability. Warn, don't refuse,
+when the operation is legitimate but weaker than the canonical path.
+
 ## [0.24.0] + [brain_v2 2.2.0] - 2026-04-22
 
 ### Cross-host session reaper (`sweep_host` / `sweep_host_v2`) — admin tool
