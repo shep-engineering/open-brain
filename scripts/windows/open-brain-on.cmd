@@ -61,11 +61,11 @@ if %errorlevel%==0 (
     echo     Ollama started ^(dual GPU, max 2 models loaded^)
 )
 
-echo [4/5] Starting Open Brain MCP server...
+echo [4/6] Starting Open Brain MCP server...
 start "" /B "%PYTHON%" "%OB_ROOT%\server.py" 2>>"%OB_ROOT%\server-crash.log"
 echo     Open Brain server started
 
-echo [5/5] Starting session-registry heartbeat agent (v0.14.0+)...
+echo [5/6] Starting session-registry heartbeat agent (v0.14.0+)...
 schtasks /query /tn OpenBrainHeartbeatAgent >nul 2>&1
 if %errorlevel%==0 (
     schtasks /run /tn OpenBrainHeartbeatAgent >nul 2>&1
@@ -75,9 +75,21 @@ if %errorlevel%==0 (
     echo     Heartbeat agent: inline ^(install via scripts\windows\install-heartbeat-agent.ps1 for persistence^)
 )
 
+echo [6/6] Starting Ollama model monitor (v0.24.2+)...
+schtasks /query /tn OpenBrainOllamaMonitor >nul 2>&1
+if %errorlevel%==0 (
+    schtasks /run /tn OpenBrainOllamaMonitor >nul 2>&1
+    echo     Model monitor: scheduled task triggered ^(poll interval 5s^)
+) else (
+    start "" /B "%PYTHON%" "%OB_ROOT%\scripts\ollama_model_monitor.py" >"%OB_ROOT%\logs\ollama-model-events.jsonl" 2>"%OB_ROOT%\logs\model-monitor.log"
+    echo     Model monitor: inline ^(install via scripts\windows\install-model-monitor.ps1 for persistence^)
+)
+
 echo.
-echo Open Brain v0.14.0 is ON. 26 MCP tools ready for Windsurf / Cursor / Claude Code.
+echo Open Brain v0.24.2 is ON. MCP tools ready for Windsurf / Cursor / Claude Code.
 echo   - Session registry with signoff + external heartbeat agent ^(no TTL^)
-echo   - Action-item compliance gate blocks writes until action_items are acknowledged
+echo   - Cross-host session reaper ^(sweep_host admin tool, v0.24.0^)
+echo   - Action-item compliance gate with kind field ^(task/rule, v0.24.0^)
+echo   - Ollama model LOAD/UNLOAD/THRASH monitor ^(v0.24.2^)
 echo   - Hybrid search ^(vector + full-text^), uptime-based decay, time-scoped search
 echo   - Skills layer ^(conditional-load guardrails^), belief revision ^(supersede^)

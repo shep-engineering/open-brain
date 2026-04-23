@@ -5,4 +5,5 @@ markers = [
     "ollama: tests requiring a running Ollama instance for real embeddings",
     "unit: pure unit tests with no external dependencies",
     "serial: tests that must run sequentially",
+    "slow: long-running E2E tests (may spawn subprocesses or wait on real services)",
 ]
