@@ -5,6 +5,74 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.2] + [brain_v2 2.2.2] - 2026-04-23
+
+### Ollama model LOAD/UNLOAD/THRASH monitor
+
+Dave observed the qwen2.5:32b metadata model reloading twice in rapid
+succession during a write-heavy session. Without instrumentation, a
+reload is invisible: GPU activity spikes, the next call stalls a few
+seconds, and there's no log trail to diagnose frequency or cause.
+
+Ships a standalone monitor that watches Ollama's `/api/ps` and records
+every model state transition:
+
+- **`scripts/ollama_model_monitor.py`** — polls `/api/ps` every
+  `OLLAMA_POLL_SECONDS` (default 5), tracks (model → state) across
+  ticks, emits one JSONL line per transition to
+  `logs/ollama-model-events.jsonl`. Pure-function state-transition core
+  (`compute_transitions`) kept separate from the poll loop for
+  testability.
+
+Event kinds:
+
+- **LOAD** — model appeared; records `gap_since_unload_s`.
+- **UNLOAD** — model disappeared; records `lived_s`.
+- **THRASH** — LOAD within `OLLAMA_THRASH_WINDOW` seconds (default 300)
+  of a prior UNLOAD for the same model. Tight reload cycle — wastes
+  GPU/wall-time on every affected tool call.
+
+### Scheduled-task install (Windows)
+
+Mirrors the heartbeat_agent pattern:
+
+- `scripts/windows/install-model-monitor.ps1` — registers
+  `OpenBrainOllamaMonitor` (AtLogOn trigger, unlimited runtime, 60s
+  restart on failure, runs as current user).
+- `scripts/windows/uninstall-model-monitor.ps1` — clean removal.
+- `scripts/windows/run-model-monitor.cmd` — wrapper the task calls;
+  routes stderr to `%LOCALAPPDATA%\open-brain\model-monitor.log`.
+- `scripts/windows/open-brain-on.cmd` — step `[6/6]` prefers
+  `schtasks /run` if the task is installed; inline Python fallback
+  otherwise.
+- `scripts/infrastructure.py::stop_all` — new `_stop_model_monitor()`
+  terminates the monitor on shutdown (symmetrical with existing
+  `_stop_heartbeat_agent`).
+
+### Testing — actually tested, not simulated
+
+- **Unit** (`tests/test_ollama_model_monitor.py`): 7 tests drive
+  `compute_transitions` directly with crafted state/current dicts.
+  Covers: initial load, still-loaded (no event), unload with lived_s,
+  reload within thrash window, reload outside thrash window,
+  simultaneous multi-model transitions, malformed ISO timestamps.
+- **Unit** (error handling): 2 tests verify `_fetch_loaded_models`
+  returns `{}` gracefully on unreachable host and bad JSON.
+- **Integration** (real Ollama): 1 test hits `/api/ps` on the running
+  Ollama and asserts the dict shape.
+- **End-to-end** (marked `slow`): spawns the monitor as a subprocess,
+  drives a real `nomic-embed-text` load via `/api/embeddings`, and
+  asserts a LOAD event appears in the JSONL within 20s.
+- **Production verification** (manual, scheduled-task path): installed
+  the task, drove a real unload via `keep_alive=0`, observed UNLOAD
+  event. Drove a 7-second re-load cycle, observed LOAD + THRASH events
+  with correct gap (`gap_s=7`, threshold=300). JSONL at
+  `F:\open-brain\logs\ollama-model-events.jsonl`.
+
+All 11 tests pass (7 unit + 2 error + 1 real-fetch + 1 e2e).
+
+Pytest marker `slow` registered in `pyproject.toml`.
+
 ## [0.24.1] + [brain_v2 2.2.1] - 2026-04-23
 
 ### sweep_host: relax local-host refusal to a warning

@@ -484,10 +484,48 @@ class Infrastructure:
         """
         self._emit("stop", "start", "stopping Open Brain infrastructure")
         self._stop_heartbeat_agent()
+        self._stop_model_monitor()
         self._stop_ollama()
         self._stop_db()
         self._emit("stop", "info", "Docker Desktop left running (respects other containers)")
         self._emit("stop", "ready", "stop_all complete")
+
+    def _stop_model_monitor(self) -> None:
+        """Terminate the v0.24.2+ ollama model monitor if running.
+
+        Standalone Python process spawned from open-brain-on.cmd step 6
+        (or via the OpenBrainOllamaMonitor scheduled task). Find any
+        python* process whose argv ends in `scripts/ollama_model_monitor.py`
+        and terminate it. Best-effort — same failure modes handled as
+        _stop_heartbeat_agent.
+        """
+        try:
+            import psutil
+        except ImportError:
+            self._emit("stop", "info", "psutil not available — skipping model monitor stop")
+            return
+
+        killed = 0
+        for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+            try:
+                name = (proc.info.get("name") or "").lower()
+                if not (name.startswith("python") or name.startswith("pythonw")):
+                    continue
+                cmdline = proc.info.get("cmdline") or []
+                if not any("ollama_model_monitor.py" in str(c) for c in cmdline):
+                    continue
+                proc.terminate()
+                try:
+                    proc.wait(timeout=5)
+                except psutil.TimeoutExpired:
+                    proc.kill()
+                killed += 1
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        if killed:
+            self._emit("stop", "info", f"model monitor stopped ({killed} process)")
+        else:
+            self._emit("stop", "info", "model monitor not running")
 
     def _stop_heartbeat_agent(self) -> None:
         """Terminate the v0.14.0+ session-registry heartbeat agent if running.
