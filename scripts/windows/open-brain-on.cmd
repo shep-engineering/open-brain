@@ -61,9 +61,32 @@ if %errorlevel%==0 (
     echo     Ollama started ^(dual GPU, max 2 models loaded^)
 )
 
-echo [4/6] Starting Open Brain MCP server...
-start "" /B "%PYTHON%" "%OB_ROOT%\server.py" 2>>"%OB_ROOT%\server-crash.log"
-echo     Open Brain server started
+echo [4/6] Starting Open Brain MCP servers (HTTP transport)...
+REM Kill any stale server processes before starting fresh
+for /f "tokens=5" %%p in ('netstat -ano 2^>nul ^| findstr ":8080 "') do taskkill /PID %%p /F >nul 2>&1
+for /f "tokens=5" %%p in ('netstat -ano 2^>nul ^| findstr ":8081 "') do taskkill /PID %%p /F >nul 2>&1
+
+start "" /B cmd /c ""%PYTHON%" "%OB_ROOT%\server.py" --transport http --port 8080 2>>"%OB_ROOT%\server-crash.log""
+start "" /B cmd /c ""%PYTHON%" "%OB_ROOT%\brain_v2\server.py" --transport http --port 8081 2>>"%OB_ROOT%\server-crash.log""
+
+echo     Waiting for HTTP servers to accept connections...
+set V1_READY=0
+set V2_READY=0
+for /L %%i in (1,1,15) do (
+    if !V1_READY!==0 (
+        curl -s --max-time 2 http://127.0.0.1:8080/mcp >nul 2>&1
+        if !errorlevel! neq 7 (set V1_READY=1 & echo     open-brain v1 HTTP ready ^(port 8080^))
+    )
+    if !V2_READY!==0 (
+        curl -s --max-time 2 http://127.0.0.1:8081/mcp >nul 2>&1
+        if !errorlevel! neq 7 (set V2_READY=1 & echo     open-brain v2 HTTP ready ^(port 8081^))
+    )
+    if !V1_READY!==1 if !V2_READY!==1 goto :servers_ready
+    timeout /t 2 >nul
+)
+:servers_ready
+if !V1_READY!==0 (echo     WARNING: open-brain v1 not responding on port 8080 - check server-crash.log)
+if !V2_READY!==0 (echo     WARNING: open-brain v2 not responding on port 8081 - check server-crash.log)
 
 echo [5/6] Starting session-registry heartbeat agent (v0.14.0+)...
 schtasks /query /tn OpenBrainHeartbeatAgent >nul 2>&1
@@ -86,7 +109,7 @@ if %errorlevel%==0 (
 )
 
 echo.
-echo Open Brain v0.24.2 is ON. MCP tools ready for Windsurf / Cursor / Claude Code.
+echo Open Brain v0.24.2 is ON. HTTP transport -- reconnect without session restart.
 echo   - Session registry with signoff + external heartbeat agent ^(no TTL^)
 echo   - Cross-host session reaper ^(sweep_host admin tool, v0.24.0^)
 echo   - Action-item compliance gate with kind field ^(task/rule, v0.24.0^)

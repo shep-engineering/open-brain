@@ -13,6 +13,8 @@
 
 Do NOT proceed with any task until Open Brain is confirmed running. Do NOT create new startup scripts — the correct ones already exist. Never replace or duplicate them.
 
+**CRITICAL — partial tool availability:** If some brain tools are visible in your tool list (e.g. capture/remember tools) but `mcp0_search` is NOT listed, do **NOT** skip the memory searches. Attempt the search call anyway — the tool list can be incomplete at session start. If the call succeeds, continue normally. Only stop and notify the user if the call itself throws an error. Never silently skip mandatory boot searches because a tool was absent from the initial listing.
+
 ### How to start Open Brain by OS
 
 | OS | How to start | Script location |
