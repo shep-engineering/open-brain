@@ -40,6 +40,7 @@ nav:
   - Tools Reference: tools.md
   - Guides:
     - Dashboard: guides/dashboard.md
+    - Agent Harness: guides/agent-harness.md
     - Auto-Capture Rules: guides/auto-capture.md
     - ChatGPT Desktop: guides/chatgpt-desktop.md
     - Testing: guides/testing.md

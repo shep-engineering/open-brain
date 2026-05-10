@@ -42,11 +42,19 @@ Before any work, in order:
    bash scripts/pre-work-check.sh "task description"
    ```
    This ensures you are on a feature branch and writes a task-start marker with
-   `status: pass` or `status: fail`. **This gate is now enforced by a Claude Code
-   hook (`require-prework.sh`): if the check has not passed, every subsequent
-   `Bash`, `Edit`, and `Write` call is hard-blocked with a `permissionDecision:
-   deny`.** There is no way to proceed past a failing gate without explicit user
+   `status: pass` or `status: fail`. **This gate is enforced by a Claude Code
+   hook (`require-prework.sh` in `contrib/agent-harness/`): if the check has not
+   passed, every subsequent `Bash`, `Edit`, and `Write` call is hard-blocked.**
+   There is no way to proceed past a failing gate without explicit user
    permission. Fix all failures and re-run the check until it passes.
+
+   The full agent harness (nine hooks covering boot, pre-work, branch safety,
+   force-push, rm -rf, brain save, checkpoint, correction pinning, and session
+   end) lives in `contrib/agent-harness/`. Install with:
+   ```bash
+   bash contrib/agent-harness/install.sh   # Linux/macOS/WSL
+   contrib\agent-harness\install.cmd       # Windows
+   ```
 
 ## Branch Rules: Non-Negotiable
 
