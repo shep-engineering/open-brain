@@ -12,13 +12,13 @@
         <meta name="author" content="shep-engineering">
       
       
-        <link rel="canonical" href="https://shep-engineering.github.io/open-brain/guides/chatgpt-desktop/">
+        <link rel="canonical" href="https://shep-engineering.github.io/open-brain/guides/agent-harness/">
       
       
-        <link rel="prev" href="../auto-capture/">
+        <link rel="prev" href="../dashboard/">
       
       
-        <link rel="next" href="../testing/">
+        <link rel="next" href="../auto-capture/">
       
       
         
@@ -29,7 +29,7 @@
     
     
       
-        <title>ChatGPT Desktop - Open Brain</title>
+        <title>Agent Harness - Open Brain</title>
       
     
     
@@ -82,7 +82,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#chatgpt-desktop" class="md-skip">
+        <a href="#agent-harness" class="md-skip">
           Skip to content
         </a>
       
@@ -118,7 +118,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              ChatGPT Desktop
+              Agent Harness
             
           </span>
         </div>
@@ -691,10 +691,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../agent-harness/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Harness
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -710,6 +737,131 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#why-hooks-instead-of-instructions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why hooks instead of instructions?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quick-install" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick install
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-gets-installed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What gets installed
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-pre-work-gate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The pre-work gate
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The pre-work gate">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#opting-a-repo-in" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Opting a repo in
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-correction-feedback-loop" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The correction feedback loop
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#manual-hook-wiring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Manual hook wiring
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#customizing-for-your-project" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Customizing for your project
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#relationship-to-claudemd" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relationship to CLAUDE.md
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -747,37 +899,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    ChatGPT Desktop
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../chatgpt-desktop/" class="md-nav__link">
         
   
   
@@ -793,70 +918,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#option-a-local-sse-proxy-recommended" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Option A: Local SSE Proxy (Recommended)
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#option-b-tunnel-via-ngrok" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Option B: Tunnel via ngrok
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#auto-capture-instructions" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Auto-Capture Instructions
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#v2-via-sse" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        v2 via SSE
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1006,10 +1067,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#option-a-local-sse-proxy-recommended" class="md-nav__link">
+  <a href="#why-hooks-instead-of-instructions" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Option A: Local SSE Proxy (Recommended)
+        Why hooks instead of instructions?
       
     </span>
   </a>
@@ -1017,10 +1078,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#option-b-tunnel-via-ngrok" class="md-nav__link">
+  <a href="#quick-install" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Option B: Tunnel via ngrok
+        Quick install
       
     </span>
   </a>
@@ -1028,10 +1089,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#auto-capture-instructions" class="md-nav__link">
+  <a href="#what-gets-installed" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Auto-Capture Instructions
+        What gets installed
       
     </span>
   </a>
@@ -1039,10 +1100,71 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#v2-via-sse" class="md-nav__link">
+  <a href="#the-pre-work-gate" class="md-nav__link">
     <span class="md-ellipsis">
       
-        v2 via SSE
+        The pre-work gate
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The pre-work gate">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#opting-a-repo-in" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Opting a repo in
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-correction-feedback-loop" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The correction feedback loop
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#manual-hook-wiring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Manual hook wiring
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#customizing-for-your-project" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Customizing for your project
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#relationship-to-claudemd" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relationship to CLAUDE.md
       
     </span>
   </a>
@@ -1066,47 +1188,200 @@
 
 
 
-<h1 id="chatgpt-desktop">ChatGPT Desktop</h1>
-<p>ChatGPT Desktop's MCP support requires a remote endpoint. It doesn't support local stdio servers directly. Here's how to connect it.</p>
+<h1 id="agent-harness">Agent Harness</h1>
+<p>Open Brain ships a set of <strong>Claude Code hooks</strong> that enforce the memory-first
+workflow at the tool-call level. Unlike <code>CLAUDE.md</code> instructions — which the
+model reads and may reason around — hooks intercept every <code>Bash</code>, <code>Edit</code>,
+<code>Write</code>, and <code>git commit</code> call and hard-block violations before they execute.</p>
+<p>The harness lives in <code>contrib/agent-harness/</code> and is opt-in. You can install
+all of it, take just the safety guards, or adapt individual hooks for your own
+projects.</p>
 <hr />
-<h2 id="option-a-local-sse-proxy-recommended">Option A: Local SSE Proxy (Recommended)</h2>
-<p>The <code>mcp</code> package can expose a stdio server over SSE (Server-Sent Events):</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>.venv<span class="se">\S</span>cripts<span class="se">\p</span>ython.exe<span class="w"> </span>-m<span class="w"> </span>mcp.server.sse<span class="w"> </span>--port<span class="w"> </span><span class="m">8765</span><span class="w"> </span>--<span class="w"> </span>python<span class="w"> </span>server.py
+<h2 id="why-hooks-instead-of-instructions">Why hooks instead of instructions?</h2>
+<p>Instructions in <code>CLAUDE.md</code> or system prompts are advisory. Under pressure
+(long sessions, complex tasks, context compression) agents skip steps. The
+pattern repeats:</p>
+<blockquote>
+<p>CLAUDE.md: "run pre-work-check before starting"
+Agent: runs it, sees it fail, keeps going anyway</p>
+</blockquote>
+<p>Hooks fix this at the infrastructure level. The <code>require-prework.sh</code> hook
+issues a <code>permissionDecision: deny</code> — the tool call doesn't execute. The
+agent cannot proceed past a failing gate without the user explicitly granting
+permission. There is no "well I'll just continue" path.</p>
+<hr />
+<h2 id="quick-install">Quick install</h2>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Linux / macOS / WSL</label><label for="__tabbed_1_2">Windows</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># From the open-brain repo root:</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>bash<span class="w"> </span>contrib/agent-harness/install.sh
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="c1"># Safety guards only (branch-guard, no-force-push, no-rm-rf):</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>bash<span class="w"> </span>contrib/agent-harness/install.sh<span class="w"> </span>--tier1
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="c1"># Preview without writing files:</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>bash<span class="w"> </span>contrib/agent-harness/install.sh<span class="w"> </span>--dry-run
 </code></pre></div>
-<p>Then in ChatGPT Desktop:</p>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>contrib\agent-harness\install.cmd
+</code></pre></div>
+</div>
+</div>
+</div>
+<p>After running, merge the printed <code>settings.json</code> snippet into
+<code>~/.claude/settings.json</code>. If that file already has a <code>hooks</code> key, merge the
+blocks manually — don't overwrite the whole file.</p>
+<hr />
+<h2 id="what-gets-installed">What gets installed</h2>
+<table>
+<thead>
+<tr>
+<th>Hook</th>
+<th>Enforces</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>require-brain-boot.sh</code></td>
+<td>Both V1 and V2 <code>boot_session</code> must succeed before any tool</td>
+</tr>
+<tr>
+<td><code>require-prework.sh</code></td>
+<td><code>pre-work-check.sh</code> must have passed before Bash/Edit/Write</td>
+</tr>
+<tr>
+<td><code>branch-guard.sh</code></td>
+<td>No <code>git commit</code> on <code>main</code>, <code>master</code>, <code>develop</code></td>
+</tr>
+<tr>
+<td><code>no-force-push.sh</code></td>
+<td>No <code>git push --force</code> without explicit confirmation</td>
+</tr>
+<tr>
+<td><code>no-rm-rf.sh</code></td>
+<td>No <code>rm -rf</code> without explicit confirmation</td>
+</tr>
+<tr>
+<td><code>require-brain-save.sh</code></td>
+<td>No <code>git commit</code> unless brain was written to this session</td>
+</tr>
+<tr>
+<td><code>require-brain-checkpoint.sh</code></td>
+<td><code>brain_checkpoint</code> required before editing risky files</td>
+</tr>
+<tr>
+<td><code>detect-correction.sh</code></td>
+<td>Frustration signals → directive to pin correction as guardrail</td>
+</tr>
+<tr>
+<td><code>session-end-save.py</code></td>
+<td>Session handoff written to brain + project dir at stop</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="the-pre-work-gate">The pre-work gate</h2>
+<p>The most impactful hook is <code>require-prework.sh</code>. It enforces this workflow:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>Before starting any task:
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>  bash scripts/pre-work-check.sh &quot;task description&quot;
+</code></pre></div>
+<p><code>pre-work-check.sh</code> verifies:</p>
 <ol>
-<li>Open <strong>Settings</strong> &gt; <strong>Connected Apps</strong> &gt; <strong>Add MCP Server</strong></li>
-<li>Enter: <code>http://localhost:8765/sse</code></li>
+<li>Open Brain MCP server is reachable (port 8080 for HTTP transport).</li>
+<li>You are on a feature branch, not <code>main</code>/<code>master</code>.</li>
+<li>Writes <code>.task-markers/&lt;timestamp&gt;-start.txt</code> with <code>status: pass</code> or
+   <code>status: fail</code>.</li>
 </ol>
-<p>This process must be running whenever you use ChatGPT Desktop with the brain.</p>
-<hr />
-<h2 id="option-b-tunnel-via-ngrok">Option B: Tunnel via ngrok</h2>
-<p>For access from other devices (e.g. ChatGPT mobile):</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># 1. Install ngrok</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>winget<span class="w"> </span>install<span class="w"> </span>ngrok
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="c1"># 2. Start the SSE proxy</span>
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>.venv<span class="se">\S</span>cripts<span class="se">\p</span>ython.exe<span class="w"> </span>-m<span class="w"> </span>mcp.server.sse<span class="w"> </span>--port<span class="w"> </span><span class="m">8765</span><span class="w"> </span>--<span class="w"> </span>python<span class="w"> </span>server.py
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>
-<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="c1"># 3. Tunnel it</span>
-<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>ngrok<span class="w"> </span>http<span class="w"> </span><span class="m">8765</span>
-<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>
-<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="c1"># 4. Use the https://xxxx.ngrok.io/sse URL in ChatGPT Desktop</span>
+<p><code>require-prework.sh</code> reads that <code>status:</code> field before every <code>Bash</code>, <code>Edit</code>,
+and <code>Write</code> call. If it's anything other than <code>pass</code>, the call is blocked:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>PRE-WORK GATE: Last pre-work-check FAILED.
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>Task: your task description
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>Re-run: bash scripts/pre-work-check.sh &#39;task description&#39;
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>Fix ALL failures before proceeding.
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>To bypass: ask the user explicitly for permission.
+</code></pre></div>
+<h3 id="opting-a-repo-in">Opting a repo in</h3>
+<p>The hook only enforces in repos that have a <code>.task-markers/</code> directory. To
+opt in any repo:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>mkdir<span class="w"> </span>-p<span class="w"> </span>/path/to/your/repo/.task-markers
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="nb">echo</span><span class="w"> </span><span class="s1">&#39;.task-markers/&#39;</span><span class="w"> </span>&gt;&gt;<span class="w"> </span>/path/to/your/repo/.gitignore
 </code></pre></div>
 <hr />
-<h2 id="auto-capture-instructions">Auto-Capture Instructions</h2>
-<p>ChatGPT Desktop uses Custom Instructions for persistent behavior:</p>
+<h2 id="the-correction-feedback-loop">The correction feedback loop</h2>
+<p><code>detect-correction.sh</code> fires on <code>UserPromptSubmit</code> and scans for frustration
+signals: profanity, ALL CAPS words (3+), explicit negation phrases. When
+detected, it injects:</p>
+<blockquote>
+<p>"CORRECTION DETECTED: … call <code>mcp__open-brain__remember</code> with
+<code>type_override=guardrail</code>. Include WHAT you did wrong, WHAT the correct
+behavior is, WHY it matters."</p>
+</blockquote>
+<p>The next <code>boot_session</code> loads that pinned guardrail automatically. The
+correction propagates to every future session without any manual effort.</p>
+<hr />
+<h2 id="manual-hook-wiring">Manual hook wiring</h2>
+<p>If you prefer to wire hooks manually instead of using the installer:</p>
 <ol>
-<li>Open <strong>Settings</strong> (gear icon) &gt; <strong>Personalization</strong> &gt; <strong>Custom Instructions</strong></li>
-<li>Paste the contents of <code>prompts/generic-system-prompt.md</code> into the "What would you like ChatGPT to know?" field</li>
+<li>
+<p>Copy hooks to <code>~/.claude/hooks/</code> and make them executable.</p>
+</li>
+<li>
+<p>In <code>~/.claude/settings.json</code>, add to the <code>hooks</code> object:</p>
+</li>
 </ol>
-<p>This tells ChatGPT to silently capture and recall memories using the Open Brain tools.</p>
-<hr />
-<h2 id="v2-via-sse">v2 via SSE</h2>
-<p>To connect ChatGPT Desktop to brain_v2, run a second SSE proxy on a different port:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>.venv<span class="se">\S</span>cripts<span class="se">\p</span>ython.exe<span class="w"> </span>-m<span class="w"> </span>mcp.server.sse<span class="w"> </span>--port<span class="w"> </span><span class="m">8766</span><span class="w"> </span>--<span class="w"> </span>python<span class="w"> </span>brain_v2/server.py
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="p">{</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="nt">&quot;hooks&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">    </span><span class="nt">&quot;PreToolUse&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">      </span><span class="p">{</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">        </span><span class="nt">&quot;matcher&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;(?!mcp__open-brain).*&quot;</span><span class="p">,</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">        </span><span class="nt">&quot;hooks&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">          </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;command&quot;</span><span class="p">,</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="w">          </span><span class="nt">&quot;command&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;bash \&quot;/home/you/.claude/hooks/require-brain-boot.sh\&quot;&quot;</span><span class="p">,</span>
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="w">          </span><span class="nt">&quot;timeout&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">10</span>
+<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="w">        </span><span class="p">}]</span>
+<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="w">      </span><span class="p">},</span>
+<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="w">      </span><span class="p">{</span>
+<a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="w">        </span><span class="nt">&quot;matcher&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Bash&quot;</span><span class="p">,</span>
+<a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a><span class="w">        </span><span class="nt">&quot;hooks&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a><span class="w">          </span><span class="p">{</span>
+<a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a><span class="w">            </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;command&quot;</span><span class="p">,</span>
+<a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a><span class="w">            </span><span class="nt">&quot;command&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;bash \&quot;/home/you/.claude/hooks/require-prework.sh\&quot;&quot;</span><span class="p">,</span>
+<a id="__codelineno-5-18" name="__codelineno-5-18" href="#__codelineno-5-18"></a><span class="w">            </span><span class="nt">&quot;timeout&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">5</span>
+<a id="__codelineno-5-19" name="__codelineno-5-19" href="#__codelineno-5-19"></a><span class="w">          </span><span class="p">},</span>
+<a id="__codelineno-5-20" name="__codelineno-5-20" href="#__codelineno-5-20"></a><span class="w">          </span><span class="p">{</span>
+<a id="__codelineno-5-21" name="__codelineno-5-21" href="#__codelineno-5-21"></a><span class="w">            </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;command&quot;</span><span class="p">,</span>
+<a id="__codelineno-5-22" name="__codelineno-5-22" href="#__codelineno-5-22"></a><span class="w">            </span><span class="nt">&quot;command&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;bash \&quot;/home/you/.claude/hooks/branch-guard.sh\&quot;&quot;</span><span class="p">,</span>
+<a id="__codelineno-5-23" name="__codelineno-5-23" href="#__codelineno-5-23"></a><span class="w">            </span><span class="nt">&quot;timeout&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">5</span>
+<a id="__codelineno-5-24" name="__codelineno-5-24" href="#__codelineno-5-24"></a><span class="w">          </span><span class="p">}</span>
+<a id="__codelineno-5-25" name="__codelineno-5-25" href="#__codelineno-5-25"></a><span class="w">        </span><span class="p">]</span>
+<a id="__codelineno-5-26" name="__codelineno-5-26" href="#__codelineno-5-26"></a><span class="w">      </span><span class="p">}</span>
+<a id="__codelineno-5-27" name="__codelineno-5-27" href="#__codelineno-5-27"></a><span class="w">    </span><span class="p">]</span>
+<a id="__codelineno-5-28" name="__codelineno-5-28" href="#__codelineno-5-28"></a><span class="w">  </span><span class="p">}</span>
+<a id="__codelineno-5-29" name="__codelineno-5-29" href="#__codelineno-5-29"></a><span class="p">}</span>
 </code></pre></div>
-<p>Then add <code>http://localhost:8766/sse</code> as a second MCP server in ChatGPT Desktop settings.</p>
+<p>See <code>contrib/agent-harness/settings.snippet.json</code> for the full wiring.</p>
+<hr />
+<h2 id="customizing-for-your-project">Customizing for your project</h2>
+<p><strong><code>require-brain-checkpoint.sh</code></strong> — edit the <code>case "$TOOL_INPUT"</code> block to
+match your project's risky file patterns. The defaults cover <code>docker-compose</code>,
+<code>Dockerfile</code>, migration scripts, server entrypoints, and <code>settings.json</code>.</p>
+<p><strong><code>session-end-save.py</code></strong> — edit <code>PROJECT_MAP</code> near the top of the file. Each
+entry is <code>("directory-fragment", "project-slug")</code>. The detector does a
+case-insensitive substring match against the working directory path.</p>
+<p><strong><code>require-prework.sh</code></strong> — the hook is already project-agnostic. It only
+fires if <code>.task-markers/</code> exists in the repo. No customization needed.</p>
+<hr />
+<h2 id="relationship-to-claudemd">Relationship to CLAUDE.md</h2>
+<p><code>CLAUDE.md</code> contains the human-readable rules Claude reasons about. The hooks
+are the machine-enforced counterpart. Together they form a two-layer system:</p>
+<ul>
+<li><strong>CLAUDE.md</strong> — <em>Why</em> these rules exist, context for edge cases.</li>
+<li><strong>Hooks</strong> — <em>Enforcement</em> that doesn't depend on the model following instructions.</li>
+</ul>
+<p>When they conflict, hooks win. If CLAUDE.md says "run pre-work-check" and
+the agent skips it, <code>require-prework.sh</code> will block the next tool call.</p>
 
 
 

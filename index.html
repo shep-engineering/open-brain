@@ -794,6 +794,34 @@
   
   
     <li class="md-nav__item">
+      <a href="guides/agent-harness/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Harness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="guides/auto-capture/" class="md-nav__link">
         
   
@@ -1072,8 +1100,8 @@
 <p>Several unrelated projects share the name "Open Brain" or a variant — including Nate B. Jones' <a href="https://github.com/NateBJones-Projects/OB1">OB1</a>, <a href="https://github.com/impara/openBrain"><code>impara/openBrain</code></a>, <a href="https://github.com/Mihai-Codes/OpenBrain"><code>Mihai-Codes/OpenBrain</code></a>, <a href="https://github.com/rolders/open-brain"><code>rolders/open-brain</code></a>, the clinical platform <a href="https://openbrainai.com">openbrainai.com</a>, and the <a href="https://www.openbraininstitute.org/">Open Brain Institute</a> neuroscience research org. We're none of those. This is David Sheppard's personal AI memory server (<code>shep-engineering/open-brain</code>). See <a href="disambiguation/">Disambiguation</a> for the full list and how to tell us apart.</p>
 </div>
 <div class="admonition info">
-<p class="admonition-title">v0.24.3 + brain_v2 2.2.3</p>
-<p>Both servers now run on <strong>HTTP transport</strong> — no more stale sessions after a restart. v2 is a ground-up architecture redesign running alongside v1: four typed memory tables, headline-only boot payloads, immutable rules with supersede-only modification, full observability stack. See <a href="architecture/v2-architecture/">v2 Architecture</a> and the <a href="https://github.com/shep-engineering/open-brain/blob/main/CHANGELOG.md">Changelog</a> for details.</p>
+<p class="admonition-title">v0.25.0</p>
+<p><strong>Agent harness shipped.</strong> <code>contrib/agent-harness/</code> bundles nine Claude Code hooks that enforce the memory-first workflow at the tool-call level — no instructions to ignore, no gates to skip. Install in one command. See <a href="guides/agent-harness/">Agent Harness</a> for details. Both MCP servers run on <strong>HTTP transport</strong> (v0.24.3+) — no stale sessions after a restart.</p>
 </div>
 <hr />
 <h2 id="the-problem">The Problem</h2>
@@ -1120,6 +1148,7 @@
 <li><strong>Bi-temporal modelling:</strong> Two time axes per memory -- <code>valid_time</code> (when it happened) and <code>transaction_time</code> (when we learned it). Query with <code>as_of</code> to see what was known at any point in time.</li>
 <li><strong>Live dashboard:</strong> Dark-themed monitoring GUI with memory stats, service health, bar charts, clickable memory rows, and OTel observability metrics. Event-driven via PostgreSQL LISTEN/NOTIFY -- no polling, no strobe. Auto-starts services if needed.</li>
 <li><strong>Cognitive architecture:</strong> Session boot sequence loads full project context (guardrails, architecture, history, corrections) before the AI can act. Continuous brain checkpoints before risky file edits. Automatic correction detection and auto-pinning.</li>
+<li><strong>Agent harness:</strong> Nine Claude Code hooks enforce the memory-first workflow at the tool-call level — hard-block on failed pre-work checks, required brain save before commit, correction auto-pinning, and more. Ships in <code>contrib/agent-harness/</code>. See <a href="guides/agent-harness/">Agent Harness guide</a>.</li>
 <li><strong>Secrets protection:</strong> Automatically blocks API keys, tokens, private keys, and credentials from being stored. Prevents accidental leaks to embedding models.</li>
 <li><strong>Pinned guardrails:</strong> Pin workflow rules to a project so agents always see them. Corrections are auto-pinned as guardrails.</li>
 <li><strong>Project scoping:</strong> Tag memories by project. Search within a project without noise from others.</li>
