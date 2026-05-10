@@ -170,6 +170,37 @@ python server.py wire --check
 
 This also installs **Claude Code enforcement hooks** that block tool use until Open Brain is searched. See [Wiring Agents](docs/getting-started/wiring-agents.md#claude-code-enforcement-hooks) for details.
 
+### Agent Harness (optional, recommended)
+
+`contrib/agent-harness/` ships nine Claude Code hooks that enforce the
+memory-first workflow at the **tool-call level** — not just as instructions the
+model can reason around:
+
+| Hook | What it blocks |
+|------|---------------|
+| `require-brain-boot.sh` | Any tool call until both V1 + V2 boot_session succeed |
+| `require-prework.sh` | Bash/Edit/Write if pre-work-check.sh failed or wasn't run |
+| `branch-guard.sh` | git commit on main/master/develop |
+| `no-force-push.sh` | git push --force without explicit confirmation |
+| `no-rm-rf.sh` | rm -rf without explicit confirmation |
+| `require-brain-save.sh` | git commit unless brain was written to this session |
+| `require-brain-checkpoint.sh` | Edits to risky files without a brain checkpoint first |
+| `detect-correction.sh` | (UserPromptSubmit) Injects directive to pin corrections as guardrails |
+| `session-end-save.py` | (Stop) Writes session handoff to brain + project dir |
+
+**Install:**
+
+```bash
+# Linux / macOS / WSL:
+bash contrib/agent-harness/install.sh
+
+# Windows:
+contrib\agent-harness\install.cmd
+```
+
+After running, merge the printed snippet into `~/.claude/settings.json`.
+See [Agent Harness guide](https://shep-engineering.github.io/open-brain/guides/agent-harness/) for full documentation.
+
 ### 7. Launch the Dashboard (Windows)
 
 A dark monitoring dashboard ships with Open Brain. It shows memory counts, service health (PostgreSQL, Ollama, MCP), recent captures, most-accessed memories, and an observability strip with tool call metrics from OpenTelemetry traces.

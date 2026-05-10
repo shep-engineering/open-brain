@@ -11,8 +11,8 @@ Open Brain stores your thoughts as vector embeddings so any AI tool (Claude Code
 !!! warning "Which 'Open Brain'?"
     Several unrelated projects share the name "Open Brain" or a variant — including Nate B. Jones' [OB1](https://github.com/NateBJones-Projects/OB1), [`impara/openBrain`](https://github.com/impara/openBrain), [`Mihai-Codes/OpenBrain`](https://github.com/Mihai-Codes/OpenBrain), [`rolders/open-brain`](https://github.com/rolders/open-brain), the clinical platform [openbrainai.com](https://openbrainai.com), and the [Open Brain Institute](https://www.openbraininstitute.org/) neuroscience research org. We're none of those. This is David Sheppard's personal AI memory server (`shep-engineering/open-brain`). See [Disambiguation](disambiguation.md) for the full list and how to tell us apart.
 
-!!! info "v0.24.3 + brain_v2 2.2.3"
-    Both servers now run on **HTTP transport** — no more stale sessions after a restart. v2 is a ground-up architecture redesign running alongside v1: four typed memory tables, headline-only boot payloads, immutable rules with supersede-only modification, full observability stack. See [v2 Architecture](architecture/v2-architecture.md) and the [Changelog](https://github.com/shep-engineering/open-brain/blob/main/CHANGELOG.md) for details.
+!!! info "v0.25.0"
+    **Agent harness shipped.** `contrib/agent-harness/` bundles nine Claude Code hooks that enforce the memory-first workflow at the tool-call level — no instructions to ignore, no gates to skip. Install in one command. See [Agent Harness](guides/agent-harness.md) for details. Both MCP servers run on **HTTP transport** (v0.24.3+) — no stale sessions after a restart.
 
 ---
 
@@ -68,6 +68,7 @@ Your thought
 - **Bi-temporal modelling:** Two time axes per memory -- `valid_time` (when it happened) and `transaction_time` (when we learned it). Query with `as_of` to see what was known at any point in time.
 - **Live dashboard:** Dark-themed monitoring GUI with memory stats, service health, bar charts, clickable memory rows, and OTel observability metrics. Event-driven via PostgreSQL LISTEN/NOTIFY -- no polling, no strobe. Auto-starts services if needed.
 - **Cognitive architecture:** Session boot sequence loads full project context (guardrails, architecture, history, corrections) before the AI can act. Continuous brain checkpoints before risky file edits. Automatic correction detection and auto-pinning.
+- **Agent harness:** Nine Claude Code hooks enforce the memory-first workflow at the tool-call level — hard-block on failed pre-work checks, required brain save before commit, correction auto-pinning, and more. Ships in `contrib/agent-harness/`. See [Agent Harness guide](guides/agent-harness.md).
 - **Secrets protection:** Automatically blocks API keys, tokens, private keys, and credentials from being stored. Prevents accidental leaks to embedding models.
 - **Pinned guardrails:** Pin workflow rules to a project so agents always see them. Corrections are auto-pinned as guardrails.
 - **Project scoping:** Tag memories by project. Search within a project without noise from others.

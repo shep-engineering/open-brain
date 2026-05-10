@@ -1,0 +1,85 @@
+{
+  "_comment": "Paste the 'hooks' block into your ~/.claude/settings.json (merge with existing content). Replace HOOKS_DIR with the absolute path where you installed the hooks, e.g. C:\\Users\\YOU\\.claude\\hooks or /home/you/.claude/hooks. The install.sh / install.cmd scripts do this substitution automatically.",
+
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"HOOKS_DIR/detect-correction.sh\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "(?!mcp__open-brain).*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"HOOKS_DIR/require-brain-boot.sh\"",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"HOOKS_DIR/require-prework.sh\"",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "bash \"HOOKS_DIR/require-brain-save.sh\"",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "bash \"HOOKS_DIR/branch-guard.sh\"",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "bash \"HOOKS_DIR/no-force-push.sh\"",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "bash \"HOOKS_DIR/no-rm-rf.sh\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"HOOKS_DIR/require-prework.sh\"",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "bash \"HOOKS_DIR/require-brain-checkpoint.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"HOOKS_DIR/session-end-save.py\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -5,6 +5,72 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.25.0] - 2026-05-10
+
+### Agent harness: machine-enforced governance for Claude Code
+
+`contrib/agent-harness/` ships nine Claude Code hooks that turn Open Brain
+from a passive memory store into an active governance layer. Each hook
+intercepts specific tool calls and either hard-blocks violations or injects
+context — enforcing the same workflows described in `CLAUDE.md` but at the
+infrastructure level rather than the instruction level.
+
+#### What ships in `contrib/agent-harness/`
+
+**Hooks:**
+
+| File | Event | Enforces |
+|------|-------|---------|
+| `require-brain-boot.sh` | PreToolUse | Both V1 + V2 `boot_session` must succeed before any tool |
+| `require-prework.sh` | PreToolUse | `pre-work-check.sh` must have passed before Bash/Edit/Write |
+| `branch-guard.sh` | PreToolUse | No `git commit` on `main`/`master`/`develop` |
+| `no-force-push.sh` | PreToolUse | No `git push --force` without explicit confirmation |
+| `no-rm-rf.sh` | PreToolUse | No `rm -rf` without explicit confirmation |
+| `require-brain-save.sh` | PreToolUse | No `git commit` unless brain written to this session |
+| `require-brain-checkpoint.sh` | PreToolUse | `brain_checkpoint` required before editing risky files |
+| `detect-correction.sh` | UserPromptSubmit | Injects directive to pin corrections as guardrails |
+| `session-end-save.py` | Stop | Writes session handoff to brain + project dir |
+
+**Install bundle:**
+
+- `install.sh` — Linux/macOS/WSL installer with `--tier1` and `--dry-run` flags
+- `install.cmd` — Windows installer
+- `settings.snippet.json` — copy-paste hook wiring for `~/.claude/settings.json`
+- `README.md` — full hook reference with customization notes
+
+#### Installation
+
+```bash
+# Install all hooks (Linux/macOS/WSL):
+bash contrib/agent-harness/install.sh
+
+# Safety guards only (branch-guard, no-force-push, no-rm-rf):
+bash contrib/agent-harness/install.sh --tier1
+
+# Windows:
+contrib\agent-harness\install.cmd
+```
+
+After running, merge the printed snippet into `~/.claude/settings.json`.
+
+#### How the pre-work gate works end-to-end
+
+1. `scripts/pre-work-check.sh "task"` runs before starting work. It checks
+   Open Brain reachability (port 8080), verifies you're on a feature branch,
+   and writes `.task-markers/<ts>-start.txt` with `status: pass` or `status: fail`.
+2. `require-prework.sh` fires on every `Bash`, `Edit`, and `Write` call. It
+   reads the `status:` field from the latest start marker. If not `pass`, it
+   issues `permissionDecision: deny` — the tool call is blocked.
+3. To bypass: ask the user explicitly for permission. There is no silent bypass.
+
+#### Documentation
+
+- New MkDocs page: [Agent Harness guide](https://shep-engineering.github.io/open-brain/guides/agent-harness/)
+- `README.md`: new "Agent Harness" section with install table and quick-start
+- `AGENTS.md`: pre-work gate section updated to document hook enforcement
+
+---
+
 ## [0.24.4] - 2026-05-10
 
 ### Pre-work gate is now a hard block, not a suggestion
