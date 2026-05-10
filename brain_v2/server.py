@@ -1542,6 +1542,56 @@ def _on_shutdown():
 _atexit.register(_on_shutdown)
 
 
+HTTP_PORT = int(os.getenv("OPEN_BRAIN_V2_PORT", "8081"))
+HTTP_HOST = os.getenv("OPEN_BRAIN_V2_HOST", "0.0.0.0")
+
+
+def _run_stdio() -> None:
+    mcp.run(transport="stdio")
+
+
+def _run_http(host: str, port: int) -> None:
+    import uvicorn
+    app = mcp.streamable_http_app()
+    print(f"Open Brain v2 HTTP server: http://{host}:{port}/mcp", file=sys.stderr)
+    uvicorn.run(app, host=host, port=port, log_level="info")
+
+
+def _run_both(host: str, port: int) -> None:
+    import threading
+    t = threading.Thread(target=_run_http, args=(host, port), daemon=True)
+    t.start()
+    _run_stdio()
+
+
 if __name__ == "__main__":
-    _auto_register_session()
-    mcp.run()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Open Brain v2 MCP Server")
+    parser.add_argument(
+        "--transport",
+        choices=["stdio", "http", "both"],
+        default="stdio",
+        help="Transport: stdio (editors), http (persistent HTTP), both (stdio+http)",
+    )
+    parser.add_argument(
+        "--port", type=int, default=HTTP_PORT,
+        help=f"HTTP port (default: {HTTP_PORT}, env: OPEN_BRAIN_V2_PORT)",
+    )
+    parser.add_argument(
+        "--host", default=HTTP_HOST,
+        help=f"HTTP host (default: {HTTP_HOST}, env: OPEN_BRAIN_V2_HOST)",
+    )
+    args = parser.parse_args()
+
+    if args.transport in ("http", "both"):
+        # Don't block HTTP startup on session registration
+        import threading as _threading
+        _threading.Thread(target=_auto_register_session, daemon=True).start()
+        if args.transport == "http":
+            _run_http(args.host, args.port)
+        else:
+            _run_both(args.host, args.port)
+    else:
+        _auto_register_session()
+        _run_stdio()

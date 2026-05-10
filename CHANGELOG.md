@@ -5,6 +5,80 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.3] + [brain_v2 2.2.3] - 2026-05-01
+
+### HTTP transport: eliminate the stale-session problem
+
+**Root cause.** Both servers previously ran in stdio transport mode. Claude Code
+spawns stdio MCP servers as child processes at session initialization. If either
+process failed to start (Ollama not yet up, DB not ready, Python error on import),
+the MCP tools were absent for the entire session with no recovery path short of
+closing and restarting the session, which discards conversation context.
+
+**Fix.** Migrated both servers to persistent HTTP transport. Claude Code now
+connects to running HTTP processes by URL rather than spawning subprocesses.
+If a server goes down and comes back up, the next tool call reconnects
+automatically -- no session restart required.
+
+#### brain_v2/server.py -- HTTP transport added
+
+- Added `HTTP_PORT` (default 8081, env: `OPEN_BRAIN_V2_PORT`) and
+  `HTTP_HOST` (default `0.0.0.0`, env: `OPEN_BRAIN_V2_HOST`) constants.
+- Added `_run_stdio()`, `_run_http()`, `_run_both()` functions matching the
+  v1 pattern.
+- Added `argparse` entrypoint with `--transport` (stdio/http/both),
+  `--port`, `--host` flags.
+- In HTTP mode, `_auto_register_session()` runs in a background thread so
+  it does not block uvicorn startup (was causing ~20s delay before HTTP
+  server accepted connections).
+
+#### scripts/windows/open-brain-on.cmd -- HTTP-first startup
+
+- Kills any stale processes on ports 8080/8081 before starting fresh.
+- Starts v1 with `--transport http --port 8080`.
+- Starts v2 with `--transport http --port 8081`.
+- Uses `cmd /c` wrapper on both `start /B` commands so stderr is properly
+  redirected to `server-crash.log` (plain `start /B 2>>file` does not
+  forward the redirect to the spawned process).
+- Health check loop: polls until each server responds on its port. Uses
+  curl exit code 7 (connection refused) as the "not ready" signal instead
+  of `-f` (which fails on 406, the correct MCP response to a plain GET).
+- Reports "HTTP ready" per server or "WARNING: not responding" if the
+  30-second window expires.
+
+#### ~/.claude/settings.json -- URL transport
+
+Both MCP server entries changed from subprocess-spawning
+`command`/`args`/`env` to `type: "url"` pointing at the persistent HTTP
+processes:
+
+```json
+"open-brain":    { "type": "url", "url": "http://localhost:8080/mcp" }
+"open-brain-v2": { "type": "url", "url": "http://localhost:8081/mcp" }
+```
+
+Takes effect on the next Claude Code session start.
+
+#### Planning docs added
+
+- `docs/planning/stale-session-fix.md` -- full design document: root cause
+  analysis, Phase 1 (HTTP transport) and Phase 2 (session context
+  preservation hooks) plans, implementation order, risk assessment.
+- `docs/planning/stale-session-logging.md` -- follow-up: three logging gaps
+  discovered during implementation (v2 stderr capture, unified startup-status
+  log, post-startup stability check). Authored by scheduled remote agent.
+
+#### Known gaps (tracked in stale-session-logging.md)
+
+1. `cmd /c` wrapper for stderr redirect not verified against Desktop
+   shortcut execution path.
+2. No unified machine-readable startup-status log -- v1 and v2 write to
+   separate files, no single "did startup succeed" record.
+3. No post-startup stability check -- health loop exits on first success;
+   a server that passes then crashes within seconds is not detected.
+
+---
+
 ## [0.24.2] + [brain_v2 2.2.2] - 2026-04-23
 
 ### Ollama model LOAD/UNLOAD/THRASH monitor
