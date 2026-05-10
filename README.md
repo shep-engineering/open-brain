@@ -123,6 +123,18 @@ docker compose up -d
 python scripts/setup_db.py
 ```
 
+This setup step is idempotent: it creates a fresh database or upgrades an
+existing v1 install to the current schema expected by `server.py`.
+
+Optional but recommended after setup or upgrades:
+
+```sh
+python scripts/verify_setup_schema.py
+```
+
+That verifier checks the install landed the columns behind belief revision,
+skills, bitemporal storage, session registry, and uptime tracking.
+
 ### 5. Pull the embedding model
 
 ```sh
@@ -621,6 +633,13 @@ pytest tests/ -v
 bash scripts/test-db.sh -v
 ```
 
+For the install regression fixed here, verify the contributor setup path with:
+
+```sh
+python scripts/setup_db.py
+python scripts/verify_setup_schema.py
+```
+
 ### How It Works
 
 1. `conftest.py` overrides `DATABASE_URL` before `server.py` is imported
@@ -698,7 +717,7 @@ open-brain/
 │   ├── claude-desktop.md   # Paste into Claude Desktop system prompt
 │   └── generic-system-prompt.md
 ├── scripts/
-│   ├── setup_db.py         # One-time DB initialization (includes v2 schema)
+│   ├── setup_db.py         # One-time DB initialization / upgrade to current v1 schema
 │   ├── migrate_v2.py       # Migration for existing DBs: project, annotations, access tracking, ratings
 │   └── ensure-stack.sh     # Verify/start Ollama + open-brain-db from WSL
 ├── docker-compose.yml      # PostgreSQL + pgvector (production)

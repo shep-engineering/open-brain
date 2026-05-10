@@ -70,83 +70,10 @@ def _create_schema_ddl():
         )
         return
 
+    from scripts.setup_db import ensure_current_schema
+
     dims = int(os.getenv("EMBEDDING_DIMENSIONS", "768"))
-
-    with conn.cursor() as cur:
-        cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
-        cur.execute(f"""
-            CREATE TABLE IF NOT EXISTS memories (
-                id            SERIAL      PRIMARY KEY,
-                content       TEXT        NOT NULL,
-                embedding     VECTOR({dims}),
-                metadata      JSONB       NOT NULL DEFAULT '{{}}',
-                created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                project       TEXT        NOT NULL DEFAULT '',
-                annotation    TEXT        NOT NULL DEFAULT '',
-                access_count  INTEGER     NOT NULL DEFAULT 0,
-                last_accessed TIMESTAMPTZ,
-                upvotes       INTEGER     NOT NULL DEFAULT 0,
-                downvotes     INTEGER     NOT NULL DEFAULT 0,
-                pinned        BOOLEAN     NOT NULL DEFAULT FALSE
-            )
-        """)
-        cur.execute("""
-            CREATE INDEX IF NOT EXISTS memories_embedding_hnsw_idx
-            ON memories USING hnsw (embedding vector_cosine_ops)
-            WITH (m = 16, ef_construction = 64)
-        """)
-        cur.execute("CREATE INDEX IF NOT EXISTS memories_created_at_idx ON memories (created_at DESC)")
-        cur.execute("CREATE INDEX IF NOT EXISTS memories_metadata_gin_idx ON memories USING gin (metadata)")
-        cur.execute("CREATE INDEX IF NOT EXISTS memories_project_idx ON memories (project) WHERE project != ''")
-        cur.execute("CREATE INDEX IF NOT EXISTS memories_last_accessed_idx ON memories (last_accessed ASC NULLS FIRST)")
-        cur.execute("CREATE INDEX IF NOT EXISTS memories_pinned_project_idx ON memories (project) WHERE pinned = TRUE")
-
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS memories_audit (
-                audit_id    SERIAL      PRIMARY KEY,
-                operation   TEXT        NOT NULL,
-                memory_id   INTEGER     NOT NULL,
-                content     TEXT,
-                metadata    JSONB,
-                project     TEXT,
-                pinned      BOOLEAN,
-                changed_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                changed_by  TEXT        NOT NULL DEFAULT ''
-            )
-        """)
-        cur.execute("CREATE INDEX IF NOT EXISTS memories_audit_ts_idx ON memories_audit (changed_at DESC)")
-
-        cur.execute("""
-            CREATE OR REPLACE FUNCTION audit_memories()
-            RETURNS trigger AS $body$
-            BEGIN
-                IF TG_OP = 'DELETE' THEN
-                    INSERT INTO memories_audit (operation, memory_id, content, metadata, project, pinned)
-                    VALUES ('DELETE', OLD.id, OLD.content, OLD.metadata, OLD.project, OLD.pinned);
-                    RETURN OLD;
-                ELSIF TG_OP = 'UPDATE' THEN
-                    INSERT INTO memories_audit (operation, memory_id, content, metadata, project, pinned)
-                    VALUES ('UPDATE', NEW.id, NEW.content, NEW.metadata, NEW.project, NEW.pinned);
-                    RETURN NEW;
-                ELSIF TG_OP = 'INSERT' THEN
-                    INSERT INTO memories_audit (operation, memory_id, content, metadata, project, pinned)
-                    VALUES ('INSERT', NEW.id, NEW.content, NEW.metadata, NEW.project, NEW.pinned);
-                    RETURN NEW;
-                END IF;
-            END;
-            $body$ LANGUAGE plpgsql
-        """)
-        cur.execute("""
-            DO $body$ BEGIN
-                IF NOT EXISTS (
-                    SELECT 1 FROM pg_trigger WHERE tgname = 'memories_audit_trigger'
-                ) THEN
-                    CREATE TRIGGER memories_audit_trigger
-                    AFTER INSERT OR UPDATE OR DELETE ON memories
-                    FOR EACH ROW EXECUTE FUNCTION audit_memories();
-                END IF;
-            END $body$
-        """)
+    ensure_current_schema(conn, dims)
 
     conn.close()
 
@@ -186,7 +113,13 @@ def init_test_schema():
             cleanup_conn = psycopg2.connect(TEST_DATABASE_URL)
             cleanup_conn.autocommit = True
             with cleanup_conn.cursor() as cur:
-                cur.execute("TRUNCATE memories, memories_audit, server_uptime RESTART IDENTITY CASCADE")
+                cur.execute(
+                    "TRUNCATE memories, memories_audit, active_sessions RESTART IDENTITY CASCADE"
+                )
+                cur.execute(
+                    "INSERT INTO server_uptime (id, total_seconds) VALUES (1, 0.0) "
+                    "ON CONFLICT (id) DO UPDATE SET total_seconds = 0.0, last_heartbeat = NOW()"
+                )
             cleanup_conn.close()
             # Clean up done marker for the next test run
             try:

@@ -33,6 +33,13 @@ pytest tests/ -v
 bash scripts/test-db.sh -v
 ```
 
+To verify the contributor install path itself, run:
+
+```sh
+python scripts/setup_db.py
+python scripts/verify_setup_schema.py
+```
+
 ---
 
 ## How It Works
@@ -55,6 +62,10 @@ The test `conftest.py` automatically creates the full schema in the test databas
 - Hybrid search (FTS), bi-temporal, and uptime migrations
 
 This mirrors the production schema exactly. You never need to run `setup_db.py` against the test database manually.
+
+`scripts/verify_setup_schema.py` is the companion check for a real/local
+v1 database. It validates that `setup_db.py` produced the columns and
+indexes expected by the current server code.
 
 ### Fake Embeddings
 

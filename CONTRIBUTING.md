@@ -19,6 +19,7 @@ implementations, docs improvements, or design suggestions.
 4. **Make your change.** Keep commits focused; one logical change per PR.
 5. **Run the tests:**
    ```bash
+   python scripts/verify_setup_schema.py  # verify local install/current v1 schema
    pytest tests/           # v1 suite (parallel: pytest tests/ -n 4 --dist loadfile)
    pytest brain_v2/tests/  # v2 suite (serial)
    ```

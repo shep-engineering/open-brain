@@ -3291,6 +3291,19 @@ if __name__ == "__main__":
         # OpenTelemetry initialization (traces + metrics + auto-instrumentation)
         telemetry.initialize()
 
+        # Bring v1 installs to the current schema before any tool path runs.
+        try:
+            from scripts.setup_db import ensure_current_schema
+
+            schema_conn = psycopg2.connect(DATABASE_URL)
+            schema_conn.autocommit = True
+            try:
+                ensure_current_schema(schema_conn, EMBEDDING_DIMS)
+            finally:
+                schema_conn.close()
+        except Exception as e:
+            print(f"[open-brain] base schema bootstrap failed (non-fatal): {e}", file=sys.stderr)
+
         # Auto-migrate hybrid search schema if enabled
         try:
             db_migrate_hybrid()
