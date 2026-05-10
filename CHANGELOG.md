@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.4] - 2026-05-10
+
+### Pre-work gate is now a hard block, not a suggestion
+
+**Problem.** `scripts/pre-work-check.sh` exits non-zero when checks fail, but
+nothing in the hook chain intercepted subsequent tool calls. An agent could run
+the check, see it fail, and keep working anyway — exactly what the gate is
+supposed to prevent.
+
+**Fix.** Two changes ship together:
+
+#### scripts/pre-work-check.sh
+
+- Appends `status: pass` or `status: fail` to the task start marker
+  (`.task-markers/*-start.txt`) at the end of every run.
+- Brain reachability check now probes port 8080 (MCP HTTP transport, v0.24.3+)
+  first, with fallback to port 8765 (dashboard REST). Port 8765 was always wrong
+  for HTTP-transport installs, causing spurious failures on every run.
+
+#### ~/.claude/hooks/require-prework.sh (Claude Code hook)
+
+- `PreToolUse` hook wired for `Bash` and `Edit|Write` tool matchers.
+- Reads `status:` from the latest `.task-markers/*-start.txt` in the current
+  git repo. If `status != pass`, issues a hard `permissionDecision: deny` — the
+  tool call is blocked before it executes.
+- Only enforces in repos that have a `.task-markers/` directory (opt-in).
+- Always allows: `pre-work-check.sh` itself (circular-block escape),
+  brain startup scripts.
+- To bypass legitimately: ask the user explicitly for permission first.
+
+---
+
 ## [0.24.3] + [brain_v2 2.2.3] - 2026-05-01
 
 ### HTTP transport: eliminate the stale-session problem
