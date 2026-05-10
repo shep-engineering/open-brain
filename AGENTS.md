@@ -41,8 +41,12 @@ Before any work, in order:
    ```bash
    bash scripts/pre-work-check.sh "task description"
    ```
-   This ensures you are on a feature branch, creates a rollback tag, and writes
-   a task-start marker. If it fails, stop and resolve the issue before continuing.
+   This ensures you are on a feature branch and writes a task-start marker with
+   `status: pass` or `status: fail`. **This gate is now enforced by a Claude Code
+   hook (`require-prework.sh`): if the check has not passed, every subsequent
+   `Bash`, `Edit`, and `Write` call is hard-blocked with a `permissionDecision:
+   deny`.** There is no way to proceed past a failing gate without explicit user
+   permission. Fix all failures and re-run the check until it passes.
 
 ## Branch Rules: Non-Negotiable
 
