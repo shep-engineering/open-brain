@@ -5,6 +5,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.0] - 2026-05-25
+
+### Ollama LAN exposure + startup hardening
+
+Expose Ollama on `0.0.0.0:11434` so LAN clients can reach the local model
+server, and harden the startup sequence against Docker timing failures.
+
+#### Ollama LAN exposure (`feat/ollama-lan-exposure`)
+
+`OLLAMA_HOST=0.0.0.0:11434` is now set at all three Ollama launch sites:
+
+- `scripts/windows/open-brain-on.cmd` — `set OLLAMA_HOST=0.0.0.0:11434` in
+  the else branch that starts Ollama
+- `scripts/infrastructure.py` — added `OLLAMA_HOST` to `OLLAMA_ENV` dict
+  (line 127); this dict is passed via `env=env` to the watchdog `Popen`
+  re-spawn path — without this, dashboard.py re-spawns bound loopback-only
+- `C:\Users\DAVE\Desktop\AI Mode ON.cmd` — `OLLAMA_HOST` in env block and
+  inline `cmd /c` invocation (outside repo, companion change)
+
+Windows Firewall rule **"Ollama LAN (11434)"** added (TCP/11434,
+`RemoteIP=LocalSubnet`) so LAN traffic is allowed but the internet is blocked.
+
+`AI Mode OFF.cmd` updated with graceful model unloading: enumerates
+`ollama ps` and calls `ollama stop <model>` for each before `taskkill /F`,
+preventing GPU memory orphaning on the next load.
+
+`CLAUDE.md §0.6` — new "No Assumptions: Verify Before You Tell" guardrail,
+with a worked example from the 2026-05-25 Ollama Desktop assumption failure.
+
+E2E verified: `netstat` shows `0.0.0.0:11434 LISTENING`; curl from a second
+LAN PC returned the full JSON model list.
+
+#### Docker startup hardening (`fix/open-brain-on-docker-retry`)
+
+`scripts/windows/open-brain-on.cmd` and `scripts/infrastructure.py` updated
+with retry loop, step counter, structured log files, MCP shutdown sequencing,
+and v2-db startup fixes.
+
+---
+
 ## [0.25.0] - 2026-05-10
 
 ### Agent harness: machine-enforced governance for Claude Code
