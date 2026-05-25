@@ -80,13 +80,14 @@ curl -sf http://127.0.0.1:11434/api/tags >nul 2>&1
 if %errorlevel%==0 (
     echo     Ollama already running
 ) else (
-    echo     Starting Ollama ^(dual GPU^)...
+    echo     Starting Ollama ^(dual GPU, LAN-exposed on 0.0.0.0:11434^)...
+    set OLLAMA_HOST=0.0.0.0:11434
     set OLLAMA_NUM_GPU=2
     set CUDA_VISIBLE_DEVICES=0,1
     set OLLAMA_KEEP_ALIVE=30m
     set OLLAMA_MAX_LOADED_MODELS=2
     start "" /B ollama serve >"%OB_ROOT%\logs\ollama.log" 2>&1
-    echo     Ollama started ^(dual GPU, max 2 models loaded^)
+    echo     Ollama started ^(dual GPU, max 2 models loaded, bound 0.0.0.0:11434^)
 )
 
 echo [4/6] Starting Open Brain MCP servers (HTTP transport)...

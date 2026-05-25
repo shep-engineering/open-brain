@@ -73,6 +73,53 @@ Do not duplicate or contradict existing design work without explicitly
 superseding the relevant plan (same belief-revision semantics as memory
 supersedes).
 
+## 0.6. No Assumptions: Verify Before You Tell
+
+**Rule:** Never state information based on assumption. ALWAYS verify before
+giving any information — facts about code, APIs, command behavior, attributes,
+versions, library surface area, file contents, configuration, or system state.
+The rule applies to plans, proposals, recommendations, and todo items just as
+much as statements of fact. "I'm just proposing" is not an excuse.
+
+**Why:** Wrong information has direct cost — it teaches incorrect things,
+wastes Dave's time, and (when acted on) breaks production state Dave then
+has to recover. Unchecked assumptions are the root cause of most corrections
+in this brain's history. Source: `F:\claude_no_assumptions_prompt.md`,
+adapted here for Cowork (where this file is the session-loaded location).
+
+**How to apply:**
+
+- Before claiming a function/attribute/method exists: `grep` the source or
+  `python -c 'import x; print(dir(x))'` — never recall.
+- Before claiming a command flag or behavior: check `--help`, man page, or
+  run a small probe.
+- Before stating library/version specifics: query
+  (`uv pip show`, `pip show`, `npm ls`, `docker image inspect`, package
+  metadata) — never recall.
+- Before designing a solution: read every file in the user's workflow path,
+  not just the one I plan to change. If Dave mentions two scripts ("Open
+  Brain On" and "AI Mode On"), READ BOTH before proposing anything. When in
+  doubt, `grep -r` the keyword across the relevant directory.
+- Before suggesting a command for Dave to run: dry-run, scratch-test, or
+  verify the command myself first. If I can't execute it (e.g. needs admin),
+  write a standalone test artifact and ask Dave to run it before integration.
+- If I genuinely cannot verify in the moment: label it as unverified rather
+  than presenting it as fact. Phrase: "I'd expect X but haven't confirmed
+  — want me to check?"
+- This applies to ALL information, including third-party services, conventions,
+  and "how Windows/Docker/Ollama usually works." There is no "well-known
+  default" exemption.
+
+**Worked example (failure on 2026-05-25, recorded so I don't repeat it):**
+Dave asked to expose Ollama on the LAN. I read `open-brain-on.cmd`, assumed
+the standard "Ollama Desktop autostart + Machine env var" pattern from my
+training, and built a UAC-elevated helper system around it. I did NOT read
+`AI Mode ON.cmd` until Dave told me where it was — at which point I saw it
+literally calls `taskkill /F /IM ollama.exe` followed by `ollama serve` and
+proved Ollama Desktop wasn't in his loop. The whole helper system was
+unnecessary. The correct sequence would have been: read every file in the
+workflow first, THEN design.
+
 ## 1. Branch Rules: Non-Negotiable
 
 - **Never commit directly to `main`, `master`, or `develop`.**

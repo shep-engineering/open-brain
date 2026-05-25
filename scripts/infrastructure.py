@@ -120,6 +120,11 @@ OLLAMA_API = "http://127.0.0.1:11434/api/tags"
 # selection controls which card ollama binds to. Default ("0,1") lets
 # ollama see both cards and allocate freely — same as the prior behavior.
 OLLAMA_ENV = {
+    # Bind to all interfaces so LAN clients can reach Ollama. Firewall rule
+    # "Ollama LAN (11434)" scoped to LocalSubnet keeps the internet blocked.
+    # See CLAUDE.md §0.6 (added 2026-05-25) for the worked example of why
+    # this matters across all three Ollama launch sites.
+    "OLLAMA_HOST": "0.0.0.0:11434",
     "OLLAMA_NUM_GPU": "2",
     "CUDA_VISIBLE_DEVICES": "0,1",
     "OLLAMA_KEEP_ALIVE": "30m",
