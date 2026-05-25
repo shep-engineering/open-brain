@@ -108,7 +108,9 @@ DASHBOARD_CONFIG_FILE = LOGS_DIR / "dashboard-config.json"
 
 DOCKER_DESKTOP_EXE = Path(r"C:\Program Files\Docker\Docker\Docker Desktop.exe")
 DB_CONTAINER = "open-brain-db"
+DB_CONTAINER_V2 = "open-brain-v2-db"
 DB_URL = "postgresql://postgres:password@127.0.0.1:5432/openbrain"
+DB_URL_V2 = "postgresql://postgres:password@127.0.0.1:5433/open_brain_v2"
 OLLAMA_API = "http://127.0.0.1:11434/api/tags"
 
 # Ollama env vars (formerly set by on.cmd).
@@ -325,55 +327,64 @@ class Infrastructure:
 
     # ---------- Database ----------
 
-    def _db_reachable(self) -> bool:
+    def _db_reachable(self, url: str = DB_URL) -> bool:
         try:
             import psycopg2
         except ImportError:
             self._emit("db", "fail", "psycopg2 not installed in this environment")
             return False
         try:
-            conn = psycopg2.connect(DB_URL, connect_timeout=2)
+            conn = psycopg2.connect(url, connect_timeout=2)
             conn.close()
             return True
         except Exception:
             return False
 
     def ensure_db(self, timeout: int = 30) -> bool:
-        self._emit("db", "start", f"ensuring {DB_CONTAINER} is running")
-        try:
-            r = subprocess.run(
-                ["docker", "start", DB_CONTAINER],
-                capture_output=True,
-                text=True,
-                timeout=15,
-            )
-            if r.returncode != 0:
+        all_ok = True
+        for container, url, label in (
+            (DB_CONTAINER,    DB_URL,    "v1"),
+            (DB_CONTAINER_V2, DB_URL_V2, "v2"),
+        ):
+            self._emit("db", "start", f"ensuring {container} is running")
+            try:
+                r = subprocess.run(
+                    ["docker", "start", container],
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                )
+                if r.returncode != 0:
+                    self._emit(
+                        "db",
+                        "fail",
+                        f"docker start {container} rc={r.returncode}: {r.stderr.strip()[:120]}",
+                    )
+                    all_ok = False
+                    continue
+            except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+                self._emit("db", "fail", f"docker start {container} failed: {e}")
+                all_ok = False
+                continue
+
+            poll_start = time.monotonic()
+            attempt = 0
+            while time.monotonic() - poll_start < timeout:
+                attempt += 1
+                if self._db_reachable(url):
+                    self._emit("db", "ready", f"{container} postgres ready after {attempt} poll(s)")
+                    break
                 self._emit(
                     "db",
-                    "fail",
-                    f"docker start {DB_CONTAINER} rc={r.returncode}: {r.stderr.strip()[:120]}",
+                    "poll",
+                    f"waiting for {container} ({int(time.monotonic()-poll_start)}s/{timeout}s)",
                 )
-                return False
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
-            self._emit("db", "fail", f"docker start invocation failed: {e}")
-            return False
+                time.sleep(1)
+            else:
+                self._emit("db", "fail", f"{container} not responsive after {timeout}s")
+                all_ok = False
 
-        poll_start = time.monotonic()
-        attempt = 0
-        while time.monotonic() - poll_start < timeout:
-            attempt += 1
-            if self._db_reachable():
-                self._emit("db", "ready", f"postgres accepts connections after {attempt} poll(s)")
-                return True
-            self._emit(
-                "db",
-                "poll",
-                f"waiting for postgres ({int(time.monotonic()-poll_start)}s/{timeout}s)",
-            )
-            time.sleep(1)
-
-        self._emit("db", "fail", f"postgres not responsive after {timeout}s")
-        return False
+        return all_ok
 
     # ---------- Ollama ----------
 
@@ -475,7 +486,7 @@ class Infrastructure:
     # ---------- Stop all ----------
 
     def stop_all(self) -> None:
-        """Targeted shutdown: stop ollama + the open-brain-db container.
+        """Targeted shutdown: stop MCP servers, ollama, and the open-brain-db container.
 
         Intentionally does NOT kill Docker Desktop — the user may be running
         other containers (postgres for another project, redis, etc.) that
@@ -485,10 +496,51 @@ class Infrastructure:
         self._emit("stop", "start", "stopping Open Brain infrastructure")
         self._stop_heartbeat_agent()
         self._stop_model_monitor()
+        self._stop_mcp_servers()
         self._stop_ollama()
         self._stop_db()
         self._emit("stop", "info", "Docker Desktop left running (respects other containers)")
         self._emit("stop", "ready", "stop_all complete")
+
+    def _stop_mcp_servers(self) -> None:
+        """Terminate the Open Brain MCP server processes on ports 8080 (v1) and 8081 (v2).
+
+        Uses psutil to find processes listening on those ports and terminates
+        them gracefully (SIGTERM/terminate), falling back to kill if they don't
+        exit within 5s. Skips ports that are free.
+        """
+        try:
+            import psutil
+        except ImportError:
+            self._emit("stop", "info", "psutil not available — skipping MCP server stop")
+            return
+
+        targets = {8080: "v1", 8081: "v2"}
+        for port, label in targets.items():
+            pid = None
+            try:
+                for conn in psutil.net_connections(kind="tcp"):
+                    if conn.laddr.port == port and conn.status == psutil.CONN_LISTEN:
+                        pid = conn.pid
+                        break
+            except (psutil.AccessDenied, OSError):
+                pass
+
+            if pid is None:
+                self._emit("stop", "info", f"MCP {label} (port {port}): not running")
+                continue
+
+            try:
+                proc = psutil.Process(pid)
+                proc.terminate()
+                try:
+                    proc.wait(timeout=5)
+                    self._emit("stop", "info", f"MCP {label} (port {port}) stopped (pid {pid})")
+                except psutil.TimeoutExpired:
+                    proc.kill()
+                    self._emit("stop", "info", f"MCP {label} (port {port}) force-killed (pid {pid})")
+            except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
+                self._emit("stop", "info", f"MCP {label} (port {port}) stop failed: {e}")
 
     def _stop_model_monitor(self) -> None:
         """Terminate the v0.24.2+ ollama model monitor if running.
@@ -797,17 +849,18 @@ class Infrastructure:
             pass
 
     def _stop_db(self) -> None:
-        try:
-            r = subprocess.run(
-                ["docker", "stop", DB_CONTAINER],
-                capture_output=True, text=True, timeout=15,
-            )
-            if r.returncode == 0:
-                self._emit("stop", "info", f"{DB_CONTAINER} stopped")
-            else:
-                self._emit("stop", "info", f"{DB_CONTAINER} stop rc={r.returncode}")
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
-            self._emit("stop", "info", f"docker stop failed: {e}")
+        for container in (DB_CONTAINER, DB_CONTAINER_V2):
+            try:
+                r = subprocess.run(
+                    ["docker", "stop", container],
+                    capture_output=True, text=True, timeout=15,
+                )
+                if r.returncode == 0:
+                    self._emit("stop", "info", f"{container} stopped")
+                else:
+                    self._emit("stop", "info", f"{container} stop rc={r.returncode}")
+            except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+                self._emit("stop", "info", f"docker stop {container} failed: {e}")
 
 # ---------- Convenience entry point ----------
 

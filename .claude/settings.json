@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Allow All"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash F:/open-brain/scripts/hooks/require-test-evidence.sh",
+            "if": "Bash(git commit*)",
+            "timeout": 10,
+            "statusMessage": "Checking test evidence before commit..."
+          }
+        ]
+      }
+    ]
+  }
+}
