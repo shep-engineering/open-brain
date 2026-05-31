@@ -25,7 +25,7 @@ import tempfile
 # LAYER 1: Override DATABASE_URL before server.py is imported by any test file.
 # This MUST be at the top level of conftest.py, NOT inside a fixture.
 # ──────────────────────────────────────────────────────────────────────────────
-TEST_DATABASE_URL = "postgresql://postgres:testpassword@localhost:5434/openbrain_test"
+TEST_DATABASE_URL = "postgresql://postgres:testpassword@127.0.0.1:5434/openbrain_test"
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 
 import pytest

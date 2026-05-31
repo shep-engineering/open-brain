@@ -22,6 +22,7 @@ ON_SCRIPT_SH = BASE_DIR / "scripts" / "open-brain-on.sh"
 IS_WINDOWS = sys.platform == "win32"
 
 DB_URL = os.getenv("DATABASE_URL", "postgresql://postgres:password@127.0.0.1:5432/openbrain")
+MCP_HTTP_PORT = int(os.getenv("OPEN_BRAIN_PORT", "8080"))
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
@@ -67,6 +68,18 @@ except Exception:
 
 # Suppress cmd window popups on Windows for all subprocess calls
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if IS_WINDOWS else 0
+
+
+def _mcp_server_command(python_exe: str, server_py: str) -> list[str]:
+    """Command used by dashboard-managed MCP restarts."""
+    return [
+        python_exe,
+        server_py,
+        "--transport",
+        "http",
+        "--port",
+        str(MCP_HTTP_PORT),
+    ]
 
 
 def _utc_to_local(iso_ts: str) -> str:
@@ -1122,7 +1135,7 @@ class Dashboard(ctk.CTk):
                 python_exe = str(BASE_DIR / ".venv" / "Scripts" / "python.exe")
                 crash_log = str(BASE_DIR / "server-crash.log")
                 subprocess.Popen(
-                    [python_exe, server_py],
+                    _mcp_server_command(python_exe, server_py),
                     stdout=open(crash_log, "a"),
                     stderr=subprocess.STDOUT,
                     cwd=str(BASE_DIR),
