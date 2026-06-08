@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.0] - 2026-06-08
+
+### Embedding model upgrade: nomic-embed-text (768d) → qwen3-embedding:8b (4096d)
+
+Migrated all brain embeddings to `qwen3-embedding:8b` (MTEB 70.58 vs 62.39),
+improving semantic retrieval quality especially on complex and ambiguous queries.
+
+#### Migration (`feat/embedding-migration-qwen3`)
+
+- **V1**: 3,548 rows re-embedded at 4096d, 0 failures
+- **V2**: 75 rows re-embedded at 4096d, 0 failures
+- Old 768d vectors preserved as `embedding_768_backup` columns (7-day safety
+  window, then `DROP COLUMN` + `ollama rm nomic-embed-text`)
+- `.env` updated: `OLLAMA_EMBEDDING_MODEL=qwen3-embedding:8b`,
+  `EMBEDDING_DIMENSIONS=4096`
+
+**pgvector constraint:** HNSW and IVFFlat indexes are limited to 2000d.
+4096d exceeds this limit — no ANN index is created. Sequential scan
+benchmarked at ~39ms for 3,548 rows, acceptable for Open Brain's usage
+pattern. `brain_v2/schema.py` HNSW create statement replaced with a comment
+so the V2 startup schema check no longer errors.
+
+**Backups taken before migration:**
+- `backups/brain-v1-pre-embedding-20260608-095943.sql` (30.7 MB)
+- `backups/brain-v2-pre-embedding-20260608-095943.sql` (0.82 MB)
+
+---
+
 ## [0.26.0] - 2026-05-25
 
 ### Ollama LAN exposure + startup hardening

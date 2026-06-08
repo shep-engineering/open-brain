@@ -11,8 +11,8 @@ Open Brain stores your thoughts as vector embeddings so any AI tool (Claude Code
 !!! warning "Which 'Open Brain'?"
     Several unrelated projects share the name "Open Brain" or a variant — including Nate B. Jones' [OB1](https://github.com/NateBJones-Projects/OB1), [`impara/openBrain`](https://github.com/impara/openBrain), [`Mihai-Codes/OpenBrain`](https://github.com/Mihai-Codes/OpenBrain), [`rolders/open-brain`](https://github.com/rolders/open-brain), the clinical platform [openbrainai.com](https://openbrainai.com), and the [Open Brain Institute](https://www.openbraininstitute.org/) neuroscience research org. We're none of those. This is David Sheppard's personal AI memory server (`shep-engineering/open-brain`). See [Disambiguation](disambiguation.md) for the full list and how to tell us apart.
 
-!!! info "v0.25.0"
-    **Agent harness shipped.** `contrib/agent-harness/` bundles nine Claude Code hooks that enforce the memory-first workflow at the tool-call level — no instructions to ignore, no gates to skip. Install in one command. See [Agent Harness](guides/agent-harness.md) for details. Both MCP servers run on **HTTP transport** (v0.24.3+) — no stale sessions after a restart.
+!!! info "v0.27.0"
+    **Embedding model upgraded.** All brain vectors migrated from `nomic-embed-text` (768d) to `qwen3-embedding:8b` (4096d, MTEB 70.58 vs 62.39). Semantic retrieval quality improved across both V1 and V2. Note: pgvector HNSW is capped at 2000d so sequential scan is used (~39ms on 3,548 rows).
 
 ---
 

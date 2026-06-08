@@ -137,9 +137,9 @@ ALTER TABLE memory_index ADD COLUMN IF NOT EXISTS skill_trigger JSONB;
 CREATE INDEX IF NOT EXISTS rules_skill_trigger_idx
     ON rules USING GIN (skill_trigger)
     WHERE skill_trigger IS NOT NULL;
-CREATE INDEX IF NOT EXISTS memory_index_embedding_hnsw
-    ON memory_index USING hnsw (embedding vector_cosine_ops)
-    WITH (m = 16, ef_construction = 64);
+-- HNSW index intentionally omitted: pgvector HNSW limit is 2000d, embedding is 4096d
+-- (migrated 2026-06-08 from nomic-embed-text 768d to qwen3-embedding:8b 4096d)
+-- Sequential scan is used instead (~39ms for ~3500 rows, acceptable for this scale)
 CREATE INDEX IF NOT EXISTS memory_index_active_idx ON memory_index (active, project);
 CREATE INDEX IF NOT EXISTS memory_index_severity_idx ON memory_index (severity) WHERE severity IS NOT NULL;
 
