@@ -1,15 +1,7 @@
 @echo off
-SETLOCAL EnableDelayedExpansion
-title Open Brain ON
-
-REM Resolve the repo root relative to this script's location, so the
-REM launcher works regardless of where the repo is installed.
-set SCRIPT_DIR=%~dp0
-set OB_ROOT=%SCRIPT_DIR%..\..
-for %%I in ("%OB_ROOT%") do set OB_ROOT=%%~fI
-
-set PYTHON=%OB_ROOT%\.venv\Scripts\python.exe
-set DB_URL=postgresql://postgres:password@127.0.0.1:5432/openbrain
+REM Shim — delegates to open-brain-on.ps1 (PowerShell 7).
+REM Keep this .cmd so Explorer double-click and legacy callers still work.
+pwsh -NoProfile -ExecutionPolicy Bypass -File "%~dp0open-brain-on.ps1"
 
 mkdir "%OB_ROOT%\logs" 2>nul
 echo Starting Open Brain MCP server...

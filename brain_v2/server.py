@@ -1487,6 +1487,34 @@ def recent_errors_v2(n: int = 20) -> str:
     return _ok({"errors": obs.get_recent_errors(n=n)})
 
 
+# ─── MCP Prompts ───────────────────────────────────────────────────────────────
+
+@mcp.prompt(
+    name="open-brain-v2-startup",
+    title="Open Brain V2: Boot Session",
+    description="Mandatory V2 startup sequence — call this before any other action in a new session.",
+)
+def open_brain_v2_startup_prompt(project: str = "open-brain") -> list[dict]:
+    """Return the mandatory V2 boot sequence as an injectable MCP prompt."""
+    return [
+        {
+            "role": "user",
+            "content": (
+                f"MANDATORY SESSION START (Open Brain V2) — execute NOW before any other action:\n\n"
+                f"1. Call `boot_session_v2` with project=\"{project}\", "
+                f"task=\"<first user prompt>\", source=\"claude\"\n"
+                f"   Returns: typed rules, active facts, incidents, pending tasks, "
+                f"other active sessions, and action items.\n\n"
+                f"2. Also call V1 boot: `open-brain_boot_session` project=\"{project}\" source=\"claude\"\n"
+                f"   Returns: guardrails, correction history, pinned rules.\n\n"
+                f"3. Search for task context and user preferences.\n\n"
+                f"4. Acknowledge all pending action_items — write tools are BLOCKED until done.\n\n"
+                f"Do NOT skip these steps."
+            ),
+        }
+    ]
+
+
 _schema_applied = False
 
 
