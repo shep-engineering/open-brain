@@ -3101,6 +3101,47 @@ def scratch_list() -> str:
     }, indent=2)
 
 
+# ─── MCP Prompts ───────────────────────────────────────────────────────────────
+# Prompts surface in clients that support prompts/list (Claude Desktop, claude.ai,
+# etc.) and provide the same boot-sequence enforcement that Claude Code hooks give
+# via UserPromptSubmit. Without this, non-Claude-Code interfaces see the tools but
+# have no mechanism forcing boot_session before first response.
+
+@mcp.prompt(
+    name="open-brain-startup",
+    title="Open Brain: Boot Session",
+    description="Mandatory startup sequence — call this before any other action in a new session.",
+)
+def open_brain_startup_prompt(project: str = "open-brain") -> list[dict]:
+    """Return the mandatory boot sequence as an injectable MCP prompt.
+
+    Clients that auto-include prompts (Claude Desktop, claude.ai Projects) will
+    enforce this without user intervention. Clients that list prompts give users
+    a one-click way to trigger it.
+    """
+    return [
+        {
+            "role": "user",
+            "content": (
+                f"MANDATORY SESSION START — execute these steps NOW before any other action:\n\n"
+                f"1. Call `boot_session` with project=\"{project}\" and source=\"claude\"\n"
+                f"   (V1 brain: guardrails, action items, correction history)\n\n"
+                f"2. Call `open-brain-v2_boot_session_v2` with project=\"{project}\", "
+                f"task=\"<first user prompt>\", source=\"claude\"\n"
+                f"   (V2 brain: typed rules, facts, incidents, tasks)\n\n"
+                f"3. Search V1 for the task topic:\n"
+                f"   `search` query=\"<task topic>\" source=\"claude\"\n\n"
+                f"4. Search V1 for user preferences:\n"
+                f"   `search` query=\"user preferences formatting rules\" source=\"claude\"\n\n"
+                f"5. Acknowledge any pending action_items returned by boot_session "
+                f"(writes are BLOCKED until all items are acknowledged).\n\n"
+                f"Do NOT skip these steps. Write tools (remember, capture_context, supersede) "
+                f"are BLOCKED until boot_session has been called this session."
+            ),
+        }
+    ]
+
+
 # ─── Transport Helpers ─────────────────────────────────────────────────────────
 
 HTTP_PORT = int(os.getenv("OPEN_BRAIN_PORT", "8080"))

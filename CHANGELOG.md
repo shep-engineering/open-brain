@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.0] - 2026-06-18
+
+### PowerShell 7 startup scripts + MCP prompts for non-Claude-Code clients
+
+#### Startup scripts (`feat/powershell7-scripts`)
+
+Converted Windows launch scripts from legacy `.cmd` batch to PowerShell 7.6+:
+
+- `scripts/windows/open-brain-on.ps1` — full PS7 rewrite of the ON script.
+  Uses `ProcessStartInfo` with `UseShellExecute=false`/`CreateNoWindow=true`
+  so MCP server processes are fully detached and survive parent `pwsh` exit.
+  (Root cause of old `Start-Process -RedirectStandardError` approach: PS-managed
+  pipe read-end closes on parent exit → uvicorn stderr writes break → crash.)
+- `scripts/windows/open-brain-off.ps1` — PS7 wrapper around `infrastructure.py`.
+- `scripts/windows/open-brain-on.cmd` / `open-brain-off.cmd` — reduced to 3-line
+  `pwsh -File` shims for Explorer double-click / legacy caller compatibility.
+- Desktop scripts updated outside repo: `AI Mode ON/OFF.ps1`, `Open Brain ON/OFF.cmd`,
+  `Start/Stop Ollama.ps1`. Fixed missing `open-brain-v2-db` in AI Mode ON/OFF
+  (V2 DB was never started/stopped by the desktop scripts before this fix).
+
+#### MCP prompts for non-Claude-Code interfaces (`server.py`, `brain_v2/server.py`)
+
+Added `@mcp.prompt()` endpoints to both V1 and V2 servers:
+
+- V1: `open-brain-startup` — returns the full boot sequence (boot V1+V2, search,
+  acknowledge action items) as an injectable MCP prompt.
+- V2: `open-brain-v2-startup` — same framing from V2's perspective.
+
+Clients that support `prompts/list` (Claude Desktop, claude.ai Projects) can now
+invoke the boot sequence without Claude Code hooks. Addresses the gap where
+non-Claude-Code interfaces had MCP tools available but no enforcement mechanism.
+
 ## [0.27.0] - 2026-06-08
 
 ### Embedding model upgrade: nomic-embed-text (768d) → qwen3-embedding:8b (4096d)
