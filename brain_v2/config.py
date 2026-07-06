@@ -16,9 +16,9 @@ DATABASE_URL = os.getenv(
     "postgresql://postgres:password@localhost:5433/open_brain_v2",
 )
 
-EMBEDDING_DIMS = int(os.getenv("OPEN_BRAIN_V2_EMBEDDING_DIMS", "768"))
+EMBEDDING_DIMS = int(os.getenv("OPEN_BRAIN_V2_EMBEDDING_DIMS", "4096"))
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
-OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")
+OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBEDDING_MODEL", "qwen3-embedding:8b")
 OLLAMA_EMBED_TIMEOUT = int(os.getenv("OPEN_BRAIN_V2_EMBED_TIMEOUT", "120"))
 
 BOOT_TOKEN_CAP = int(os.getenv("OPEN_BRAIN_V2_BOOT_TOKEN_CAP", "2000"))

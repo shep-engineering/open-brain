@@ -5,6 +5,64 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.29.0] - 2026-07-06
+
+### Fixed: V2 embedding model mismatch (boot_session_v2 dimension error)
+
+The `open-brain-v2` MCP registration in `.claude.json` pinned
+`OLLAMA_EMBEDDING_MODEL=nomic-embed-text` (768d). The V2 database was migrated
+to `qwen3-embedding:8b` (4096d) on 2026-06-08 but the MCP pin was never updated,
+so every `boot_session_v2` embedded the query at 768d, compared it against a
+`vector(4096)` column, and threw `DataException: different vector dimensions
+4096 and 768`.
+
+- `.claude.json`: V2 env pin corrected to `OLLAMA_EMBEDDING_MODEL=qwen3-embedding:8b`,
+  `OPEN_BRAIN_V2_EMBEDDING_DIMS=4096` added.
+- `brain_v2/config.py`: defaults corrected to `EMBEDDING_DIMS=4096` /
+  `OLLAMA_EMBED_MODEL=qwen3-embedding:8b` so the server is self-consistent
+  without relying on env pins.
+- V2 DB was already correct (`memory_index.embedding = vector(4096)`, all 283
+  rows at 4096d, `embedding_768_backup` preserved) — no schema or data changes
+  needed.
+- Diagnostic and repair scripts added to `scripts/`:
+  `diagnose_v2_embeddings.sql`, `diagnose_v1_embeddings.sql`,
+  `fix_v2_embedding_column.py` (for future use if a partial migration state
+  is ever encountered).
+
+**Requires Claude Code restart** for the `.claude.json` change to take effect.
+
+## [0.28.1] - 2026-06-29
+
+### Fixed: boot_session token overflow + fresh high-dim install
+
+#### `boot_session` headline-capped guardrail rendering (`feat/boot-guardrail-headline-cap`)
+
+`boot_session` rendered every pinned guardrail at **full content**. With 27
+pinned guardrails the `PINNED GUARDRAILS` section reached ~60 KB and the whole
+boot payload ~75 KB, which exceeded the MCP result token ceiling and
+**hard-failed boot** with `result (76,749 characters) exceeds maximum allowed
+tokens`.
+
+- Guardrails now render headline-capped (mirrors brain_v2's headline-only boot
+  design): each previewed up to `OPEN_BRAIN_BOOT_GUARDRAIL_CHAR_CAP` (600)
+  chars; once `OPEN_BRAIN_BOOT_GUARDRAIL_TOTAL_CAP` (15000) is spent the
+  remainder render headline-only (`OPEN_BRAIN_BOOT_GUARDRAIL_HEADLINE`, 120).
+  Truncated bodies remain available via `recall(#id)`.
+- The section now carries `truncated` (ids) and a `note` advising how to shrink
+  boot (unpin non-universal rules or tag them with `skill_trigger`).
+- Real-payload effect: `PINNED GUARDRAILS` 61.7 KB → 16 KB; full boot ~75 KB →
+  ~25 KB. Caps are env-configurable.
+- New regression coverage: `tests/test_boot_guardrail_cap.py`.
+
+#### `setup_db.py` HNSW guard for >2000-dim embeddings
+
+The qwen3-embedding:8b migration (4096d, 2026-06-08) left `setup_db.py` creating
+an HNSW index unconditionally. pgvector caps HNSW at 2000 dims for the `vector`
+type, so a **fresh install at 4096d failed** (`column cannot have more than 2000
+dimensions for hnsw index`). Production already runs without this index
+(sequential cosine scan); setup now skips HNSW creation when `dimensions > 2000`
+to match, fixing fresh high-dim installs and unblocking the test schema.
+
 ## [0.28.0] - 2026-06-18
 
 ### PowerShell 7 startup scripts + MCP prompts for non-Claude-Code clients
