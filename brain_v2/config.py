@@ -18,6 +18,9 @@ DATABASE_URL = os.getenv(
 
 EMBEDDING_DIMS = int(os.getenv("OPEN_BRAIN_V2_EMBEDDING_DIMS", "4096"))
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
+# Embeddings hit a dedicated ollama instance pinned to the RTX 3080 Ti; defaults
+# to the main URL so single-instance setups keep working.
+OLLAMA_EMBED_BASE_URL = os.getenv("OLLAMA_EMBED_BASE_URL", OLLAMA_BASE_URL)
 OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBEDDING_MODEL", "qwen3-embedding:8b")
 OLLAMA_EMBED_TIMEOUT = int(os.getenv("OPEN_BRAIN_V2_EMBED_TIMEOUT", "120"))
 

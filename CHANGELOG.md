@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.30.0] - 2026-07-09
+
+### Added
+- **Dual-GPU ollama split.** The Windows launcher (`scripts/windows/open-brain-on.ps1`)
+  now runs two GPU-pinned ollama instances: `:11434` on the RTX 5090 for
+  metadata/generation (`qwen3.6:35b`) and `:11435` on the RTX 3080 Ti for
+  embeddings (`qwen3-embedding:8b`). The embed instance is forced onto CUDA
+  (`OLLAMA_LLM_LIBRARY=cuda_v12`) because ollama also exposes the cards via
+  Vulkan, which ignores `CUDA_VISIBLE_DEVICES` and would otherwise pull the
+  embedder onto the 5090. Verified: 35b 100% GPU on the 5090 (with headroom),
+  embedder 100% GPU on the 3080 Ti, no thrash.
+- **`OLLAMA_EMBED_BASE_URL`** (V1 `server.py`, V2 `brain_v2/config.py`):
+  embeddings route to a dedicated ollama instance; falls back to
+  `OLLAMA_BASE_URL` when unset so single-instance setups are unaffected.
+  Documented in `.env.example`; covered by `tests/test_embed_base_url.py`.
+
+### Changed
+- `scripts/setup_db.py`: skip the pgvector HNSW index when the embedding
+  dimension exceeds pgvector's 2000-dim limit (the qwen3-embedding 4096-dim
+  migration), falling back to sequential scan.
+- Boot-session pinned-guardrail rendering is capped
+  (`BOOT_GUARDRAIL_CHAR_CAP` / `_TOTAL_CAP` / `_HEADLINE`) so a large pinned set
+  cannot overflow the MCP token ceiling and hard-fail `boot_session`; full
+  bodies remain available via `recall`. Regression test:
+  `tests/test_boot_guardrail_cap.py`.
+- `scripts/windows/open-brain-on.cmd` reduced to a thin shim that delegates to
+  the PowerShell 7 launcher.
+
 ## [0.29.0] - 2026-07-06
 
 ### Fixed: V2 embedding model mismatch (boot_session_v2 dimension error)

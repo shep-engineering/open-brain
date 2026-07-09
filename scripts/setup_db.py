@@ -108,11 +108,23 @@ def ensure_current_schema(conn: psycopg2.extensions.connection, dimensions: int)
             END $$;
         """)
 
-        cur.execute("""
-            CREATE INDEX IF NOT EXISTS memories_embedding_hnsw_idx
-            ON memories USING hnsw (embedding vector_cosine_ops)
-            WITH (m = 16, ef_construction = 64)
-        """)
+        # pgvector's hnsw/ivfflat indexes only support up to 2000 dimensions
+        # for the `vector` type. The qwen3-embedding:8b migration (4096d,
+        # 2026-06-08) exceeds that, so production runs without an ANN index
+        # (sequential cosine scan). Creating it unconditionally fails a fresh
+        # high-dim install ("column cannot have more than 2000 dimensions for
+        # hnsw index"), so guard on the limit.
+        HNSW_MAX_DIMS = 2000
+        if dimensions <= HNSW_MAX_DIMS:
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS memories_embedding_hnsw_idx
+                ON memories USING hnsw (embedding vector_cosine_ops)
+                WITH (m = 16, ef_construction = 64)
+            """)
+        else:
+            print(f"SKIP hnsw index: {dimensions}d exceeds pgvector's "
+                  f"{HNSW_MAX_DIMS}-dim limit; using sequential scan "
+                  f"(matches production qwen3 4096d).")
         cur.execute("""
             CREATE INDEX IF NOT EXISTS memories_created_at_idx
             ON memories (created_at DESC)

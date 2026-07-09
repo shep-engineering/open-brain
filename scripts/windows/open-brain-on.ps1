@@ -67,23 +67,68 @@ $ok2 = Wait-Condition { & $PYTHON -c "import psycopg2; psycopg2.connect('$V2_DSN
 if ($ok2) { Write-Host '    open-brain-v2-db PostgreSQL ready' }
 else       { Write-Host '    WARNING: open-brain-v2-db PostgreSQL not responding after 30s — server may fail' }
 
-# ── [3/6] Ollama ─────────────────────────────────────────────────────────────
-Write-Host '[3/6] Checking Ollama...'
-try {
-    Invoke-WebRequest 'http://127.0.0.1:11434/api/tags' -TimeoutSec 2 -ErrorAction Stop | Out-Null
-    Write-Host '    Ollama already running'
-} catch {
-    Write-Host '    Starting Ollama (dual GPU, LAN-exposed on 0.0.0.0:11434)...'
-    $env:OLLAMA_HOST             = '0.0.0.0:11434'
-    $env:OLLAMA_NUM_GPU          = '2'
-    $env:CUDA_VISIBLE_DEVICES    = '0,1'
-    $env:OLLAMA_KEEP_ALIVE       = '30m'
-    $env:OLLAMA_MAX_LOADED_MODELS = '2'
-    Start-Process 'ollama' -ArgumentList 'serve' -WindowStyle Hidden `
-        -RedirectStandardOutput "$OB_ROOT\logs\ollama.log" `
-        -RedirectStandardError  "$OB_ROOT\logs\ollama-err.log"
-    Write-Host '    Ollama started (dual GPU, max 2 models loaded, bound 0.0.0.0:11434)'
+# ── [3/6] Ollama (TWO GPU-pinned instances — true split, no spill) ───────────
+# One ollama process can't pin a model to a specific GPU, so we run TWO serve
+# instances, each locked to one card via CUDA_VISIBLE_DEVICES (CUDA_DEVICE_ORDER
+# = PCI_BUS_ID makes the CUDA indices match nvidia-smi: 0 = RTX 5090, 1 = 3080 Ti):
+#   :11434  -> RTX 5090   (GPU 0): metadata / generation LLM (qwen3.6:35b)
+#   :11435  -> RTX 3080 Ti (GPU 1): embedder (qwen3-embedding:8b)
+# The brain sends embeddings to :11435 (OLLAMA_EMBED_BASE_URL) and everything
+# else to :11434 (OLLAMA_BASE_URL), so the embedder never spills onto the 5090
+# and the big card keeps its headroom. Restart both clean so the env applies and
+# no foreign model survives.
+Write-Host '[3/6] (Re)starting Ollama as two GPU-pinned instances...'
+Get-Process ollama -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Start-Sleep 2
+$env:CUDA_DEVICE_ORDER        = 'PCI_BUS_ID'   # CUDA index == nvidia-smi index
+$env:OLLAMA_KEEP_ALIVE        = '-1'           # pin the loaded model; no idle eviction
+$env:OLLAMA_MAX_LOADED_MODELS = '1'            # one model per instance / per card
+
+# NOTE ON BACKENDS: the 5090 (Blackwell) and the 3080 Ti are BOTH CUDA-capable
+# here (cuda_v13 / cuda_v12), but ollama also exposes them via Vulkan, and Vulkan
+# ignores CUDA_VISIBLE_DEVICES — so without forcing a library the embed instance
+# grabbed the 5090 via Vulkan. We force each instance onto CUDA so CUDA_VISIBLE_
+# DEVICES actually pins the card. (Verified empirically 2026-07-09: cuda_v12 +
+# CUDA_VISIBLE_DEVICES=1 loads the embedder on the 3080 Ti.)
+
+# --- Instance A: RTX 5090 (GPU 0) on :11434 — metadata / generation ---
+# Leave A on auto-detect: it correctly picks the 5090 via CUDA (most free VRAM),
+# verified this session. Forcing a library here would be unverified, so we don't.
+Remove-Item Env:\OLLAMA_LLM_LIBRARY -ErrorAction SilentlyContinue
+$env:CUDA_VISIBLE_DEVICES = '0'
+$env:OLLAMA_HOST          = '0.0.0.0:11434'
+Start-Process 'ollama' -ArgumentList 'serve' -WindowStyle Hidden `
+    -RedirectStandardOutput "$OB_ROOT\logs\ollama-5090.log" `
+    -RedirectStandardError  "$OB_ROOT\logs\ollama-5090-err.log"
+
+# --- Instance B: RTX 3080 Ti (GPU 1) on :11435 — embeddings only ---
+$env:OLLAMA_LLM_LIBRARY   = 'cuda_v12'   # 3080 Ti / Ampere CUDA runner; bypass Vulkan
+$env:CUDA_VISIBLE_DEVICES = '1'
+$env:OLLAMA_HOST          = '0.0.0.0:11435'
+Start-Process 'ollama' -ArgumentList 'serve' -WindowStyle Hidden `
+    -RedirectStandardOutput "$OB_ROOT\logs\ollama-3080ti.log" `
+    -RedirectStandardError  "$OB_ROOT\logs\ollama-3080ti-err.log"
+
+$aOk = Wait-Condition { try { Invoke-WebRequest 'http://127.0.0.1:11434/api/tags' -TimeoutSec 2 -ErrorAction Stop | Out-Null; $true } catch { $false } }
+$bOk = Wait-Condition { try { Invoke-WebRequest 'http://127.0.0.1:11435/api/tags' -TimeoutSec 2 -ErrorAction Stop | Out-Null; $true } catch { $false } }
+if (-not $aOk) { Write-Host '    WARNING: 5090 instance (:11434) did not come up — check logs\ollama-5090-err.log' }
+if (-not $bOk) { Write-Host '    WARNING: 3080 Ti instance (:11435) did not come up — check logs\ollama-3080ti-err.log' }
+
+if ($aOk) {
+    Write-Host '    Warming metadata LLM qwen3.6:35b on RTX 5090 (:11434)...'
+    try { Invoke-RestMethod 'http://127.0.0.1:11434/api/generate' -Method Post -TimeoutSec 600 `
+            -ContentType 'application/json' `
+            -Body '{"model":"qwen3.6:35b","prompt":"ok","stream":false,"keep_alive":-1}' | Out-Null }
+    catch { Write-Host "    WARN: 35b warm failed: $($_.Exception.Message)" }
 }
+if ($bOk) {
+    Write-Host '    Warming embedder qwen3-embedding:8b on RTX 3080 Ti (:11435)...'
+    try { Invoke-RestMethod 'http://127.0.0.1:11435/api/embeddings' -Method Post -TimeoutSec 180 `
+            -ContentType 'application/json' `
+            -Body '{"model":"qwen3-embedding:8b","prompt":"ok","keep_alive":-1}' | Out-Null }
+    catch { Write-Host "    WARN: embedder warm failed: $($_.Exception.Message)" }
+}
+Write-Host '    Ollama ready — 5090=metadata(:11434), 3080Ti=embedder(:11435). Verify: ollama ps + nvidia-smi.'
 
 # ── [4/6] MCP servers ────────────────────────────────────────────────────────
 Write-Host '[4/6] Starting Open Brain MCP servers (HTTP transport)...'

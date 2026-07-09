@@ -11,7 +11,7 @@ import json
 import urllib.error
 import urllib.request
 
-from .config import OLLAMA_BASE_URL, OLLAMA_EMBED_MODEL, OLLAMA_EMBED_TIMEOUT
+from .config import OLLAMA_EMBED_BASE_URL, OLLAMA_EMBED_MODEL, OLLAMA_EMBED_TIMEOUT
 
 
 class EmbeddingError(RuntimeError):
@@ -22,7 +22,7 @@ def embed(text: str) -> list[float]:
     if not text or not text.strip():
         raise EmbeddingError("cannot embed empty text")
     req = urllib.request.Request(
-        f"{OLLAMA_BASE_URL}/api/embeddings",
+        f"{OLLAMA_EMBED_BASE_URL}/api/embeddings",
         data=json.dumps({
             "model": OLLAMA_EMBED_MODEL,
             "prompt": text,
@@ -42,7 +42,7 @@ def embed(text: str) -> list[float]:
         ) from e
     except urllib.error.URLError as e:
         raise EmbeddingError(
-            f"Ollama unreachable at {OLLAMA_BASE_URL}: {e.reason}"
+            f"Ollama (embed) unreachable at {OLLAMA_EMBED_BASE_URL}: {e.reason}"
         ) from e
     vec = payload.get("embedding")
     if not vec:

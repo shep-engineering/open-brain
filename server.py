@@ -54,6 +54,10 @@ DATABASE_URL       = os.getenv("DATABASE_URL",           "postgresql://postgres:
 EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER",     "ollama")
 EMBEDDING_DIMS     = int(os.getenv("EMBEDDING_DIMENSIONS", "768"))
 OLLAMA_BASE_URL    = os.getenv("OLLAMA_BASE_URL",        "http://127.0.0.1:11434")
+# Embeddings go to a dedicated ollama instance pinned to the RTX 3080 Ti (:11435);
+# metadata/generation stays on OLLAMA_BASE_URL (:11434, RTX 5090). Defaults to the
+# main URL when unset so single-instance setups are unaffected.
+OLLAMA_EMBED_BASE_URL = os.getenv("OLLAMA_EMBED_BASE_URL", OLLAMA_BASE_URL)
 OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")
 OPENAI_API_KEY     = os.getenv("OPENAI_API_KEY",         "")
 OPENAI_EMBED_MODEL = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
@@ -68,6 +72,15 @@ CONSOLIDATION_INTERVAL  = int(os.getenv("OPEN_BRAIN_CONSOLIDATION_INTERVAL",  "0
 SKILL_TRIGGER_MAX       = int(os.getenv("OPEN_BRAIN_SKILL_TRIGGER_MAX",      "5"))     # max skill auto-matches per search (v0.12.0+)
 HEARTBEAT_AGENT_INTERVAL = int(os.getenv("OPEN_BRAIN_HEARTBEAT_INTERVAL",    "60"))    # heartbeat-agent pid-probe interval, seconds (v0.14.0+)
 ACTION_ITEM_GATE_MAX    = int(os.getenv("OPEN_BRAIN_ACTION_ITEM_GATE_MAX",   "10"))    # max pending action_items per source (v0.14.0+)
+# Boot guardrail rendering caps (v0.28.x+). Pinned guardrails used to render
+# at FULL content; with 27 pinned that hit ~60KB and overflowed the MCP
+# result token ceiling, hard-failing boot_session. These bound the PINNED
+# GUARDRAILS section the way brain_v2's boot already bounds its payload
+# (planning: brain-v2-gap-analysis.md §4.3 "headline-only payload"). Full
+# bodies remain available via recall(#id).
+BOOT_GUARDRAIL_CHAR_CAP    = int(os.getenv("OPEN_BRAIN_BOOT_GUARDRAIL_CHAR_CAP",    "600"))    # per-guardrail preview cap
+BOOT_GUARDRAIL_TOTAL_CAP   = int(os.getenv("OPEN_BRAIN_BOOT_GUARDRAIL_TOTAL_CAP",   "15000"))  # section hard budget (chars)
+BOOT_GUARDRAIL_HEADLINE    = int(os.getenv("OPEN_BRAIN_BOOT_GUARDRAIL_HEADLINE",    "120"))    # headline len once budget spent
 
 # ─── Session Compliance Tracking ─────────────────────────────────────────────
 #
@@ -471,7 +484,7 @@ def _http_post(url: str, payload: dict, headers: dict | None = None) -> dict:
 @instrument("ollama.embed")
 def _embed_ollama(text: str) -> list[float]:
     result = _http_post(
-        f"{OLLAMA_BASE_URL}/api/embeddings",
+        f"{OLLAMA_EMBED_BASE_URL}/api/embeddings",
         {"model": OLLAMA_EMBED_MODEL, "prompt": text},
     )
     if "embedding" not in result:
@@ -1905,22 +1918,51 @@ def boot_session(source: str, project: str = "", task: str = "",
         except Exception:
             my_session = {"id": None}
 
-        # Step 1: Load pinned guardrails (full content, not previews)
+        # Step 1: Load pinned guardrails (headline-capped, not full bodies).
+        # Each guardrail is previewed up to BOOT_GUARDRAIL_CHAR_CAP chars;
+        # once the section's total budget (BOOT_GUARDRAIL_TOTAL_CAP) is spent,
+        # the remainder render headline-only. Full text via recall(#id). This
+        # keeps boot under the MCP token ceiling regardless of how many rules
+        # get pinned (the 27-pinned/60KB overflow that hard-failed boot).
         pinned = db_get_pinned(project) if project else []
         if pinned:
             guardrail_text = []
+            truncated_ids: list[int] = []
+            used = 0
             for m in pinned:
                 meta = m.get("metadata", {})
                 if isinstance(meta, str):
                     meta = json.loads(meta) if meta else {}
-                guardrail_text.append(
-                    f"[GUARDRAIL #{m['id']}] ({meta.get('type', 'unknown')})\n{m['content']}"
-                )
-            sections.append({
+                gtype = meta.get("type", "unknown")
+                body = m["content"]
+                if used >= BOOT_GUARDRAIL_TOTAL_CAP:
+                    # Budget spent — headline-only for everything remaining.
+                    head = body[:BOOT_GUARDRAIL_HEADLINE].rstrip()
+                    entry = (f"[GUARDRAIL #{m['id']}] ({gtype}) {head}"
+                             f"… [recall #{m['id']} for full]")
+                    truncated_ids.append(m["id"])
+                else:
+                    if len(body) > BOOT_GUARDRAIL_CHAR_CAP:
+                        body = (body[:BOOT_GUARDRAIL_CHAR_CAP].rstrip()
+                                + f"… [recall #{m['id']} for full]")
+                        truncated_ids.append(m["id"])
+                    entry = f"[GUARDRAIL #{m['id']}] ({gtype})\n{body}"
+                guardrail_text.append(entry)
+                used += len(entry)
+            section = {
                 "section": "PINNED GUARDRAILS",
                 "count": len(pinned),
                 "content": guardrail_text,
-            })
+            }
+            if truncated_ids:
+                section["truncated"] = truncated_ids
+                section["note"] = (
+                    f"{len(truncated_ids)} of {len(pinned)} guardrails truncated "
+                    f"to fit the boot token budget — full text via recall(#id). "
+                    f"To shrink boot, unpin non-universal rules or tag them with "
+                    f"skill_trigger so they load on keyword instead of at boot."
+                )
+            sections.append(section)
 
         # Step 2: Project architecture and deployment context
         if project:
