@@ -8,6 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Write-time "similar existing rule" hint (brain_v2 2.5.0).** When a new rule
+  is not a duplicate but its nearest active same-project neighbor is in
+  `[SIMILAR_RULE_COSINE (0.62, uncalibrated), DUPLICATE_COSINE (0.75))` — same
+  topic, not a dedup hit — `remember_rule` attaches a non-blocking
+  `similar_existing` hint (via `Memory.extra`) suggesting the agent consider
+  superseding instead of adding a parallel rule. This targets the additive-wall
+  problem (rules piling up because agents add rather than supersede). It runs two
+  scoped sequential scans (cross-project top-1 for the duplicate check,
+  same-project/global top-k for the hint) and does NOT re-embed (both reuse the
+  already-computed embedding). Two scopes are required: the duplicate check stays
+  cross-project while the hint is same-project, so a dense corpus of other-project
+  topical twins can't crowd out the real same-project neighbor. It does NOT claim
+  to detect contradiction — cosine can't reliably
+  separate contradiction from agreement, so the agent (which has an LLM) judges.
+  `SIMILAR_RULE_COSINE` is a tunable env constant, documented as uncalibrated.
+  New tests: `TestSimilarRuleHint`.
+
 - **Correction-stickiness signal in stats (brain_v2 2.4.0).** `store.stats`
   (surfaced via `stats_v2`) now includes a `correction_stickiness` block that
   reports rule LINEAGES superseded repeatedly — a rule that keeps needing

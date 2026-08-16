@@ -99,6 +99,7 @@ v2 has its own environment variables. All are optional — defaults target the v
 | `OPEN_BRAIN_V2_BOOT_TASK_CAP` | `20` | Max active tasks in boot |
 | `OPEN_BRAIN_V2_BOOT_HANDOFF_CAP` | `200` | Max tokens for handoff note |
 | `OPEN_BRAIN_V2_DUPLICATE_COSINE` | `0.75` | Cosine threshold for duplicate detection |
+| `OPEN_BRAIN_V2_SIMILAR_RULE_COSINE` | `0.62` | Lower bound for the write-time "similar existing rule" hint (same-topic, sub-duplicate). **Uncalibrated** — tune on real data. |
 | `OPEN_BRAIN_V2_FACT_HALFLIFE_DAYS` | `7.0` | Ebbinghaus decay halflife for facts |
 | `OPEN_BRAIN_V2_FACT_DECAY_THRESHOLD` | `0.1` | Score below which facts deactivate |
 | `OPEN_BRAIN_V2_INCIDENT_ARCHIVE_DAYS` | `90` | Days before incidents auto-archive |

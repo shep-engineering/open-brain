@@ -37,6 +37,16 @@ DUPLICATE_COSINE_THRESHOLD = float(
     os.getenv("OPEN_BRAIN_V2_DUPLICATE_COSINE", "0.75")
 )
 
+# Lower bound for the "similar existing rule" write-time hint. A new rule whose
+# nearest active same-project neighbor is in [SIMILAR_RULE_COSINE, DUPLICATE_COSINE)
+# is not a duplicate, but IS about the same topic — surfaced as a non-blocking
+# hint so the agent can consider superseding instead of adding a parallel rule.
+# UNCALIBRATED default — tune on real corpus data (dump pairwise cosine, label a
+# sample, pick from a precision curve). Set below the dedup threshold.
+SIMILAR_RULE_COSINE = float(
+    os.getenv("OPEN_BRAIN_V2_SIMILAR_RULE_COSINE", "0.62")
+)
+
 FACT_DECAY_HALFLIFE_DAYS = float(
     os.getenv("OPEN_BRAIN_V2_FACT_HALFLIFE_DAYS", "7.0")
 )

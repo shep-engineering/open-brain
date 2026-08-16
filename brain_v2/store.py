@@ -23,7 +23,7 @@ import logging
 
 from .config import DATABASE_URL, DUPLICATE_COSINE_THRESHOLD
 from .embedding import embed_to_pgvector
-from .write_gate import WriteGateError, run_gate, check_kind
+from .write_gate import WriteGateError, run_gate, run_gate_with_neighbors, check_kind
 
 # Shared with V1 (repo-root module imported by both brains). Used for
 # host normalization at session-registry insert and by the boot-time
@@ -137,11 +137,15 @@ def remember_rule(conn, *, headline: str, body: str, severity: str = "PATTERN",
          "projects": [], "always_on": false}
     """
     embedding_vec = embed_to_pgvector(f"{headline}. {body}")
-    dup = run_gate(conn, kind="rule", headline=headline, body=body,
-                   severity=severity, embedding_vec=embedding_vec)
-    if dup is not None:
-        return DuplicateHit(kind="rule", existing_id=dup.memory_id,
-                            similarity=dup.similarity, existing_headline=dup.headline)
+    # Single scan derives BOTH the duplicate check and the "similar existing
+    # rule" hint (no re-embed, no second scan).
+    gate = run_gate_with_neighbors(
+        conn, kind="rule", headline=headline, body=body,
+        severity=severity, embedding_vec=embedding_vec, project=project)
+    if gate.duplicate is not None:
+        return DuplicateHit(kind="rule", existing_id=gate.duplicate.memory_id,
+                            similarity=gate.duplicate.similarity,
+                            existing_headline=gate.duplicate.headline)
 
     st_json = json.dumps(skill_trigger) if skill_trigger else None
     with conn.cursor() as cur:
@@ -168,8 +172,17 @@ def remember_rule(conn, *, headline: str, body: str, severity: str = "PATTERN",
                {"headline": headline, "severity": severity, "project": project,
                 "skill_trigger": skill_trigger}, source)
     conn.commit()
+    extra = None
+    if gate.neighbors:
+        extra = {"similar_existing": [
+            {"id": n.memory_id, "headline": n.headline, "severity": n.severity,
+             "similarity": round(n.similarity, 4)}
+            for n in gate.neighbors
+        ], "hint": ("This rule is close to existing rule(s) about the same topic. "
+                    "If they conflict, supersede the wrong one; if this is a "
+                    "refinement, supersede instead of adding a parallel rule.")}
     return Memory(kind="rule", id=rid, headline=headline, body=body, project=project,
-                  severity=severity, created_at=str(created))
+                  severity=severity, created_at=str(created), extra=extra)
 
 
 def supersede_rule(conn, *, old_id: int, new_headline: str, new_body: str,
