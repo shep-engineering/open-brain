@@ -59,7 +59,7 @@ its own retrieval policy, and its own lifecycle.
 
 | Type | Table | Lifecycle | Retrieval at Boot |
 |------|-------|-----------|-------------------|
-| **RULE** | `rules` | Immutable body. Modify via `supersede_rule_v2` only. Never decays. Never deleted. | BLOCKERs: top 5 headlines. PATTERNs: top 5 by task-relevance cosine. |
+| **RULE** | `rules` | Immutable body. Modify via `supersede_rule_v2` only. Never decays. Never deleted. | BLOCKERs: protected (pinned / `always_on`) rules always shown, then unprotected fill up to the cap — a critical safety rule is never evicted by the cap. PATTERNs: top 5 by task-relevance cosine. |
 | **FACT** | `facts` | Access-based Ebbinghaus decay (halflife 7 days default). Hard TTL optional. Reactivates on recall. | Not loaded at boot. Available via `search_v2` + `recall_v2`. |
 | **INCIDENT** | `incidents` | Soft archive after 90 days no access. Searchable but not in boot. | Not loaded at boot. |
 | **TASK** | `tasks` | Lifecycle states: `open` / `blocked` / `done` / `stale`. Cross-session obligations. | Active tasks loaded (up to 20, priority-ordered). |

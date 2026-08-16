@@ -162,6 +162,125 @@ class TestSupersededRulesExcluded:
                    for b in payload.blockers)
 
 
+class TestProtectedBlockersNeverEvicted:
+    """A pinned or always_on BLOCKER must survive the count cap — the safety
+    tier must never be silently dropped just because a project has >CAP blockers.
+    """
+
+    def _seed_always_on(self, conn, headline, body, project="test"):
+        return store.remember_rule(
+            conn, headline=headline, body=body, severity="BLOCKER",
+            project=project, source="test",
+            skill_trigger={"name": headline[:20], "keywords": [],
+                           "projects": [], "always_on": True},
+        )
+
+    def test_pinned_blocker_survives_past_cap(self, conn):
+        # One pinned project blocker + more than CAP unpinned blockers.
+        pin = store.remember_rule(
+            conn, headline="Critical pinned safety rule for deploys",
+            body="Must never be evicted from the boot payload.",
+            severity="BLOCKER", project="test", source="test",
+        )
+        store.set_pinned(conn, kind="rule", memory_id=pin.id, pinned=True)
+        for i in range(BOOT_BLOCKER_COUNT_CAP + 3):
+            _seed_rule(conn, "", "BLOCKER", project="test", topic_idx=i)
+        payload = boot.build(conn, project="test", task="anything", source="test")
+        ids = {b["memory_id"] for b in payload.blockers}
+        assert pin.id in ids, "pinned blocker was evicted by the cap"
+
+    def test_global_always_on_blocker_survives_past_cap(self, conn):
+        # Global blockers CANNOT be pinned (store.set_pinned refuses), so the
+        # always_on path is the ONLY protection for a global safety rule.
+        g = self._seed_always_on(
+            conn, "Never force-push to a shared branch",
+            "History rewrite on shared branches breaks every clone.",
+            project="",
+        )
+        for i in range(BOOT_BLOCKER_COUNT_CAP + 3):
+            _seed_rule(conn, "", "BLOCKER", project="test", topic_idx=i)
+        payload = boot.build(conn, project="test", task="anything", source="test")
+        ids = {b["memory_id"] for b in payload.blockers}
+        assert g.id in ids, "global always_on blocker was evicted by the cap"
+
+    def test_unprotected_blockers_still_capped(self, conn):
+        # With no protected blockers, behavior is unchanged: total == CAP.
+        for i in range(BOOT_BLOCKER_COUNT_CAP + 4):
+            _seed_rule(conn, "", "BLOCKER", project="test", topic_idx=i)
+        payload = boot.build(conn, project="test", task="any", source="test")
+        assert len(payload.blockers) == BOOT_BLOCKER_COUNT_CAP
+
+    def test_protected_bounded_by_ceiling(self, conn):
+        # "Pin everything" must not blow the payload: protected is bounded by
+        # 2x cap. Seed way more always_on blockers than the ceiling.
+        ceiling = BOOT_BLOCKER_COUNT_CAP * 2
+        seeded = 0
+        for i in range(ceiling + 5):
+            r = self._seed_always_on(
+                conn, _DIVERSE_TOPICS[i % len(_DIVERSE_TOPICS)][0] + f" [{i:02d}]",
+                _DIVERSE_TOPICS[i % len(_DIVERSE_TOPICS)][1] + f" Variant {i}.",
+                project="test",
+            )
+            if hasattr(r, "id"):  # not a DuplicateHit
+                seeded += 1
+        # Guard against a vacuous pass: the dedup gate must not have collapsed the
+        # seeds below the ceiling, or the LIMIT would never be exercised.
+        assert seeded > ceiling, f"only {seeded} rows stored; ceiling not exercised"
+        payload = boot.build(conn, project="test", task="any", source="test")
+        assert len(payload.blockers) <= ceiling, "protected set exceeded ceiling"
+
+    def test_token_cap_holds_under_max_protected_load(self, conn):
+        # Design decision: protected safety blockers take priority over tasks and
+        # patterns. Under the maximum protected load (ceiling) plus full tasks and
+        # patterns, the reported token_estimate must remain accurate — never a
+        # silent over-cap. Headlines are <=15 words (write-gate), so the ceiling of
+        # 10 blockers stays within budget; this locks that in against regression.
+        ceiling = BOOT_BLOCKER_COUNT_CAP * 2
+        for i in range(ceiling):
+            self._seed_always_on(
+                conn, _DIVERSE_TOPICS[i % len(_DIVERSE_TOPICS)][0] + f" [{i:02d}]",
+                _DIVERSE_TOPICS[i % len(_DIVERSE_TOPICS)][1] + f" Variant {i}.",
+                project="test",
+            )
+        for i in range(BOOT_PATTERN_COUNT_CAP + 2):
+            _seed_rule(conn, "", "PATTERN", project="test", topic_idx=i)
+        for i in range(6):
+            # First line is the headline (write-gate: <=15 words); keep it short,
+            # put the bulk in following lines so the task still consumes tokens.
+            store.remember_task(
+                conn,
+                content=(
+                    f"Task {i:02d} short header\n"
+                    + ("detail line describing the subtask in depth. " * 20)
+                ),
+                project="test", priority="medium", source="test",
+            )
+        payload = boot.build(conn, project="test", task="a representative task", source="test")
+        # token_estimate must be truthful (it is recomputed post-truncation).
+        assert payload.token_estimate <= BOOT_TOKEN_CAP, (
+            f"token_estimate {payload.token_estimate} exceeds cap {BOOT_TOKEN_CAP}"
+        )
+        # Protected blockers were honored (not all evicted to fit budget).
+        assert len(payload.blockers) >= 1
+
+    def test_pinned_project_blocker_before_global(self, conn):
+        # Within the protected set, project-scoped sorts before global.
+        gp = self._seed_always_on(
+            conn, "Global always-on constraint one",
+            "Applies everywhere as a protective rule.", project="",
+        )
+        pp = store.remember_rule(
+            conn, headline="Project pinned constraint two",
+            body="Applies to test project only.",
+            severity="BLOCKER", project="test", source="test",
+        )
+        store.set_pinned(conn, kind="rule", memory_id=pp.id, pinned=True)
+        payload = boot.build(conn, project="test", task="any", source="test")
+        heads = [b["memory_id"] for b in payload.blockers]
+        assert pp.id in heads and gp.id in heads
+        assert heads.index(pp.id) < heads.index(gp.id), "project blocker must sort before global"
+
+
 class TestProjectScoping:
     def test_project_scoped_and_global_both_load(self, conn):
         store.remember_rule(

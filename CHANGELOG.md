@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **Boot: protect critical BLOCKERs from cap eviction (brain_v2 2.3.0).**
+  `_fetch_blockers` no longer lets the `BOOT_BLOCKER_COUNT_CAP` (5) silently drop
+  a critical safety rule. It now fetches in two parts: (1) **protected** blockers —
+  every active blocker that is `pinned` OR tagged `skill_trigger->>'always_on'` —
+  which always appear (bounded by a 2× safety ceiling so "pin everything" can't
+  blow the token budget), then (2) **fill** — the remaining unprotected blockers,
+  taking only the slots left under the cap. The cap now limits how many
+  *unprotected extras* ride along; it can never evict a protected blocker.
+  Blockers are deliberately **not** ranked by task relevance — a safety rule is
+  relevant regardless of the task, and cosine ranking would demote (and past the
+  cap, evict) exactly the rules that must always show. Because global (`project=''`)
+  memories cannot be pinned, `always_on` is the protection path for global safety
+  rules. Fixes the "additive wall vs fixed boot budget" eviction identified in the
+  2026-08-16 correction-mechanism analysis. New tests in `test_boot_payload.py`
+  (`TestProtectedBlockersNeverEvicted`), full boot suite green (16 passed).
+
 ## [0.30.0] - 2026-07-09
 
 ### Added

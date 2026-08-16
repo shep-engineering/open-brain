@@ -74,7 +74,12 @@ class BootPayload:
             "registry_trustworthy": self.registry_trustworthy,
             "self_healed_ended_ids": self.self_healed_ended_ids,
             "caps": {
-                "blocker_count": BOOT_BLOCKER_COUNT_CAP,
+                # blocker_fill_count = max UNPROTECTED blockers that ride along;
+                # protected (pinned/always_on) blockers are always shown on top of
+                # this, up to blocker_protected_ceiling. So len(blockers) can exceed
+                # blocker_fill_count but never blocker_protected_ceiling.
+                "blocker_fill_count": BOOT_BLOCKER_COUNT_CAP,
+                "blocker_protected_ceiling": BOOT_BLOCKER_COUNT_CAP * 2,
                 "pattern_count": BOOT_PATTERN_COUNT_CAP,
                 "task_count": BOOT_TASK_COUNT_CAP,
                 "token_total": BOOT_TOKEN_CAP,
@@ -84,22 +89,75 @@ class BootPayload:
 
 
 def _fetch_blockers(cur, project: str) -> list[dict]:
+    """Fetch BLOCKER headlines for the boot payload.
+
+    BLOCKERs are the safety tier ("never force-push", "never touch the live DB").
+    A critical safety rule must never be silently evicted by the count cap just
+    because a project accumulated more than BOOT_BLOCKER_COUNT_CAP blockers. So
+    the fetch is two-part:
+
+      1. PROTECTED — every active blocker that is pinned OR tagged
+         skill_trigger->>'always_on'. These ALWAYS appear, bounded only by a
+         hard safety ceiling (2x the cap) so a "pin everything" mistake cannot
+         blow the token budget.
+      2. FILL — the remaining (unpinned, non-always_on) blockers, taking only
+         the slots left under BOOT_BLOCKER_COUNT_CAP after the protected set.
+
+    The count cap therefore limits how many *unprotected extras* ride along; it
+    can never drop a protected blocker. Within each set, project-scoped rules
+    sort before global, then most-recent first. Blockers are deliberately NOT
+    ranked by task relevance: a safety rule is relevant regardless of the task,
+    and cosine ranking would demote (and past the cap, evict) exactly the rules
+    that must always show.
+    """
+    protected_ceiling = BOOT_BLOCKER_COUNT_CAP * 2
+
+    def _is_protected() -> str:
+        return (
+            "(pinned = TRUE OR "
+            "COALESCE((skill_trigger->>'always_on')::boolean, FALSE) = TRUE)"
+        )
+
+    # 1. Protected blockers — always included, bounded by the safety ceiling.
     cur.execute(
-        """
+        f"""
         SELECT kind, memory_id, headline, project
         FROM memory_index
         WHERE active = TRUE
           AND severity = 'BLOCKER'
           AND (project = %s OR project = '')
+          AND {_is_protected()}
         ORDER BY
           CASE WHEN project = %s THEN 0 ELSE 1 END,
-          pinned DESC,
           created_at DESC
         LIMIT %s
         """,
-        (project, project, BOOT_BLOCKER_COUNT_CAP),
+        (project, project, protected_ceiling),
     )
-    return [dict(r) for r in cur.fetchall()]
+    protected = [dict(r) for r in cur.fetchall()]
+
+    # 2. Fill remaining slots with unprotected blockers.
+    fill_slots = BOOT_BLOCKER_COUNT_CAP - len(protected)
+    fill: list[dict] = []
+    if fill_slots > 0:
+        cur.execute(
+            f"""
+            SELECT kind, memory_id, headline, project
+            FROM memory_index
+            WHERE active = TRUE
+              AND severity = 'BLOCKER'
+              AND (project = %s OR project = '')
+              AND NOT {_is_protected()}
+            ORDER BY
+              CASE WHEN project = %s THEN 0 ELSE 1 END,
+              created_at DESC
+            LIMIT %s
+            """,
+            (project, project, fill_slots),
+        )
+        fill = [dict(r) for r in cur.fetchall()]
+
+    return protected + fill
 
 
 def _fetch_patterns(cur, project: str, task_embedding: str | None) -> list[dict]:
