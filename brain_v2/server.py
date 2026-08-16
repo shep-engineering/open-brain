@@ -1041,6 +1041,41 @@ def stats_v2(project: str = "") -> str:
 
 
 @mcp.tool()
+def consolidation_candidates_v2(project: str = "", threshold: float = -1.0,
+                                limit: int = 20) -> str:
+    """Find CLIQUES of active rules that are all mutually similar — candidates to
+    REVIEW and possibly consolidate (supersede into one canonical rule). READ-ONLY:
+    it never merges anything; the agent judges and uses supersede_rule_v2.
+
+    Addresses the existing rule pile-up (the write-time similar-rule hint only helps
+    NEW writes). Before superseding a cluster: recall and READ the bodies — cosine is
+    an imperfect proxy and may group rules with distinct nuances or opposite polarity.
+    Don't merge across differing severity or retire a pinned rule without cause.
+
+    Args:
+        project: scope to a project + global ('' = all active rules across the corpus).
+        threshold: min pairwise cosine for a cluster (default 0.72 — just under the
+            0.75 dedup line, since >=0.75 pairs are blocked at write time; higher = stricter).
+        limit: max clusters returned, tightest (highest min-similarity) first.
+    """
+    ensure_schema()
+    # threshold < 0 => use the store default (which tracks the env-overridable
+    # CONSOLIDATION_COSINE); an explicit value overrides it.
+    from brain_v2.config import CONSOLIDATION_COSINE as _CC
+    thr = _CC if threshold < 0 else threshold
+    try:
+        with store.connect() as conn:
+            data = store.consolidation_candidates(
+                conn, project=(project or None), threshold=thr, limit=limit)
+    except ValueError as exc:
+        return _err(str(exc))
+    except Exception as exc:
+        _log.exception("consolidation_candidates_v2 failed")
+        return _err(f"consolidation_candidates failed: {exc}")
+    return _ok(data)
+
+
+@mcp.tool()
 def list_recent_v2(limit: int = 20, days: int = 0, kind: str = "",
                    project: str = "", include_forgotten: bool = False) -> str:
     """List recent memories (headline-only), newest first.

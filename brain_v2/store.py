@@ -22,7 +22,12 @@ import psycopg2.extensions
 
 import logging
 
-from .config import DATABASE_URL, DUPLICATE_COSINE_THRESHOLD
+from .config import (
+    DATABASE_URL,
+    DUPLICATE_COSINE_THRESHOLD,
+    CONSOLIDATION_COSINE,
+    CONSOLIDATION_MAX_RULES,
+)
 from .embedding import embed_to_pgvector
 from .write_gate import WriteGateError, run_gate, run_gate_with_neighbors, check_kind
 
@@ -1509,6 +1514,169 @@ def stats(conn, *, project: str = "") -> dict[str, Any]:
         "pending_action_items": pending_action_items,
         "active_sessions": active_sessions,
         "correction_stickiness": correction_stickiness,
+    }
+
+
+# ── CONSOLIDATION CANDIDATES ─────────────────────────────────────────
+def _maximal_cliques(adj: dict[int, set[int]], min_size: int = 2,
+                     call_cap: int = 200_000) -> list[set[int]]:
+    """All maximal cliques (size >= min_size) of an undirected graph, via
+    Bron-Kerbosch with pivoting. Bounded by a recursion-breadth cap so a
+    pathologically dense graph degrades gracefully instead of hanging.
+
+    Extracted for direct unit testing (greedy grow-from-node is INCOMPLETE — it
+    silently misses ~1/3 of maximal cliques; see brain rule 669)."""
+    cliques: list[set[int]] = []
+    calls = [0]
+
+    def _bk(R: set[int], P: set[int], X: set[int]) -> None:
+        calls[0] += 1
+        if calls[0] > call_cap:
+            return
+        if not P and not X:
+            if len(R) >= min_size:
+                cliques.append(set(R))
+            return
+        pivot = max(P | X, key=lambda u: len(adj.get(u, set()) & P))
+        for v in list(P - adj.get(pivot, set())):
+            nv = adj.get(v, set())
+            _bk(R | {v}, P & nv, X & nv)
+            P = P - {v}
+            X = X | {v}
+
+    _bk(set(), set(adj.keys()), set())
+    return cliques
+
+
+def consolidation_candidates(conn, *, project: str | None = None,
+                             threshold: float = CONSOLIDATION_COSINE,
+                             limit: int = 20) -> dict[str, Any]:
+    """Read-only. Find CLIQUES of active rules that are mutually highly similar
+    (every pair >= threshold) — candidates the agent should REVIEW and possibly
+    consolidate by superseding them into one canonical rule. It does NOT merge
+    anything.
+
+    Cliques, not connected-components: every member is directly similar to every
+    other member, so "these are the same rule" is defensible. (Connected
+    components could chain unrelated rules through a hub — unsafe for a merge
+    suggestion.) Each cluster surfaces headline + severity + pinned per member so
+    the agent can judge; cosine is an imperfect proxy (a short opposite body may
+    not move the combined headline+body embedding much), so the agent must read
+    the bodies (via recall) before superseding, and should not merge across
+    differing severity or retire a pinned rule blindly.
+
+    Scope: same project + global when `project` is given; all active rules when
+    `project` is None. Bounded: refuses above CONSOLIDATION_MAX_RULES active rules
+    (the pairwise self-join is O(N^2) with no vector index).
+
+    Returns {clusters: [{rule_ids, members:[{id,headline,severity,pinned}],
+    size, max_similarity, min_similarity}], cluster_count, active_rules_scanned,
+    note}. Raises ValueError if too many active rules to scan safely.
+    """
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        # Count active rules in scope; refuse an unbounded O(N^2) scan.
+        if project is not None:
+            cur.execute(
+                "SELECT COUNT(*) AS n FROM memory_index "
+                "WHERE kind='rule' AND active AND embedding IS NOT NULL "
+                "AND (project=%s OR project='')",
+                (project,),
+            )
+        else:
+            cur.execute(
+                "SELECT COUNT(*) AS n FROM memory_index "
+                "WHERE kind='rule' AND active AND embedding IS NOT NULL"
+            )
+        n_rules = int(cur.fetchone()["n"])
+        if n_rules > CONSOLIDATION_MAX_RULES:
+            raise ValueError(
+                f"{n_rules} active rules exceeds CONSOLIDATION_MAX_RULES "
+                f"({CONSOLIDATION_MAX_RULES}); the O(N^2) scan would be too slow. "
+                f"Scope to a project or raise the limit deliberately."
+            )
+
+        # Pairwise self-join. Distance computed ONCE in the CTE; NULL embeddings
+        # excluded; a.memory_id < b.memory_id dedups pairs and drops self-pairs.
+        proj_pred = ""
+        params: list = [threshold]
+        if project is not None:
+            proj_pred = ("AND (a.project=%s OR a.project='') "
+                         "AND (b.project=%s OR b.project='')")
+            params = [project, project, threshold]
+        cur.execute(
+            f"""
+            WITH pairs AS (
+                SELECT a.memory_id AS a_id, b.memory_id AS b_id,
+                       1 - (a.embedding <=> b.embedding) AS sim
+                FROM memory_index a
+                JOIN memory_index b
+                  ON a.kind='rule' AND b.kind='rule'
+                 AND a.active AND b.active
+                 AND a.embedding IS NOT NULL AND b.embedding IS NOT NULL
+                 AND a.memory_id < b.memory_id
+                 {proj_pred}
+            )
+            SELECT a_id, b_id, sim FROM pairs WHERE sim >= %s
+            """,
+            tuple(params),
+        )
+        pair_rows = cur.fetchall()
+
+        # Build the similarity graph (adjacency + pair-sim lookup).
+        adj: dict[int, set[int]] = {}
+        pair_sim: dict[tuple[int, int], float] = {}
+        for r in pair_rows:
+            a, b, s = int(r["a_id"]), int(r["b_id"]), float(r["sim"])
+            adj.setdefault(a, set()).add(b)
+            adj.setdefault(b, set()).add(a)
+            pair_sim[(min(a, b), max(a, b))] = s
+
+        # All MAXIMAL cliques (>=2 members). Bron-Kerbosch, not greedy (greedy is
+        # incomplete — see brain rule 669). N bounded by CONSOLIDATION_MAX_RULES.
+        clusters = _maximal_cliques(adj, min_size=2)
+
+        # Fetch member metadata (headline, severity, pinned) for all clustered ids.
+        all_ids = sorted({i for c in clusters for i in c})
+        meta: dict[int, dict] = {}
+        if all_ids:
+            cur.execute(
+                "SELECT memory_id, headline, severity, pinned FROM memory_index "
+                "WHERE kind='rule' AND memory_id = ANY(%s)",
+                (all_ids,),
+            )
+            for r in cur.fetchall():
+                meta[int(r["memory_id"])] = {
+                    "id": int(r["memory_id"]), "headline": r["headline"],
+                    "severity": r["severity"], "pinned": r["pinned"],
+                }
+
+    # Build output; each clique's sims are all its member pairs.
+    out = []
+    for c in clusters:
+        ids = sorted(c)
+        sims = [pair_sim[(min(a, b), max(a, b))]
+                for i, a in enumerate(ids) for b in ids[i + 1:]]
+        out.append({
+            "rule_ids": ids,
+            "members": [meta[i] for i in ids if i in meta],
+            "size": len(ids),
+            "max_similarity": round(max(sims), 4) if sims else None,
+            "min_similarity": round(min(sims), 4) if sims else None,
+        })
+    # Tightest (highest min_similarity) first — safest to merge.
+    out.sort(key=lambda x: (x["min_similarity"] or 0), reverse=True)
+    out = out[:limit]
+
+    return {
+        "clusters": out,
+        "cluster_count": len(out),
+        "active_rules_scanned": n_rules,
+        "note": ("Each cluster is a set of active rules that are ALL mutually "
+                 "similar (candidates to consolidate). Before superseding, recall "
+                 "and READ the bodies — cosine is an imperfect proxy and may group "
+                 "rules that encode distinct nuances or opposite polarity. Do not "
+                 "merge across differing severity, and do not retire a pinned rule "
+                 "without cause."),
     }
 
 

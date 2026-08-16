@@ -18,4 +18,4 @@ Phase 1 contracts:
 - Immutable RULE bodies (supersede-only)
 """
 
-__version__ = "2.6.0"
+__version__ = "2.7.0"

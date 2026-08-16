@@ -47,6 +47,25 @@ SIMILAR_RULE_COSINE = float(
     os.getenv("OPEN_BRAIN_V2_SIMILAR_RULE_COSINE", "0.62")
 )
 
+# Threshold for the on-demand consolidation-candidate finder: pairs of active
+# rules with cosine >= this are candidates to review for merging (supersede into
+# one). IMPORTANT (measured): it must sit AT/BELOW the dedup threshold (0.75), NOT
+# above it. Anything >= 0.75 was already blocked at WRITE time by find_duplicate, so
+# a value like 0.80 would find almost nothing among rules written through the gate.
+# The pile-up this tool targets lives just under the dedup line, and in rules dedup
+# never saw (written pre-dedup, or cross-project near-dups the same-project write
+# hint doesn't cover). Default 0.72 catches the survivable band. UNCALIBRATED —
+# tune on real data. Cosine is an imperfect proxy, so the tool surfaces
+# bodies/severity/pinned for the agent to judge.
+CONSOLIDATION_COSINE = float(
+    os.getenv("OPEN_BRAIN_V2_CONSOLIDATION_COSINE", "0.72")
+)
+# Refuse the O(N^2) consolidation scan above this many active rules (guards the
+# 10s slow-call threshold; the pairwise self-join has no vector index).
+CONSOLIDATION_MAX_RULES = int(
+    os.getenv("OPEN_BRAIN_V2_CONSOLIDATION_MAX_RULES", "500")
+)
+
 FACT_DECAY_HALFLIFE_DAYS = float(
     os.getenv("OPEN_BRAIN_V2_FACT_HALFLIFE_DAYS", "7.0")
 )

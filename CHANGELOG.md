@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Consolidation-candidate finder (brain_v2 2.7.0).** New read-only tool
+  `consolidation_candidates_v2` / `store.consolidation_candidates` finds CLIQUES
+  of active rules that are all mutually similar — candidates to review and merge
+  (supersede into one). It never merges; the agent judges. Addresses the existing
+  rule pile-up the write-time similar-rule hint (2.5.0) can't touch. Cliques (not
+  connected components) so every member is directly similar to every other —
+  avoids chaining unrelated rules through a hub. Each cluster surfaces headline,
+  severity, and pinned per member, sorted tightest-first, with a note to READ the
+  bodies before superseding (cosine is an imperfect proxy). Bounded: refuses above
+  `CONSOLIDATION_MAX_RULES` (500) active rules (the pairwise self-join is O(N²),
+  no vector index). **Honest scope:** `CONSOLIDATION_COSINE` defaults to 0.72,
+  deliberately *below* the 0.75 dedup line — anything ≥0.75 is blocked at write
+  time, so for rules written through the dedup gate the yield is narrow by
+  construction; the real value is legacy/pre-dedup pile-up and cross-project
+  near-dups. Threshold is uncalibrated; tune on real data.
+
 ### Fixed
 - **Shared connection recovers from a dirty transaction (brain_v2 2.6.0).**
   `store.connect()` returns a process-wide singleton connection reused across

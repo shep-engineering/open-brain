@@ -246,6 +246,120 @@ class TestCorrectionStickiness:
         assert cs["revised_lineages"][0]["revisions"] == 2
 
 
+class TestConsolidationCandidates:
+    """Read-only finder of cliques of mutually-similar active rules. Rules are
+    inserted DIRECTLY (bypassing the write-gate dedup) to simulate the legacy
+    pile-up the tool targets — rules >=0.75 similar are blocked at write time, so
+    real consolidation candidates are pre-dedup / cross-project accumulations.
+    """
+
+    def _raw_rule(self, conn, headline, body, project="test", severity="PATTERN",
+                  pinned=False):
+        from brain_v2.embedding import embed_to_pgvector
+        ev = embed_to_pgvector(f"{headline}. {body}")
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO rules (headline, body, severity, project, source) "
+                "VALUES (%s,%s,%s,%s,'test') RETURNING id",
+                (headline, body, severity, project),
+            )
+            rid = cur.fetchone()[0]
+            cur.execute(
+                "INSERT INTO memory_index (kind,memory_id,project,headline,severity,"
+                "embedding,active,pinned) VALUES ('rule',%s,%s,%s,%s,%s,TRUE,%s)",
+                (rid, project, headline, severity, ev, pinned),
+            )
+        conn.commit()
+        return rid
+
+    def test_similar_rules_form_a_cluster(self, conn):
+        a = self._raw_rule(conn, "Always run the full test suite before pushing",
+                            "pytest must pass before git push")
+        b = self._raw_rule(conn, "Run the complete unit test suite prior to any push",
+                            "Execute pytest fully before pushing")
+        self._raw_rule(conn, "Never deploy on a Friday afternoon",
+                       "Weekend outages have no on-call coverage")
+        res = store.consolidation_candidates(conn, project="test", threshold=0.72)
+        assert res["cluster_count"] == 1
+        cl = res["clusters"][0]
+        assert set(cl["rule_ids"]) == {a, b}
+        assert cl["min_similarity"] >= 0.72
+        # members carry severity + pinned for agent triage
+        assert all("severity" in m and "pinned" in m for m in cl["members"])
+        assert "READ the bodies" in res["note"]
+
+    def test_unrelated_rules_no_cluster(self, conn):
+        self._raw_rule(conn, "Use Postgres 16 with the pgvector extension",
+                       "Vector search via pgvector")
+        self._raw_rule(conn, "Prefer small pull requests under 400 lines",
+                       "Review quality drops on large diffs")
+        res = store.consolidation_candidates(conn, project="test", threshold=0.72)
+        assert res["cluster_count"] == 0
+
+    def test_empty_db_no_clusters(self, conn):
+        res = store.consolidation_candidates(conn)
+        assert res["cluster_count"] == 0
+        assert res["active_rules_scanned"] == 0
+
+    def test_refuses_above_rule_cap(self, conn, monkeypatch):
+        # Cap guards the O(N^2) scan. Force a tiny cap and exceed it.
+        import brain_v2.store as store_mod
+        monkeypatch.setattr(store_mod, "CONSOLIDATION_MAX_RULES", 2)
+        for i in range(3):
+            self._raw_rule(conn, f"Distinct rule number {i} about topic {i}",
+                           f"Body for rule {i}.")
+        import pytest
+        with pytest.raises(ValueError, match="exceeds CONSOLIDATION_MAX_RULES"):
+            store.consolidation_candidates(conn, project="test")
+
+    def test_maximal_cliques_algorithm_complete(self, conn):
+        # Direct algorithm test — no embeddings, exact graphs. Guards against the
+        # greedy-incompleteness bug (rule 669): the diff-gate counterexample
+        # edges (1,4),(2,3),(3,4) must surface {3,4} (and {1,4},{2,3}), which the
+        # old greedy code dropped.
+        from brain_v2.store import _maximal_cliques
+
+        def graph(edges):
+            adj = {}
+            for a, b in edges:
+                adj.setdefault(a, set()).add(b)
+                adj.setdefault(b, set()).add(a)
+            return adj
+
+        # Counterexample from the diff-gate fuzzer.
+        cliques = _maximal_cliques(graph([(1, 4), (2, 3), (3, 4)]))
+        as_fs = {frozenset(c) for c in cliques}
+        assert frozenset({3, 4}) in as_fs
+        assert frozenset({1, 4}) in as_fs
+        assert frozenset({2, 3}) in as_fs
+
+        # A triangle + a pendant: {1,2,3} maximal, {3,4} maximal, {1,2}/{2,3}
+        # NOT emitted (non-maximal — subsumed by the triangle).
+        cliques = _maximal_cliques(graph([(1, 2), (1, 3), (2, 3), (3, 4)]))
+        as_fs = {frozenset(c) for c in cliques}
+        assert frozenset({1, 2, 3}) in as_fs
+        assert frozenset({3, 4}) in as_fs
+        assert frozenset({1, 2}) not in as_fs  # non-maximal
+
+        # Completeness property: every edge appears within some emitted clique.
+        edges = [(1, 2), (2, 3), (3, 1), (3, 4), (4, 5), (5, 3)]
+        cliques = _maximal_cliques(graph(edges))
+        for a, b in edges:
+            assert any({a, b} <= c for c in cliques), f"edge {a},{b} missing"
+
+    def test_pinned_and_severity_surfaced(self, conn):
+        a = self._raw_rule(conn, "Always run the full test suite before pushing",
+                           "pytest must pass before git push", severity="BLOCKER",
+                           pinned=True)
+        self._raw_rule(conn, "Run the complete unit test suite prior to any push",
+                       "Execute pytest fully before pushing", severity="PATTERN")
+        res = store.consolidation_candidates(conn, project="test", threshold=0.72)
+        assert res["cluster_count"] == 1
+        members = {m["id"]: m for m in res["clusters"][0]["members"]}
+        assert members[a]["pinned"] is True
+        assert members[a]["severity"] == "BLOCKER"
+
+
 class TestConnectionRecovery:
     """store.connect() returns a process-wide singleton. If a tool raises
     mid-transaction without rolling back, the shared connection is left dirty and
