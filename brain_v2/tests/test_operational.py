@@ -184,17 +184,85 @@ class TestStats:
         assert alpha["by_kind"]["fact"]["active"] == 1
 
 
+class TestCorrectionStickiness:
+    """The correction_stickiness block reports rule LINEAGES that keep being
+    revised (superseded repeatedly) — a rule not settling. Report-only signal.
+    """
+
+    def test_empty_db_no_revised_lineages(self, conn):
+        data = store.stats(conn)
+        cs = data["correction_stickiness"]
+        assert cs["revised_lineages"] == []
+        assert cs["revised_lineage_count"] == 0
+
+    def test_single_rule_never_superseded_absent(self, conn):
+        store.remember_rule(
+            conn, headline="A stable rule never revised at all",
+            body="It stays as written.", severity="PATTERN",
+            project="test", source="test",
+        )
+        cs = store.stats(conn, project="test")["correction_stickiness"]
+        # revisions==1 (never superseded) must NOT appear (HAVING depth>=2).
+        assert cs["revised_lineages"] == []
+
+    def test_rule_superseded_twice_is_flagged(self, conn):
+        r1 = store.remember_rule(
+            conn, headline="Original phrasing of the deploy rule",
+            body="First version of the rule body.", severity="PATTERN",
+            project="test", source="test",
+        )
+        r2 = store.supersede_rule(
+            conn, old_id=r1.id,
+            new_headline="Second phrasing of the deploy rule",
+            new_body="Second version, clarified.", reason="clarity",
+            source="test",
+        )
+        store.supersede_rule(
+            conn, old_id=r2.id,
+            new_headline="Third phrasing of the deploy rule",
+            new_body="Third version, more precise.", reason="precision",
+            source="test",
+        )
+        cs = store.stats(conn, project="test")["correction_stickiness"]
+        assert cs["revised_lineage_count"] == 1
+        entry = cs["revised_lineages"][0]
+        # chain: r1 -> r2 -> r3  => depth 3 (3 versions, 2 supersessions)
+        assert entry["revisions"] == 3
+        assert entry["headline"] == "Third phrasing of the deploy rule"
+
+    def test_once_superseded_meets_threshold(self, conn):
+        r1 = store.remember_rule(
+            conn, headline="Rule revised exactly one time only",
+            body="v1.", severity="PATTERN", project="test", source="test",
+        )
+        store.supersede_rule(
+            conn, old_id=r1.id,
+            new_headline="Rule revised exactly one time only v2",
+            new_body="v2.", reason="tweak", source="test",
+        )
+        cs = store.stats(conn, project="test")["correction_stickiness"]
+        # depth 2 (one supersession) meets HAVING depth>=2.
+        assert cs["revised_lineage_count"] == 1
+        assert cs["revised_lineages"][0]["revisions"] == 2
+
+
 class TestListRecent:
     def test_returns_newest_first(self, conn):
+        # Semantically DISTINCT facts so neither trips the >0.75 cosine dedup
+        # gate (which returns a DuplicateHit with no .id). See incident 179.
         f1 = store.remember_fact(
-            conn, headline="First fact written in this test",
-            body="Body one.", project="test", source="test",
+            conn, headline="The database runs Postgres 16 with pgvector",
+            body="Vector similarity search via the pgvector extension.",
+            project="test", source="test",
         )
         time.sleep(0.1)
         f2 = store.remember_fact(
-            conn, headline="Second fact written after the first one",
-            body="Body two.", project="test", source="test",
+            conn, headline="Deployments ship through the staging environment first",
+            body="No direct-to-production releases are permitted.",
+            project="test", source="test",
         )
+        # Guard the regression: both writes must be real Memories, not DuplicateHits.
+        assert hasattr(f1, "id") and hasattr(f2, "id"), "dedup rejected a test fact"
         rows = store.list_recent(conn, limit=10, project="test")
         ids_in_order = [r["memory_id"] for r in rows if r["kind"] == "fact"]
         assert ids_in_order[0] == f2.id

@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Correction-stickiness signal in stats (brain_v2 2.4.0).** `store.stats`
+  (surfaced via `stats_v2`) now includes a `correction_stickiness` block that
+  reports rule LINEAGES superseded repeatedly — a rule that keeps needing
+  revision, i.e. a correction that is not settling. It is a bounded recursive
+  walk of `rules.supersedes` chains (depth-capped, cycle-guarded), report-only
+  (a signal to inspect, not a verdict). This is the sound half of the
+  2026-08-16 correction-mechanism analysis; a "re-offense" write-time signal was
+  investigated and rejected (a dedup DuplicateHit is a re-*write*, not a
+  re-violation — see analysis). New tests: `TestCorrectionStickiness`.
+
+### Fixed
+- **Test suite: provision the V2 test DB.** `docker-compose.test.yml` now brings
+  up both the V1 test DB (:5434) and the V2 test DB (:5435,
+  `open_brain_v2_test`). Previously nothing provisioned :5435, so the entire
+  brain_v2 suite silently skipped on a fresh checkout (the root conftest's
+  autouse fixtures require both). Docs updated.
+- **Flaky test `test_returns_newest_first`.** It wrote two facts whose headlines
+  were 0.85 cosine-similar, so the write-gate dedup returned a `DuplicateHit`
+  (no `.id`) for the second and the test raised `AttributeError`. Now uses
+  semantically distinct facts and asserts both writes are real Memories.
+
 ### Changed
 - **Boot: protect critical BLOCKERs from cap eviction (brain_v2 2.3.0).**
   `_fetch_blockers` no longer lets the `BOOT_BLOCKER_COUNT_CAP` (5) silently drop

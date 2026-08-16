@@ -1387,6 +1387,55 @@ def stats(conn, *, project: str = "") -> dict[str, Any]:
             cur.execute("SELECT COUNT(*) AS n FROM active_sessions WHERE status = 'active'")
         active_sessions = int(cur.fetchone()["n"])
 
+        # Correction stickiness (report-only signal).
+        # A rule LINEAGE superseded repeatedly = a correction that keeps needing
+        # revision, i.e. it is not settling. We measure lineage depth by walking
+        # rules.supersedes from each chain HEAD (superseded_by IS NULL) back to its
+        # root. supersede_rule refuses to re-supersede a superseded rule
+        # (chain guard), so chains are linear; a depth cap guards against any
+        # corrupted pointer. This is a signal to inspect, NOT a verdict — a rule
+        # may be revised repeatedly for good reasons.
+        # Caveat: rules.supersedes/superseded_by are ON DELETE SET NULL, so a
+        # HARD-deleted ancestor (not the sanctioned supersede path) truncates or
+        # splits a lineage and UNDER-reports its depth. Accept the undercount —
+        # this is advisory, and hard-deleting rules is not a normal path.
+        # "revisions" counts VERSIONS in the lineage (N versions = N-1 supersessions).
+        rule_proj = "r.project = %s OR r.project = ''" if project else "TRUE"
+        cur.execute(
+            f"""
+            WITH RECURSIVE chain AS (
+                -- heads: current (non-superseded) rules
+                SELECT r.id AS head_id, r.id AS cur_id, r.headline, r.project,
+                       1 AS depth
+                FROM rules r
+                WHERE r.superseded_by IS NULL AND ({rule_proj})
+              UNION ALL
+                SELECT c.head_id, r.supersedes AS cur_id, c.headline, c.project,
+                       c.depth + 1
+                FROM chain c
+                JOIN rules r ON r.id = c.cur_id
+                WHERE r.supersedes IS NOT NULL
+                  AND c.depth < 50        -- hard depth cap / cycle guard
+            )
+            SELECT head_id, headline, MAX(depth) AS revisions
+            FROM chain
+            GROUP BY head_id, headline
+            HAVING MAX(depth) >= 2          -- superseded at least once
+            ORDER BY revisions DESC
+            LIMIT 10
+            """,
+            params,
+        )
+        revised = [
+            {"head_rule_id": int(r["head_id"]), "headline": r["headline"],
+             "revisions": int(r["revisions"])}
+            for r in cur.fetchall()
+        ]
+        correction_stickiness = {
+            "revised_lineages": revised,      # top rules that keep being revised
+            "revised_lineage_count": len(revised),
+        }
+
     return {
         "project": project or "(global)",
         "by_kind": by_kind,
@@ -1396,6 +1445,7 @@ def stats(conn, *, project: str = "") -> dict[str, Any]:
         "incidents_active": int(inc.get(False, 0)),
         "pending_action_items": pending_action_items,
         "active_sessions": active_sessions,
+        "correction_stickiness": correction_stickiness,
     }
 
 
