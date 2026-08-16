@@ -1,4 +1,5 @@
 services:
+  # V1 test DB (root conftest.py -> localhost:5434/openbrain_test).
   postgres-test:
     image: pgvector/pgvector:pg16
     container_name: open-brain-test-db
@@ -11,6 +12,26 @@ services:
     # No volume — ephemeral. Test data is wiped on container removal.
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d openbrain_test"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # V2 test DB (brain_v2/tests/conftest.py -> localhost:5435/open_brain_v2_test).
+  # brain_v2 tests inherit the root conftest's autouse fixtures, so BOTH DBs must
+  # be up to run the v2 suite. Previously nothing provisioned this one, so the v2
+  # suite silently skipped on a fresh checkout (see incident 179 / rule 660).
+  postgres-test-v2:
+    image: pgvector/pgvector:pg16
+    container_name: open-brain-test-db-v2
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: testpassword
+      POSTGRES_DB: open_brain_v2_test
+    ports:
+      - "5435:5432"
+    # No volume — ephemeral.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d open_brain_v2_test"]
       interval: 5s
       timeout: 3s
       retries: 5

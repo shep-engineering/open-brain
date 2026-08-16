@@ -23,7 +23,9 @@ Two completely separate PostgreSQL containers. Different ports, different databa
 ## Quick Start
 
 ```sh
-# Start the test database
+# Start the test databases (brings up BOTH: V1 on :5434 and V2 on :5435).
+# The brain_v2 suite inherits the root conftest's autouse fixtures, so both
+# databases must be running or the whole suite skips.
 docker compose -f docker-compose.test.yml up -d
 
 # Run all tests
