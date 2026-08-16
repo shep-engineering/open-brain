@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Shared connection recovers from a dirty transaction (brain_v2 2.6.0).**
+  `store.connect()` returns a process-wide singleton connection reused across
+  every tool call. If any tool raised mid-transaction without its caller rolling
+  back, the connection was left `INTRANS`/`INERROR` and the *next* tool call
+  failed with "current transaction is aborted" — cascading until process restart.
+  No production code rolled back (35 tools, 0 rollbacks; only the test conftest
+  did, which masked the bug). `connect()` now resets any lingering transaction
+  before handing back the singleton, so each tool starts clean. This is
+  independent of, and was surfaced by, the `unsupersede` fix below.
+- **`unsupersede_rule` no longer leaves both rules active (brain_v2 2.6.0).**
+  Reversing a supersession reactivated the original but left the corrector active
+  too — an invalid double-active state the function created itself and punted to
+  the caller. `unsupersede` now retires the corrector by default (its
+  `memory_index` row deactivated in the SAME transaction — atomic, symmetric with
+  how `supersede` retires the old rule), restoring a clean single-active state.
+  Pass `keep_corrector=True` (also on `unsupersede_v2`) to preserve the old
+  both-active behavior. Unsuperseding a mid-chain rule (whose corrector is itself
+  superseded) is now refused rather than producing a corrupt multi-active state.
+  Return shape gains `corrector_retired`.
+
 ### Added
 - **Write-time "similar existing rule" hint (brain_v2 2.5.0).** When a new rule
   is not a duplicate but its nearest active same-project neighbor is in

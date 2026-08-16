@@ -140,7 +140,10 @@ class TestUnsupersede:
             assert active is True
             assert mi_sev == "BLOCKER"
 
-    def test_corrector_remains_active(self, conn):
+    def test_corrector_retired_by_default(self, conn):
+        # INVERTED (was test_corrector_remains_active, which encoded the
+        # double-active BUG). unsupersede now retires the corrector by default so
+        # a superseded rule and its corrector are never both active.
         old = store.remember_rule(
             conn, headline="Rule about corrector active state persistence",
             body="Body.", severity="PATTERN",
@@ -148,15 +151,60 @@ class TestUnsupersede:
         )
         new = store.supersede_rule(
             conn, old_id=old.id,
-            new_headline="Corrector rule that stays active after undo",
+            new_headline="Corrector rule retired on undo by default",
             new_body="Corrector body.",
             reason="test", source="test",
         )
-        store.unsupersede_rule(conn, old_id=old.id, source="test")
-        # Corrector still active
+        result = store.unsupersede_rule(conn, old_id=old.id, source="test")
+        assert result["corrector_retired"] is True
         with conn.cursor() as cur:
+            # original active again
+            cur.execute("SELECT active FROM memory_index WHERE kind='rule' AND memory_id=%s", (old.id,))
+            assert cur.fetchone()[0] is True
+            # corrector now INACTIVE (retired)
+            cur.execute("SELECT active FROM memory_index WHERE kind='rule' AND memory_id=%s", (new.id,))
+            assert cur.fetchone()[0] is False
+
+    def test_keep_corrector_leaves_both_active(self, conn):
+        # Opt-in preservation of the old both-active behavior.
+        old = store.remember_rule(
+            conn, headline="Rule for keep-corrector both-active path",
+            body="Body.", severity="PATTERN",
+            project="test", source="test",
+        )
+        new = store.supersede_rule(
+            conn, old_id=old.id,
+            new_headline="Corrector kept active via keep_corrector flag",
+            new_body="Corrector body.",
+            reason="test", source="test",
+        )
+        result = store.unsupersede_rule(conn, old_id=old.id, source="test",
+                                        keep_corrector=True)
+        assert result["corrector_retired"] is False
+        with conn.cursor() as cur:
+            cur.execute("SELECT active FROM memory_index WHERE kind='rule' AND memory_id=%s", (old.id,))
+            assert cur.fetchone()[0] is True
             cur.execute("SELECT active FROM memory_index WHERE kind='rule' AND memory_id=%s", (new.id,))
             assert cur.fetchone()[0] is True
+
+    def test_unsupersede_mid_chain_refused(self, conn):
+        # r1 -> r2 -> r3: r2 (r1's corrector) is itself superseded. Undoing r1
+        # can't yield a single clean state, so it must be refused by default.
+        r1 = store.remember_rule(
+            conn, headline="Mid-chain rule one original version",
+            body="v1.", severity="PATTERN", project="test", source="test",
+        )
+        r2 = store.supersede_rule(
+            conn, old_id=r1.id, new_headline="Mid-chain rule two revision",
+            new_body="v2.", reason="rev1", source="test",
+        )
+        store.supersede_rule(
+            conn, old_id=r2.id, new_headline="Mid-chain rule three revision",
+            new_body="v3.", reason="rev2", source="test",
+        )
+        import pytest
+        with pytest.raises(ValueError, match="mid-chain"):
+            store.unsupersede_rule(conn, old_id=r1.id, source="test")
 
     def test_not_superseded_raises(self, conn):
         r = store.remember_rule(

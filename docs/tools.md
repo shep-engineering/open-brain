@@ -248,7 +248,7 @@ Mark an existing memory as superseded by a corrected newer one. The old memory i
 
 ### `unsupersede`
 
-Reverse a supersession by clearing the supersession metadata. Both memories end up active. To fully undo, also call `forget()` on the corrector.
+Reverse a supersession: reactivate the original rule and, by default, retire the corrector so exactly one is active (a superseded rule and its corrector are never both active). Pass `keep_corrector=True` to leave both active. Refuses to unsupersede a mid-chain rule.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -743,7 +743,7 @@ Batch soft-delete. Partial success allowed.
 
 #### `unsupersede_v2`
 
-Reverse a rule supersession. Both rules end up active.
+Reverse a rule supersession. By default the corrector is retired so a single rule is active; pass `keep_corrector=True` to leave both active. Mid-chain rules are refused.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|

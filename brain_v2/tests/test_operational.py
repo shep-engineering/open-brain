@@ -246,6 +246,38 @@ class TestCorrectionStickiness:
         assert cs["revised_lineages"][0]["revisions"] == 2
 
 
+class TestConnectionRecovery:
+    """store.connect() returns a process-wide singleton. If a tool raises
+    mid-transaction without rolling back, the shared connection is left dirty and
+    would poison the NEXT call. connect() must reset a lingering transaction so
+    each call starts clean. (The conftest per-test rollback masks this in normal
+    tests, so this test drives the raw connection directly.)
+    """
+
+    def test_connect_recovers_from_dirty_transaction(self, conn):
+        # Seed a rule so there's something to operate on.
+        r = store.remember_rule(
+            conn, headline="Rule for connection recovery testing scenario",
+            body="Body.", severity="PATTERN", project="test", source="test",
+        )
+        # Force a raise mid-transaction on the SHARED connection, like a tool
+        # error that isn't rolled back at the boundary (e.g. a mid-chain
+        # unsupersede refusal). Open a transaction, then raise.
+        c = store.connect()
+        try:
+            with c.cursor() as cur:
+                cur.execute("SELECT 1 FROM rules WHERE id = %s", (r.id,))
+                raise RuntimeError("simulated tool error mid-transaction")
+        except RuntimeError:
+            pass  # boundary swallowed it WITHOUT rollback (the bug scenario)
+
+        # connect() must return a usable connection — not one stuck in an
+        # aborted/lingering transaction. A subsequent real operation succeeds.
+        c2 = store.connect()
+        data = store.stats(c2)  # would raise "transaction is aborted" if dirty
+        assert data["by_kind"]["rule"]["active"] == 1
+
+
 class TestListRecent:
     def test_returns_newest_first(self, conn):
         # Semantically DISTINCT facts so neither trips the >0.75 cosine dedup

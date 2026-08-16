@@ -1326,15 +1326,17 @@ def forget_many_v2(kinds: list[str], memory_ids: list[int],
 
 
 @mcp.tool()
-def unsupersede_v2(old_id: int, source: str) -> str:
-    """Reverse a rule supersession. Clears superseded_by on the
-    original rule, restores its severity, and reactivates its
-    memory_index row. The corrector rule stays active — call
-    forget_v2(kind='rule', memory_id=<corrector>) for full undo.
+def unsupersede_v2(old_id: int, source: str, keep_corrector: bool = False) -> str:
+    """Reverse a rule supersession. Clears superseded_by on the original rule,
+    restores its severity, and reactivates it. By DEFAULT the corrector rule is
+    retired too, restoring a clean single-active state (a superseded rule and its
+    corrector are never both active). Pass keep_corrector=True to leave both
+    active. Refuses to unsupersede a mid-chain rule (unsupersede the head first).
 
     Args:
         old_id: id of the rule whose supersession to reverse.
         source: REQUIRED. Which agent is unsupersedeing.
+        keep_corrector: if True, leave the corrector active (both-active). Default False.
     """
     ensure_schema()
     if not source:
@@ -1344,6 +1346,7 @@ def unsupersede_v2(old_id: int, source: str) -> str:
         with store.connect() as conn:
             result = store.unsupersede_rule(
                 conn, old_id=old_id, source=source,
+                keep_corrector=keep_corrector,
             )
     except ValueError as exc:
         return _err(str(exc))

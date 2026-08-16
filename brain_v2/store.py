@@ -18,6 +18,7 @@ from typing import Any
 
 import psycopg2
 import psycopg2.extras
+import psycopg2.extensions
 
 import logging
 
@@ -52,6 +53,24 @@ def connect() -> psycopg2.extensions.connection:
         # Multi-statement writes (INSERT rule + INSERT memory_index + INSERT
         # v2_audit) must be atomic; conn.commit() at the end of each store
         # function is the transaction boundary.
+    else:
+        # The connection is a process-wide singleton reused across every tool
+        # call. If a prior tool raised mid-transaction and its caller did not
+        # roll back, the connection is left INTRANS (or INERROR after a failed
+        # statement), which would poison the NEXT tool with "current transaction
+        # is aborted". Reset any lingering transaction so each tool starts clean.
+        # (INTRANS = 2, INERROR = 3; TransactionStatus.IDLE = 0.)
+        try:
+            status = _conn.get_transaction_status()
+            if status != psycopg2.extensions.TRANSACTION_STATUS_IDLE:
+                _conn.rollback()
+        except psycopg2.Error:
+            # Connection is unusable — drop it so the next call reconnects.
+            try:
+                _conn.close()
+            except psycopg2.Error:
+                pass
+            _conn = psycopg2.connect(DATABASE_URL)
     return _conn
 
 
@@ -1106,16 +1125,25 @@ def forget_many(conn, *, items: list[dict], reason: str = "",
 
 
 # ── UNSUPERSEDE ──────────────────────────────────────────────────────
-def unsupersede_rule(conn, *, old_id: int, source: str = "") -> dict[str, Any]:
-    """Reverse a supersession on a rule. Clears superseded_by on the
-    original rule, restores its severity from DEPRECATED (or PATTERN as
-    fallback), and reactivates its memory_index row.
+def unsupersede_rule(conn, *, old_id: int, source: str = "",
+                     keep_corrector: bool = False) -> dict[str, Any]:
+    """Reverse a supersession on a rule. Clears superseded_by on the original
+    rule, restores its severity, and reactivates its memory_index row.
 
-    The corrector rule stays active — both memories end up active. If
-    full undo is desired, caller should forget() the corrector.
+    Invariant restored: a superseded rule and its corrector are never both
+    active. supersede_rule is a two-part act (retire old + activate new), so a
+    true reverse must undo BOTH halves. By default (keep_corrector=False) the
+    corrector is retired (its memory_index row deactivated in the SAME
+    transaction — symmetric with how supersede retires the old rule, and atomic:
+    no separate commit). Pass keep_corrector=True to leave the corrector active
+    (both-active), e.g. when re-evaluating.
 
-    Returns {old_id, former_corrector, note}. Raises ValueError if the
-    rule was not superseded.
+    Only the ACTIVE HEAD of a chain can be unsuperseded: if the corrector is
+    itself superseded (mid-chain), this raises — undoing a mid-chain supersession
+    cannot produce a single clean state.
+
+    Returns {old_id, former_corrector, corrector_retired, restored_severity, note}.
+    Raises ValueError if the rule was not superseded, or the corrector is mid-chain.
     """
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
@@ -1131,12 +1159,20 @@ def unsupersede_rule(conn, *, old_id: int, source: str = "") -> dict[str, Any]:
             )
         former_corrector = row["superseded_by"]
 
-        # Restore severity from corrector's chain if possible, else PATTERN
+        # The corrector must be the active head (not itself superseded), or the
+        # undo can't yield a single clean state (would leave the original AND the
+        # chain tail both active). Refuse mid-chain undo.
         cur.execute(
-            "SELECT severity FROM rules WHERE id = %s",
+            "SELECT severity, superseded_by FROM rules WHERE id = %s",
             (former_corrector,),
         )
         corr_row = cur.fetchone()
+        if corr_row and corr_row["superseded_by"] is not None and not keep_corrector:
+            raise ValueError(
+                f"rule id={old_id}'s corrector ({former_corrector}) is itself "
+                f"superseded (mid-chain); unsupersede the chain head first."
+            )
+
         restored_severity = "PATTERN"
         if corr_row and corr_row["severity"] in ("BLOCKER", "PATTERN"):
             restored_severity = corr_row["severity"]
@@ -1152,7 +1188,7 @@ def unsupersede_rule(conn, *, old_id: int, source: str = "") -> dict[str, Any]:
             """,
             (restored_severity, old_id),
         )
-        # Reactivate its memory_index row
+        # Reactivate the original's memory_index row
         cur.execute(
             """
             UPDATE memory_index
@@ -1161,18 +1197,32 @@ def unsupersede_rule(conn, *, old_id: int, source: str = "") -> dict[str, Any]:
             """,
             (restored_severity, old_id),
         )
+
+        corrector_retired = False
+        if not keep_corrector:
+            # Retire the corrector INLINE (same transaction, no separate commit)
+            # — mirrors supersede_rule's _index_deactivate of the old rule.
+            _index_deactivate(cur, "rule", former_corrector)
+            corrector_retired = True
+
         _audit(cur, "UNSUPERSEDE", "rule", old_id,
-               {"former_corrector": former_corrector, "restored_severity": restored_severity},
+               {"former_corrector": former_corrector,
+                "restored_severity": restored_severity,
+                "corrector_retired": corrector_retired},
                source)
     conn.commit()
-    log.info("unsupersede_rule: id=%d former_corrector=%d severity=%s",
-             old_id, former_corrector, restored_severity)
+    log.info("unsupersede_rule: id=%d former_corrector=%d severity=%s retired=%s",
+             old_id, former_corrector, restored_severity, corrector_retired)
+    note = (f"Original {old_id} is active; corrector {former_corrector} retired "
+            f"(single-active state restored)." if corrector_retired
+            else f"Both {old_id} and corrector {former_corrector} are active "
+                 f"(keep_corrector=True).")
     return {
         "old_id": old_id,
         "former_corrector": former_corrector,
+        "corrector_retired": corrector_retired,
         "restored_severity": restored_severity,
-        "note": f"Both memories are now active. Call forget({former_corrector}) "
-                "to also remove the corrector if you want full undo.",
+        "note": note,
     }
 
 
