@@ -51,6 +51,20 @@ These all sit in roughly the same problem space as us (persistent memory for AI 
 - **Approach:** Docker-based local deployment, Postgres with pgvector, MCP read access.
 - **How to tell us apart:** Same repo slug (`open-brain`) but different owner (`rolders`). Confirm the owner in the URL path — we are `shep-engineering/open-brain` (public) / `degailen/open-brain` (source).
 
+### openbrain (niemesrw)
+
+- **GitHub:** <https://github.com/niemesrw/openbrain>
+- **Tagline:** "Personal AI knowledge base with semantic search via MCP. One brain shared across Claude, ChatGPT, Gemini, Cursor."
+- **Approach:** AWS serverless (Lambda, S3 Vectors, DynamoDB, Bedrock, Cognito); Bedrock Titan embeddings; org-level sharing with OAuth. Cloud-native rather than local-first.
+- **How to tell us apart:** Different developer (`niemesrw`), AWS-hosted serverless stack vs. our local Postgres + Ollama; nearly identical tagline, so check the owner in the URL. Note the lowercase `openbrain` spelling.
+
+### OpenBrain (srnichols)
+
+- **GitHub:** <https://github.com/srnichols/OpenBrain>
+- **Tagline:** "Personal semantic memory system, self-hosted MCP server with pgvector."
+- **Approach:** Self-hosted MCP server with pgvector, Ollama, and Kubernetes deployment. Very close to our stack.
+- **How to tell us apart:** Different developer (`srnichols`), K8s-oriented deployment; note the CamelCase `OpenBrain`. Same pgvector + Ollama + MCP building blocks, so confirm the owner.
+
 ### BrainTree OS
 
 - **GitHub:** <https://github.com/brain-tree-dev/brain-tree-os>
@@ -111,4 +125,4 @@ If you maintain one of the projects above and have concerns about naming overlap
 
 ---
 
-*Last updated: 2026-04-22.*
+*Last updated: 2026-08-30.*
