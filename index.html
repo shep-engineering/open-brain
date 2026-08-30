@@ -1100,8 +1100,8 @@
 <p>Several unrelated projects share the name "Open Brain" or a variant — including Nate B. Jones' <a href="https://github.com/NateBJones-Projects/OB1">OB1</a>, <a href="https://github.com/impara/openBrain"><code>impara/openBrain</code></a>, <a href="https://github.com/Mihai-Codes/OpenBrain"><code>Mihai-Codes/OpenBrain</code></a>, <a href="https://github.com/rolders/open-brain"><code>rolders/open-brain</code></a>, the clinical platform <a href="https://openbrainai.com">openbrainai.com</a>, and the <a href="https://www.openbraininstitute.org/">Open Brain Institute</a> neuroscience research org. We're none of those. This is David Sheppard's personal AI memory server (<code>shep-engineering/open-brain</code>). See <a href="disambiguation/">Disambiguation</a> for the full list and how to tell us apart.</p>
 </div>
 <div class="admonition info">
-<p class="admonition-title">v0.25.0</p>
-<p><strong>Agent harness shipped.</strong> <code>contrib/agent-harness/</code> bundles nine Claude Code hooks that enforce the memory-first workflow at the tool-call level — no instructions to ignore, no gates to skip. Install in one command. See <a href="guides/agent-harness/">Agent Harness</a> for details. Both MCP servers run on <strong>HTTP transport</strong> (v0.24.3+) — no stale sessions after a restart.</p>
+<p class="admonition-title">v0.27.0</p>
+<p><strong>Embedding model upgraded.</strong> All brain vectors migrated from <code>nomic-embed-text</code> (768d) to <code>qwen3-embedding:8b</code> (4096d, MTEB 70.58 vs 62.39). Semantic retrieval quality improved across both V1 and V2. Note: pgvector HNSW is capped at 2000d so sequential scan is used (~39ms on 3,548 rows).</p>
 </div>
 <hr />
 <h2 id="the-problem">The Problem</h2>

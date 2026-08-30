@@ -1258,7 +1258,7 @@ its own retrieval policy, and its own lifecycle.</p>
 <td><strong>RULE</strong></td>
 <td><code>rules</code></td>
 <td>Immutable body. Modify via <code>supersede_rule_v2</code> only. Never decays. Never deleted.</td>
-<td>BLOCKERs: top 5 headlines. PATTERNs: top 5 by task-relevance cosine.</td>
+<td>BLOCKERs: protected (pinned / <code>always_on</code>) rules always shown, then unprotected fill up to the cap — a critical safety rule is never evicted by the cap. PATTERNs: top 5 by task-relevance cosine.</td>
 </tr>
 <tr>
 <td><strong>FACT</strong></td>

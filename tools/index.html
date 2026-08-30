@@ -3808,7 +3808,7 @@
 </code></pre></div></p>
 <hr />
 <h3 id="unsupersede"><code>unsupersede</code></h3>
-<p>Reverse a supersession by clearing the supersession metadata. Both memories end up active. To fully undo, also call <code>forget()</code> on the corrector.</p>
+<p>Reverse a supersession: reactivate the original rule and, by default, retire the corrector so exactly one is active (a superseded rule and its corrector are never both active). Pass <code>keep_corrector=True</code> to leave both active. Refuses to unsupersede a mid-chain rule.</p>
 <table>
 <thead>
 <tr>
@@ -5017,7 +5017,7 @@
 </tbody>
 </table>
 <h4 id="unsupersede_v2"><code>unsupersede_v2</code></h4>
-<p>Reverse a rule supersession. Both rules end up active.</p>
+<p>Reverse a rule supersession. By default the corrector is retired so a single rule is active; pass <code>keep_corrector=True</code> to leave both active. Mid-chain rules are refused.</p>
 <table>
 <thead>
 <tr>

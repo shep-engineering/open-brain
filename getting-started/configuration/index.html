@@ -1328,6 +1328,21 @@
 <td>Cosine threshold for duplicate detection</td>
 </tr>
 <tr>
+<td><code>OPEN_BRAIN_V2_SIMILAR_RULE_COSINE</code></td>
+<td><code>0.62</code></td>
+<td>Lower bound for the write-time "similar existing rule" hint (same-topic, sub-duplicate). <strong>Uncalibrated</strong> — tune on real data.</td>
+</tr>
+<tr>
+<td><code>OPEN_BRAIN_V2_CONSOLIDATION_COSINE</code></td>
+<td><code>0.72</code></td>
+<td>Min pairwise cosine for a consolidation-candidate cluster. Set <em>below</em> the 0.75 dedup line (≥0.75 pairs are blocked at write time). <strong>Uncalibrated.</strong></td>
+</tr>
+<tr>
+<td><code>OPEN_BRAIN_V2_CONSOLIDATION_MAX_RULES</code></td>
+<td><code>500</code></td>
+<td>Refuse the O(N²) consolidation scan above this many active rules.</td>
+</tr>
+<tr>
 <td><code>OPEN_BRAIN_V2_FACT_HALFLIFE_DAYS</code></td>
 <td><code>7.0</code></td>
 <td>Ebbinghaus decay halflife for facts</td>
