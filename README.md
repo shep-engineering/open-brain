@@ -43,7 +43,7 @@ Your thought
     (+ annotations, ratings, access tracking)
               │
               ▼
-    MCP Server (stdio / HTTP)  ←  brain_v2/server.py  (v2: 42 tools; v1: 27)
+    MCP Server (stdio / HTTP)  ←  brain_v2/server.py  (v2: 41 tools; v1: 27)
               │
     ┌─────────┼──────────┐
     ▼         ▼          ▼
@@ -732,7 +732,7 @@ Then feed each line to `remember` to seed your Open Brain.
 ```
 open-brain/
 ├── server.py               # Python MCP server, v1 (27 tools)
-├── brain_v2/server.py      # Python MCP server, v2 (42 tools)
+├── brain_v2/server.py      # Python MCP server, v2 (41 tools)
 ├── wire.py                 # MCP client auto-discovery + auto-wiring CLI
 ├── hooks/                  # Claude Code enforcement hooks (installed by wire)
 │   ├── brain-reminder.sh   # UserPromptSubmit: mandatory brain search reminder
