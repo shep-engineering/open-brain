@@ -55,7 +55,7 @@ graph TD
 
 | Component | Technology | Purpose |
 |-----------|-----------|---------|
-| MCP Server | Python + FastMCP | Exposes 19 tools over stdio/HTTP |
+| MCP Server | Python + FastMCP | Exposes 41 tools over stdio/HTTP (v2; v1 exposes 27) |
 | Database | PostgreSQL 16 + pgvector | Vector storage, JSONB metadata, full SQL |
 | Test Database | PostgreSQL 16 + pgvector (separate container) | Isolated test environment on port 5434 |
 | Vector Index | HNSW (m=16, ef=64) | Fast approximate nearest-neighbor search |
@@ -69,7 +69,8 @@ graph TD
 
 ```
 open-brain/
-├── server.py               # MCP server, 19 tools
+├── server.py               # MCP server, v1 (27 tools)
+├── brain_v2/server.py      # MCP server, v2 (41 tools)
 ├── wire.py                 # Agent auto-discovery + wiring CLI
 ├── requirements.txt        # Python dependencies
 ├── test_server.py          # End-to-end test suite
