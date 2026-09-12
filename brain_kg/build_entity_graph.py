@@ -26,6 +26,34 @@ _NONWORD = re.compile(r"[^a-z0-9]+")
 _ENTITY_STOPWORDS = {"migration", "ticket", "issue", "the", "a", "an", "gap"}
 
 
+# Deterministic entity extractor (KG v3 coverage fix): GLiNER2 missed ~42% of
+# gold facts because generic labels don't catch this corpus's jargon. These
+# patterns catch the explicit references that ARE the entities here — ticket ids,
+# migration numbers, environments, roles, tables, files — so a fact with any such
+# reference gets entities even when GLiNER2 extracts nothing.
+_DETERMINISTIC_ENTITY_RE = re.compile(
+    r"(ARC-\d+"                                  # tickets
+    r"|PR ?#?\d+"                                # PRs
+    r"|\bmigration \d{3}\b|\b0\d{2}\b"           # migration numbers
+    r"|\b(?:dev|demo|prod|stage|staging)\b"      # environments
+    r"|demo-green|dba[- ]?credential|migrator|owner-grant|data_classification"
+    r"|role_capabilities|privileged_role_register|rls_auto_enable|ensure_rls"
+    r"|\barchen_migrator(?:_\w+)?\b|\barchen-dba(?:-\w+)?\b"
+    r"|\b\w+\.(?:py|sql|jsx|js|ts|tsx|md|yml|yaml|json)\b"  # files
+    r"|\b[a-z_]+_role\b|\bRLS\b|\bSSM\b|\bIAM\b"            # roles/infra
+    r"|ANTHROPIC|OPENAI|Stripe|sk_test|sk_live"            # keys/vendors
+    r")", re.IGNORECASE)
+
+
+def deterministic_entities(body: str) -> list[str]:
+    """Explicit-reference entities from a body (surface forms, deduped)."""
+    seen = {}
+    for m in _DETERMINISTIC_ENTITY_RE.finditer(body or ""):
+        s = m.group(0).strip()
+        seen.setdefault(s.lower(), s)   # keep first surface form per lower key
+    return list(seen.values())
+
+
 def canonical_key(span: str) -> str:
     """Deterministic canonical key for span->entity resolution."""
     s = span.strip().lower()
@@ -85,9 +113,14 @@ def build(limit: int | None = None) -> dict[str, Any]:
     n_entities = 0
     n_edges = 0
     n_mentions = 0
+    n_det_nodes = 0
     for node_id, kind, memory_id, body in nodes:
         triples: list[Triple] = extract(body, source_memory_id=memory_id)
-        if not triples:
+        # Deterministic entities ALWAYS (coverage fix) — these link facts by
+        # shared explicit references (ticket/migration/env/role) even when
+        # GLiNER2 extracts nothing, closing the ~42% zero-entity gap.
+        det_ents = deterministic_entities(body)
+        if not triples and not det_ents:
             continue
         n_nodes += 1
         with kg.cursor() as cur:
@@ -102,6 +135,15 @@ def build(limit: int | None = None) -> dict[str, Any]:
                 _add_entity_edge(cur, hid, tid, t.relation, memory_id)
                 n_edges += 1
                 n_mentions += 2
+            for surface in det_ents:
+                dkey = canonical_key(surface)
+                if not dkey:
+                    continue
+                did = _upsert_entity(cur, dkey, "reference", surface)
+                _add_mention(cur, did, node_id, surface)
+                n_mentions += 1
+            if det_ents:
+                n_det_nodes += 1
         kg.commit()
 
     with kg.cursor() as cur:
@@ -113,7 +155,39 @@ def build(limit: int | None = None) -> dict[str, Any]:
     return report
 
 
+def build_deterministic_only() -> dict[str, Any]:
+    """Add ONLY the deterministic-reference entities + mentions to the existing
+    graph (no GLiNER2 call — fast, no GPU/CPU model load). Links facts that share
+    an explicit ticket/migration/env/role reference. Idempotent."""
+    kg = store.kg_conn()
+    with kg.cursor() as cur:
+        cur.execute("SELECT id, memory_id, body FROM kg_nodes WHERE active AND body <> ''")
+        nodes = cur.fetchall()
+    n_mentions = 0
+    for node_id, memory_id, body in nodes:
+        ents = deterministic_entities(body)
+        if not ents:
+            continue
+        with kg.cursor() as cur:
+            for surface in ents:
+                dkey = canonical_key(surface)
+                if not dkey:
+                    continue
+                did = _upsert_entity(cur, dkey, "reference", surface)
+                _add_mention(cur, did, node_id, surface)
+                n_mentions += 1
+        kg.commit()
+    with kg.cursor() as cur:
+        cur.execute("SELECT count(*) FROM kg_entities")
+        n_ent = cur.fetchone()[0]
+    kg.close()
+    return {"deterministic_mentions_added": n_mentions, "total_entities": n_ent}
+
+
 if __name__ == "__main__":  # pragma: no cover
     import pprint, sys
-    lim = int(sys.argv[1]) if len(sys.argv) > 1 else None
-    pprint.pprint(build(limit=lim))
+    if len(sys.argv) > 1 and sys.argv[1] == "det":
+        pprint.pprint(build_deterministic_only())
+    else:
+        lim = int(sys.argv[1]) if len(sys.argv) > 1 else None
+        pprint.pprint(build(limit=lim))

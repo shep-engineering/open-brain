@@ -15,11 +15,11 @@
         792
       ],
       "A_hit": false,
-      "B_hit": false,
+      "B_hit": true,
       "A_returned_stale": false,
       "B_returned_stale": false,
       "A_current_rank": 8,
-      "B_current_rank": 7,
+      "B_current_rank": 2,
       "A_stale_rank": null,
       "B_stale_rank": null,
       "A_current_beats_stale": true,
@@ -33,10 +33,10 @@
       ],
       "B_top": [
         "fact:160",
-        "fact:749",
-        "fact:826",
-        "rule:303",
-        "fact:792"
+        "incident:363",
+        "incident:354",
+        "incident:362",
+        "rule:108"
       ],
       "seed_overlap": 5
     },
@@ -53,11 +53,11 @@
         815
       ],
       "A_hit": false,
-      "B_hit": false,
+      "B_hit": true,
       "A_returned_stale": false,
       "B_returned_stale": false,
       "A_current_rank": 6,
-      "B_current_rank": 7,
+      "B_current_rank": 2,
       "A_stale_rank": null,
       "B_stale_rank": null,
       "A_current_beats_stale": true,
@@ -71,10 +71,10 @@
       ],
       "B_top": [
         "fact:814",
-        "task:21",
-        "rule:982",
-        "rule:226",
-        "incident:340"
+        "incident:367",
+        "incident:363",
+        "incident:354",
+        "incident:351"
       ],
       "seed_overlap": 5
     },
@@ -108,10 +108,10 @@
       ],
       "B_top": [
         "fact:805",
-        "rule:226",
-        "fact:613",
-        "rule:234",
-        "incident:279"
+        "rule:466",
+        "rule:303",
+        "rule:617",
+        "rule:1049"
       ],
       "seed_overlap": 5
     },
@@ -128,15 +128,15 @@
         358
       ],
       "A_hit": false,
-      "B_hit": false,
+      "B_hit": true,
       "A_returned_stale": true,
       "B_returned_stale": true,
       "A_current_rank": null,
-      "B_current_rank": null,
+      "B_current_rank": 2,
       "A_stale_rank": 1,
       "B_stale_rank": 1,
       "A_current_beats_stale": null,
-      "B_current_beats_stale": null,
+      "B_current_beats_stale": false,
       "A_top": [
         "incident:355",
         "incident:343",
@@ -146,10 +146,10 @@
       ],
       "B_top": [
         "incident:355",
-        "incident:343",
-        "incident:356",
-        "incident:354",
-        "incident:335"
+        "incident:363",
+        "incident:367",
+        "rule:983",
+        "rule:303"
       ],
       "seed_overlap": 5
     },
@@ -166,11 +166,11 @@
       "A_hit": true,
       "B_hit": true,
       "A_returned_stale": true,
-      "B_returned_stale": true,
+      "B_returned_stale": false,
       "A_current_rank": 1,
       "B_current_rank": 1,
       "A_stale_rank": 3,
-      "B_stale_rank": 3,
+      "B_stale_rank": null,
       "A_current_beats_stale": true,
       "B_current_beats_stale": true,
       "A_top": [
@@ -182,10 +182,10 @@
       ],
       "B_top": [
         "rule:611",
-        "fact:632",
-        "rule:455",
-        "rule:457",
-        "rule:889"
+        "fact:686",
+        "rule:832",
+        "incident:210",
+        "fact:639"
       ],
       "seed_overlap": 4
     },
@@ -206,7 +206,7 @@
       "A_current_rank": 1,
       "B_current_rank": 1,
       "A_stale_rank": null,
-      "B_stale_rank": null,
+      "B_stale_rank": 6,
       "A_current_beats_stale": true,
       "B_current_beats_stale": true,
       "A_top": [
@@ -218,10 +218,10 @@
       ],
       "B_top": [
         "fact:866",
-        "rule:102",
-        "rule:238",
-        "rule:1041",
-        "fact:597"
+        "fact:184",
+        "rule:1054",
+        "rule:409",
+        "fact:686"
       ],
       "seed_overlap": 5
     },
@@ -252,10 +252,10 @@
       ],
       "B_top": [
         "fact:814",
-        "fact:613",
-        "fact:805",
-        "incident:277",
-        "fact:816"
+        "rule:466",
+        "rule:617",
+        "incident:367",
+        "incident:365"
       ],
       "seed_overlap": 5
     },
@@ -287,10 +287,10 @@
       ],
       "B_top": [
         "incident:357",
-        "incident:355",
-        "incident:358",
-        "incident:343",
-        "rule:462"
+        "incident:363",
+        "incident:367",
+        "fact:852",
+        "incident:362"
       ],
       "seed_overlap": 5
     },
@@ -322,10 +322,10 @@
       ],
       "B_top": [
         "rule:992",
-        "fact:613",
-        "incident:279",
-        "incident:359",
-        "incident:360"
+        "incident:367",
+        "rule:617",
+        "incident:363",
+        "rule:303"
       ],
       "seed_overlap": 5
     },
@@ -357,10 +357,10 @@
       ],
       "B_top": [
         "rule:965",
-        "incident:319",
-        "fact:818",
-        "incident:321",
-        "fact:843"
+        "incident:367",
+        "incident:363",
+        "incident:357",
+        "incident:337"
       ],
       "seed_overlap": 5
     },
@@ -392,10 +392,10 @@
       ],
       "B_top": [
         "incident:359",
-        "rule:992",
-        "incident:360",
-        "fact:855",
-        "rule:108"
+        "incident:367",
+        "incident:363",
+        "incident:362",
+        "fact:178"
       ],
       "seed_overlap": 5
     },
@@ -426,10 +426,10 @@
       ],
       "B_top": [
         "fact:573",
-        "rule:336",
-        "rule:605",
-        "fact:394",
-        "fact:822"
+        "rule:1054",
+        "rule:617",
+        "rule:1049",
+        "incident:367"
       ],
       "seed_overlap": 5
     },
@@ -460,10 +460,10 @@
       ],
       "B_top": [
         "fact:824",
-        "rule:108",
-        "fact:178",
-        "rule:303",
-        "incident:316"
+        "incident:367",
+        "incident:363",
+        "incident:354",
+        "incident:362"
       ],
       "seed_overlap": 5
     },
@@ -494,10 +494,10 @@
       ],
       "B_top": [
         "fact:147",
-        "rule:184",
-        "rule:112",
-        "fact:339",
-        "rule:186"
+        "incident:210",
+        "rule:375",
+        "rule:466",
+        "fact:686"
       ],
       "seed_overlap": 5
     },
@@ -528,10 +528,10 @@
       ],
       "B_top": [
         "fact:149",
-        "rule:936",
-        "fact:561",
-        "rule:401",
-        "rule:128"
+        "rule:466",
+        "incident:25",
+        "rule:617",
+        "rule:303"
       ],
       "seed_overlap": 5
     },
@@ -562,10 +562,10 @@
       ],
       "B_top": [
         "rule:927",
-        "fact:823",
-        "rule:1048",
-        "incident:277",
-        "fact:806"
+        "rule:1037",
+        "incident:360",
+        "rule:832",
+        "fact:686"
       ],
       "seed_overlap": 5
     },
@@ -594,10 +594,10 @@
       ],
       "B_top": [
         "fact:298",
-        "fact:822",
-        "rule:5",
-        "fact:544",
-        "rule:954"
+        "incident:363",
+        "incident:367",
+        "incident:354",
+        "incident:362"
       ],
       "seed_overlap": 5
     },
@@ -658,10 +658,10 @@
       ],
       "B_top": [
         "fact:426",
-        "rule:226",
-        "fact:380",
-        "fact:25",
-        "fact:266"
+        "rule:466",
+        "rule:108",
+        "fact:102",
+        "rule:617"
       ],
       "seed_overlap": 5
     }

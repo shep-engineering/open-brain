@@ -84,18 +84,35 @@ def graph_recall(
         hop_seed_sim = next_seed_sim
 
     # KG v3: entity-graph hop — reach facts linked by shared/related ENTITIES
-    # (the connections cosine misses). From the seed nodes, traverse the entity
-    # graph to other memory nodes and score them by the seed's inherited sim.
+    # (the connections cosine misses). Aggregate per reached memory: a fact that
+    # shares MORE entities with the seeds is more relevant, so accumulate an
+    # entity-support score rather than a flat per-hit value. Scored to COMPETE
+    # with the cosine seeds (the prior weight buried it below top-K — that caused
+    # the tie).
     ent_hits = store.entity_connected_nodes(conn, frontier_ids)
+    seed_base = max(seed_sim_by_id.values()) if seed_sim_by_id else 0.0
+    # accumulate: key -> (support_score, kind, memory_id, headline, active, best_via)
+    ent_support: dict[str, dict[str, Any]] = {}
     for e in ent_hits:
-        # inherit the best seed similarity available (entities came from seeds)
-        base = max(seed_sim_by_id.values()) if seed_sim_by_id else 0.0
-        # entity links are weighted below a direct cosine hit but above nothing;
-        # a same-entity link is strong, a relation-hop slightly less.
-        rel_w = 0.9 if e["relation"] == "co_mention" else 0.75
-        score = base * rel_w * KG_HOP_DECAY
-        consider(e["kind"], e["memory_id"], e["headline"], score, e["active"],
-                 f"entity:{e['relation']}:{e['via_entity']}", None)
+        key = _key(e["kind"], e["memory_id"])
+        # co-mention (shared entity) is the strong signal; a relation-hop is weaker.
+        contrib = 1.0 if e["relation"] == "co_mention" else 0.5
+        rec = ent_support.get(key)
+        if rec is None:
+            ent_support[key] = {"support": contrib, "kind": e["kind"],
+                                "memory_id": e["memory_id"], "headline": e["headline"],
+                                "active": e["active"],
+                                "via": f"entity:{e['relation']}:{e['via_entity']}"}
+        else:
+            rec["support"] += contrib
+    for key, rec in ent_support.items():
+        # More shared entities -> higher score, saturating toward the seed level.
+        # An entity-connected fact with strong support should rank AMONG the seeds,
+        # not far below them. Diminishing returns via 1 - 0.6^support.
+        support_factor = 1.0 - (0.6 ** rec["support"])   # 1 ent=.4, 2=.64, 3=.78, ...
+        score = seed_base * (0.5 + 0.5 * support_factor)  # in [0.5, 1.0] x seed_base
+        consider(rec["kind"], rec["memory_id"], rec["headline"], score,
+                 rec["active"], rec["via"], None)
 
     ranked = sorted(scored.values(), key=lambda d: d["score"], reverse=True)
     return ranked[:k]
