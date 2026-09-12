@@ -73,6 +73,15 @@ CREATE TABLE IF NOT EXISTS facts (
 );
 CREATE INDEX IF NOT EXISTS facts_project_idx ON facts (project);
 CREATE INDEX IF NOT EXISTS facts_ttl_idx ON facts (ttl) WHERE ttl IS NOT NULL;
+-- Fact supersession (2026-09-11): facts gain the same correction primitive rules
+-- have, so a stale fact can be superseded instead of living forever. Additive +
+-- backward-compatible (nullable). Bidirectional link mirrors rules (supersedes +
+-- superseded_by). Retrieval already stops returning a fact whose memory_index
+-- entry is inactive; supersede_fact sets that. decay_facts is superseded-aware so
+-- it never reactivates a superseded fact.
+ALTER TABLE facts ADD COLUMN IF NOT EXISTS supersedes       INTEGER REFERENCES facts(id) ON DELETE SET NULL;
+ALTER TABLE facts ADD COLUMN IF NOT EXISTS superseded_by    INTEGER REFERENCES facts(id) ON DELETE SET NULL;
+ALTER TABLE facts ADD COLUMN IF NOT EXISTS supersede_reason TEXT;
 
 -- ── INCIDENT ─────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS incidents (

@@ -288,6 +288,61 @@ def remember_fact(conn, *, headline: str, body: str, project: str = "",
                   project=project, created_at=str(created))
 
 
+def supersede_fact(conn, *, old_id: int, new_headline: str, new_body: str,
+                   reason: str, project: str | None = None,
+                   tags: list[str] | None = None, ttl: str | None = None,
+                   source: str = "") -> Memory:
+    """Supersede old_id with a new FACT. The old fact's memory_index entry goes
+    inactive (so search stops returning it) and its superseded_by points at the
+    new fact; the old row is retained for audit. Mirrors supersede_rule: the
+    ONLY correction path for a fact.
+
+    Dedup is intentionally SKIPPED (run_gate embedding_vec=None): the new fact is
+    by definition similar to the one it replaces, so the normal dup gate would
+    reject it. The new fact starts fresh (default confidence/access_count/
+    last_accessed) — access history is NOT carried over."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT project, superseded_by FROM facts WHERE id = %s", (old_id,)
+        )
+        row = cur.fetchone()
+        if row is None:
+            raise ValueError(f"fact id={old_id} not found")
+        old_project, already = row
+        if already is not None:
+            raise ValueError(f"fact id={old_id} already superseded by {already}; "
+                             f"supersede the latest in the chain")
+
+    fact_project = project if project is not None else old_project
+    embedding_vec = embed_to_pgvector(f"{new_headline}. {new_body}")
+    # Gate checks type + headline + atomicity; skip dup detection (embedding_vec=None)
+    # because by definition we're revising an overlap.
+    run_gate(conn, kind="fact", headline=new_headline, body=new_body, embedding_vec=None)
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO facts (headline, body, project, tags, ttl, source, supersedes)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING id, created_at
+            """,
+            (new_headline, new_body, fact_project, tags or [], ttl, source, old_id),
+        )
+        new_id, created = cur.fetchone()
+        cur.execute(
+            "UPDATE facts SET superseded_by = %s, supersede_reason = %s WHERE id = %s",
+            (new_id, reason, old_id),
+        )
+        _index_deactivate(cur, "fact", old_id)
+        _index_insert(cur, kind="fact", memory_id=new_id, project=fact_project,
+                      headline=new_headline, severity=None, embedding_vec=embedding_vec)
+        _audit(cur, "SUPERSEDE", "fact", old_id,
+               {"superseded_by": new_id, "reason": reason}, source)
+    conn.commit()
+    return Memory(kind="fact", id=new_id, headline=new_headline, body=new_body,
+                  project=fact_project, supersedes=old_id, created_at=str(created))
+
+
 # ── INCIDENT ─────────────────────────────────────────────────────────
 def remember_incident(conn, *, headline: str, body: str, project: str = "",
                       root_cause: str | None = None, resolution: str | None = None,
