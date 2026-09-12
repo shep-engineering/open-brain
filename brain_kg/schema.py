@@ -34,6 +34,16 @@ CREATE TABLE IF NOT EXISTS kg_nodes (
     CONSTRAINT kg_nodes_kind_mem_unique UNIQUE (kind, memory_id)
 );
 CREATE INDEX IF NOT EXISTS kg_nodes_active_idx ON kg_nodes (active, project);
+-- Sync markers (PLAN gate: PER-LAYER, not one boolean). Deterministic and GLiNER
+-- extraction are separate passes; each stamps its own column so deferring GLiNER
+-- (VRAM-tight) never marks a node done for a pass that didn't run. upsert_node's
+-- ON CONFLICT SET list does NOT touch these, so a re-ingest of an existing node
+-- preserves them (a genuinely new/changed belief arrives as a NEW (kind,memory_id)
+-- since supersede INSERTs a new row — so IS NULL correctly flags work to do).
+ALTER TABLE kg_nodes ADD COLUMN IF NOT EXISTS det_done_at    TIMESTAMPTZ;
+ALTER TABLE kg_nodes ADD COLUMN IF NOT EXISTS gliner_done_at TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS kg_nodes_det_todo_idx ON kg_nodes (id) WHERE active AND det_done_at IS NULL;
+CREATE INDEX IF NOT EXISTS kg_nodes_gliner_todo_idx ON kg_nodes (id) WHERE active AND gliner_done_at IS NULL;
 
 -- ── EDGES ────────────────────────────────────────────────────────────
 -- relation in (supersedes, neighbor, same_project). provenance_memory_id is

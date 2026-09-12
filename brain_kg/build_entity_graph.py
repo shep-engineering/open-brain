@@ -155,19 +155,21 @@ def build(limit: int | None = None) -> dict[str, Any]:
     return report
 
 
-def build_deterministic_only() -> dict[str, Any]:
-    """Add ONLY the deterministic-reference entities + mentions to the existing
-    graph (no GLiNER2 call — fast, no GPU/CPU model load). Links facts that share
-    an explicit ticket/migration/env/role reference. Idempotent."""
+def build_deterministic_only(only_unmarked: bool = False) -> dict[str, Any]:
+    """Add ONLY the deterministic-reference entities + mentions (no GLiNER2 —
+    fast, no GPU/model). Links facts sharing an explicit ticket/migration/env/role
+    reference. Idempotent. When only_unmarked=True (the sync path), process only
+    nodes with det_done_at IS NULL and stamp det_done_at when done (per-layer
+    marker) — so re-runs no-op cheaply and it never re-scans the whole corpus."""
     kg = store.kg_conn()
+    where = "WHERE active AND body <> ''" + (" AND det_done_at IS NULL" if only_unmarked else "")
     with kg.cursor() as cur:
-        cur.execute("SELECT id, memory_id, body FROM kg_nodes WHERE active AND body <> ''")
+        cur.execute(f"SELECT id, memory_id, body FROM kg_nodes {where}")
         nodes = cur.fetchall()
     n_mentions = 0
+    n_nodes = 0
     for node_id, memory_id, body in nodes:
         ents = deterministic_entities(body)
-        if not ents:
-            continue
         with kg.cursor() as cur:
             for surface in ents:
                 dkey = canonical_key(surface)
@@ -176,12 +178,18 @@ def build_deterministic_only() -> dict[str, Any]:
                 did = _upsert_entity(cur, dkey, "reference", surface)
                 _add_mention(cur, did, node_id, surface)
                 n_mentions += 1
+            if only_unmarked:
+                # stamp the layer marker even for nodes with no det entities, so
+                # they don't get re-scanned every sync (a no-op node IS "done").
+                cur.execute("UPDATE kg_nodes SET det_done_at = NOW() WHERE id = %s", (node_id,))
         kg.commit()
+        n_nodes += 1
     with kg.cursor() as cur:
         cur.execute("SELECT count(*) FROM kg_entities")
         n_ent = cur.fetchone()[0]
     kg.close()
-    return {"deterministic_mentions_added": n_mentions, "total_entities": n_ent}
+    return {"nodes_processed": n_nodes, "deterministic_mentions_added": n_mentions,
+            "total_entities": n_ent}
 
 
 if __name__ == "__main__":  # pragma: no cover
