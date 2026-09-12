@@ -2,471 +2,166 @@
   "k": 5,
   "rows": [
     {
-      "id": "sup-01",
-      "class": "supersede-recall",
-      "query": "can I use a real leaked secret as test data for a hook",
+      "id": "sp-01",
+      "class": "state-pair",
+      "query": "Is Archen's production database provisioned and caught up on the migration chain, or is it far behind?",
       "gold_current": [
-        1043
+        357,
+        362,
+        363,
+        367
       ],
       "gold_stale": [
-        1042
-      ],
-      "A_hit": true,
-      "B_hit": true,
-      "A_returned_stale": false,
-      "B_returned_stale": false,
-      "A_current_rank": 1,
-      "B_current_rank": 1,
-      "A_stale_rank": null,
-      "B_stale_rank": null,
-      "A_current_beats_stale": true,
-      "B_current_beats_stale": true,
-      "A_top": [
-        "rule:1043",
-        "fact:288",
-        "rule:1030",
-        "fact:149",
-        "rule:102"
-      ],
-      "B_top": [
-        "rule:1043",
-        "fact:288",
-        "rule:1030",
-        "fact:149",
-        "rule:102"
-      ],
-      "seed_overlap": 5
-    },
-    {
-      "id": "sup-02",
-      "class": "supersede-recall",
-      "query": "is it ok to print a key id or DSN into the transcript",
-      "gold_current": [
-        1041
-      ],
-      "gold_stale": [
-        1038
-      ],
-      "A_hit": true,
-      "B_hit": true,
-      "A_returned_stale": false,
-      "B_returned_stale": false,
-      "A_current_rank": 1,
-      "B_current_rank": 1,
-      "A_stale_rank": null,
-      "B_stale_rank": null,
-      "A_current_beats_stale": true,
-      "B_current_beats_stale": true,
-      "A_top": [
-        "rule:1041",
-        "rule:155",
-        "fact:723",
-        "rule:13",
-        "rule:956"
-      ],
-      "B_top": [
-        "rule:1041",
-        "rule:155",
-        "fact:723",
-        "rule:13",
-        "rule:956"
-      ],
-      "seed_overlap": 5
-    },
-    {
-      "id": "sup-03",
-      "class": "supersede-recall",
-      "query": "how do I remediate a leaked secret, does SSM keep history",
-      "gold_current": [
-        1045
-      ],
-      "gold_stale": [
-        1044
-      ],
-      "A_hit": true,
-      "B_hit": true,
-      "A_returned_stale": false,
-      "B_returned_stale": false,
-      "A_current_rank": 1,
-      "B_current_rank": 1,
-      "A_stale_rank": null,
-      "B_stale_rank": null,
-      "A_current_beats_stale": true,
-      "B_current_beats_stale": true,
-      "A_top": [
-        "rule:1045",
-        "rule:1041",
-        "rule:336",
-        "fact:597",
-        "rule:1046"
-      ],
-      "B_top": [
-        "rule:1045",
-        "rule:1041",
-        "rule:336",
-        "fact:597",
-        "rule:1046"
-      ],
-      "seed_overlap": 5
-    },
-    {
-      "id": "sup-04",
-      "class": "supersede-recall",
-      "query": "must the aws profile name equal the IAM user name",
-      "gold_current": [
-        1048
-      ],
-      "gold_stale": [
-        1047
-      ],
-      "A_hit": true,
-      "B_hit": true,
-      "A_returned_stale": false,
-      "B_returned_stale": false,
-      "A_current_rank": 1,
-      "B_current_rank": 1,
-      "A_stale_rank": null,
-      "B_stale_rank": null,
-      "A_current_beats_stale": true,
-      "B_current_beats_stale": true,
-      "A_top": [
-        "rule:1048",
-        "rule:612",
-        "rule:880",
-        "rule:927",
-        "rule:558"
-      ],
-      "B_top": [
-        "rule:1048",
-        "rule:612",
-        "rule:880",
-        "rule:927",
-        "rule:558"
-      ],
-      "seed_overlap": 5
-    },
-    {
-      "id": "sup-05",
-      "class": "supersede-recall",
-      "query": "what counts as done for a go-live ticket, is a deployed image enough",
-      "gold_current": [
-        1027
-      ],
-      "gold_stale": [
-        942
-      ],
-      "A_hit": true,
-      "B_hit": true,
-      "A_returned_stale": false,
-      "B_returned_stale": false,
-      "A_current_rank": 1,
-      "B_current_rank": 1,
-      "A_stale_rank": null,
-      "B_stale_rank": null,
-      "A_current_beats_stale": true,
-      "B_current_beats_stale": true,
-      "A_top": [
-        "rule:1027",
-        "fact:870",
-        "rule:1059",
-        "fact:795",
-        "fact:782"
-      ],
-      "B_top": [
-        "rule:1027",
-        "fact:870",
-        "rule:1059",
-        "fact:795",
-        "rule:511"
-      ],
-      "seed_overlap": 4
-    },
-    {
-      "id": "sup-06",
-      "class": "supersede-recall",
-      "query": "under a don't-stop drive can I idle-stop or hand back control",
-      "gold_current": [
-        1009
-      ],
-      "gold_stale": [
-        996
-      ],
-      "A_hit": true,
-      "B_hit": true,
-      "A_returned_stale": false,
-      "B_returned_stale": false,
-      "A_current_rank": 1,
-      "B_current_rank": 1,
-      "A_stale_rank": null,
-      "B_stale_rank": null,
-      "A_current_beats_stale": true,
-      "B_current_beats_stale": true,
-      "A_top": [
-        "rule:1009",
-        "rule:917",
-        "rule:11",
-        "rule:1058",
-        "fact:621"
-      ],
-      "B_top": [
-        "rule:1009",
-        "rule:917",
-        "rule:11",
-        "rule:1058",
-        "fact:621"
-      ],
-      "seed_overlap": 5
-    },
-    {
-      "id": "sup-07",
-      "class": "supersede-recall",
-      "query": "how many credentials leaked this session and what do I do",
-      "gold_current": [
-        1037
-      ],
-      "gold_stale": [
-        1036
+        792
       ],
       "A_hit": false,
       "B_hit": false,
       "A_returned_stale": false,
       "B_returned_stale": false,
-      "A_current_rank": null,
-      "B_current_rank": null,
-      "A_stale_rank": null,
-      "B_stale_rank": null,
-      "A_current_beats_stale": null,
-      "B_current_beats_stale": null,
-      "A_top": [
-        "rule:1041",
-        "rule:13",
-        "rule:1034",
-        "rule:37",
-        "fact:2"
-      ],
-      "B_top": [
-        "rule:1041",
-        "rule:13",
-        "rule:1034",
-        "rule:37",
-        "fact:2"
-      ],
-      "seed_overlap": 5
-    },
-    {
-      "id": "sup-08",
-      "class": "supersede-recall",
-      "query": "is Archen a financial processor that stores invoices",
-      "gold_current": [
-        1006
-      ],
-      "gold_stale": [
-        1004
-      ],
-      "A_hit": true,
-      "B_hit": true,
-      "A_returned_stale": false,
-      "B_returned_stale": false,
-      "A_current_rank": 1,
-      "B_current_rank": 1,
+      "A_current_rank": 8,
+      "B_current_rank": 7,
       "A_stale_rank": null,
       "B_stale_rank": null,
       "A_current_beats_stale": true,
       "B_current_beats_stale": true,
       "A_top": [
-        "rule:1006",
-        "rule:491",
-        "incident:256",
-        "fact:79",
-        "fact:742"
+        "fact:160",
+        "fact:749",
+        "fact:826",
+        "rule:303",
+        "fact:792"
       ],
       "B_top": [
-        "rule:1006",
-        "rule:491",
-        "fact:79",
-        "incident:256",
-        "fact:742"
+        "fact:160",
+        "fact:749",
+        "fact:826",
+        "rule:303",
+        "fact:792"
       ],
       "seed_overlap": 5
     },
     {
-      "id": "single-01",
-      "class": "single-hop",
-      "query": "how do I remediate a leaked secret, does SSM keep history",
-      "gold_current": [
-        1045
-      ],
-      "gold_stale": [],
-      "A_hit": true,
-      "B_hit": true,
-      "A_returned_stale": null,
-      "B_returned_stale": null,
-      "A_current_rank": 1,
-      "B_current_rank": 1,
-      "A_stale_rank": null,
-      "B_stale_rank": null,
-      "A_current_beats_stale": null,
-      "B_current_beats_stale": null,
-      "A_top": [
-        "rule:1045",
-        "rule:1041",
-        "rule:336",
-        "fact:597",
-        "rule:1046"
-      ],
-      "B_top": [
-        "rule:1045",
-        "rule:1041",
-        "rule:336",
-        "fact:597",
-        "rule:1046"
-      ],
-      "seed_overlap": 5
-    },
-    {
-      "id": "single-02",
-      "class": "single-hop",
-      "query": "align IAM user profile and vault to the archen profile name",
-      "gold_current": [
-        1048
-      ],
-      "gold_stale": [],
-      "A_hit": true,
-      "B_hit": true,
-      "A_returned_stale": null,
-      "B_returned_stale": null,
-      "A_current_rank": 1,
-      "B_current_rank": 1,
-      "A_stale_rank": null,
-      "B_stale_rank": null,
-      "A_current_beats_stale": null,
-      "B_current_beats_stale": null,
-      "A_top": [
-        "rule:1048",
-        "rule:927",
-        "fact:823",
-        "task:20",
-        "fact:791"
-      ],
-      "B_top": [
-        "rule:1048",
-        "rule:927",
-        "fact:823",
-        "task:20",
-        "fact:791"
-      ],
-      "seed_overlap": 5
-    },
-    {
-      "id": "neg-01",
-      "class": "distractor",
-      "query": "what is the airspeed velocity of an unladen swallow",
-      "gold_current": [],
-      "gold_stale": [],
-      "A_hit": null,
-      "B_hit": null,
-      "A_returned_stale": null,
-      "B_returned_stale": null,
-      "A_current_rank": null,
-      "B_current_rank": null,
-      "A_stale_rank": null,
-      "B_stale_rank": null,
-      "A_current_beats_stale": null,
-      "B_current_beats_stale": null,
-      "A_top": [
-        "fact:27",
-        "fact:16",
-        "fact:28",
-        "fact:17",
-        "fact:358"
-      ],
-      "B_top": [
-        "fact:27",
-        "fact:16",
-        "fact:358",
-        "fact:28",
-        "fact:17"
-      ],
-      "seed_overlap": 5
-    },
-    {
-      "id": "neg-02",
-      "class": "distractor",
-      "query": "recipe for sourdough bread starter hydration",
-      "gold_current": [],
-      "gold_stale": [],
-      "A_hit": null,
-      "B_hit": null,
-      "A_returned_stale": null,
-      "B_returned_stale": null,
-      "A_current_rank": null,
-      "B_current_rank": null,
-      "A_stale_rank": null,
-      "B_stale_rank": null,
-      "A_current_beats_stale": null,
-      "B_current_beats_stale": null,
-      "A_top": [
-        "fact:27",
-        "fact:16",
-        "fact:29",
-        "fact:17",
-        "fact:28"
-      ],
-      "B_top": [
-        "fact:16",
-        "fact:27",
-        "fact:29",
-        "fact:17",
-        "fact:28"
-      ],
-      "seed_overlap": 5
-    },
-    {
-      "id": "state-01",
+      "id": "sp-02",
       "class": "state-pair",
-      "query": "current demo deploy state and what remains to get to demo-green",
+      "query": "Has migration 088 (email intelligence, ARC-774) actually been applied to the cloud environments yet?",
       "gold_current": [
-        848
+        362,
+        367
       ],
       "gold_stale": [
         814,
-        832
+        815
       ],
       "A_hit": false,
       "B_hit": false,
       "A_returned_stale": false,
       "B_returned_stale": false,
-      "A_current_rank": 14,
-      "B_current_rank": null,
+      "A_current_rank": 6,
+      "B_current_rank": 7,
       "A_stale_rank": null,
       "B_stale_rank": null,
       "A_current_beats_stale": true,
-      "B_current_beats_stale": null,
+      "B_current_beats_stale": true,
       "A_top": [
-        "rule:1027",
-        "fact:786",
-        "rule:805",
-        "incident:256",
-        "fact:686"
+        "fact:814",
+        "task:21",
+        "rule:982",
+        "rule:226",
+        "incident:340"
       ],
       "B_top": [
-        "rule:1027",
-        "fact:786",
-        "rule:805",
-        "incident:256",
-        "fact:686"
+        "fact:814",
+        "task:21",
+        "rule:982",
+        "rule:226",
+        "incident:340"
       ],
       "seed_overlap": 5
     },
     {
-      "id": "state-02",
+      "id": "sp-03",
       "class": "state-pair",
-      "query": "current state of the dba agent database credential chain for dev and demo",
+      "query": "What credential does the dba/migration agent use to apply DDL to cloud Supabase?",
       "gold_current": [
-        821
+        964
       ],
       "gold_stale": [
-        805
+        821,
+        823
+      ],
+      "A_hit": false,
+      "B_hit": false,
+      "A_returned_stale": false,
+      "B_returned_stale": false,
+      "A_current_rank": null,
+      "B_current_rank": null,
+      "A_stale_rank": null,
+      "B_stale_rank": null,
+      "A_current_beats_stale": null,
+      "B_current_beats_stale": null,
+      "A_top": [
+        "fact:805",
+        "rule:226",
+        "fact:613",
+        "rule:234",
+        "incident:279"
+      ],
+      "B_top": [
+        "fact:805",
+        "rule:226",
+        "fact:613",
+        "rule:234",
+        "incident:279"
+      ],
+      "seed_overlap": 5
+    },
+    {
+      "id": "sp-04",
+      "class": "state-pair",
+      "query": "What is the current state of the RLS-drift on data_classification, role_capabilities and privileged_role_register?",
+      "gold_current": [
+        363
+      ],
+      "gold_stale": [
+        355,
+        357,
+        358
+      ],
+      "A_hit": false,
+      "B_hit": false,
+      "A_returned_stale": true,
+      "B_returned_stale": true,
+      "A_current_rank": null,
+      "B_current_rank": null,
+      "A_stale_rank": 1,
+      "B_stale_rank": 1,
+      "A_current_beats_stale": null,
+      "B_current_beats_stale": null,
+      "A_top": [
+        "incident:355",
+        "incident:343",
+        "incident:356",
+        "incident:354",
+        "incident:335"
+      ],
+      "B_top": [
+        "incident:355",
+        "incident:343",
+        "incident:356",
+        "incident:354",
+        "incident:335"
+      ],
+      "seed_overlap": 5
+    },
+    {
+      "id": "sp-05",
+      "class": "state-pair",
+      "query": "Which Stripe keys may the dev, demo and staging environments use, and is it enforced in code?",
+      "gold_current": [
+        611
+      ],
+      "gold_stale": [
+        455
       ],
       "A_hit": true,
       "B_hit": true,
@@ -474,66 +169,103 @@
       "B_returned_stale": true,
       "A_current_rank": 1,
       "B_current_rank": 1,
-      "A_stale_rank": 2,
-      "B_stale_rank": 2,
+      "A_stale_rank": 3,
+      "B_stale_rank": 3,
       "A_current_beats_stale": true,
       "B_current_beats_stale": true,
       "A_top": [
-        "fact:821",
-        "fact:805",
-        "rule:37",
-        "fact:822",
-        "fact:613"
+        "rule:611",
+        "fact:632",
+        "rule:455",
+        "rule:457",
+        "fact:581"
       ],
       "B_top": [
-        "fact:821",
+        "rule:611",
+        "fact:632",
+        "rule:455",
+        "rule:457",
+        "rule:889"
+      ],
+      "seed_overlap": 4
+    },
+    {
+      "id": "sp-06",
+      "class": "state-pair",
+      "query": "Are the prod ANTHROPIC/OPENAI API keys crown-jewel credentials?",
+      "gold_current": [
+        866
+      ],
+      "gold_stale": [
+        805
+      ],
+      "A_hit": true,
+      "B_hit": true,
+      "A_returned_stale": false,
+      "B_returned_stale": false,
+      "A_current_rank": 1,
+      "B_current_rank": 1,
+      "A_stale_rank": null,
+      "B_stale_rank": null,
+      "A_current_beats_stale": true,
+      "B_current_beats_stale": true,
+      "A_top": [
+        "fact:866",
+        "rule:102",
+        "rule:238",
+        "rule:1041",
+        "fact:597"
+      ],
+      "B_top": [
+        "fact:866",
+        "rule:102",
+        "rule:238",
+        "rule:1041",
+        "fact:597"
+      ],
+      "seed_overlap": 5
+    },
+    {
+      "id": "mh-01",
+      "class": "multi-hop",
+      "query": "What subsystem does the migration that was blocked by the dba credential gap deploy?",
+      "gold_current": [
+        814
+      ],
+      "gold_stale": [],
+      "A_hit": true,
+      "B_hit": true,
+      "A_returned_stale": null,
+      "B_returned_stale": null,
+      "A_current_rank": 1,
+      "B_current_rank": 1,
+      "A_stale_rank": null,
+      "B_stale_rank": null,
+      "A_current_beats_stale": null,
+      "B_current_beats_stale": null,
+      "A_top": [
+        "fact:814",
+        "fact:613",
         "fact:805",
-        "rule:37",
-        "fact:822",
+        "fact:816",
         "incident:277"
       ],
-      "seed_overlap": 4
-    },
-    {
-      "id": "fact-02",
-      "class": "single-hop",
-      "query": "does memory_index.embedding embed the headline or headline plus body",
-      "gold_current": [
-        649
-      ],
-      "gold_stale": [],
-      "A_hit": true,
-      "B_hit": true,
-      "A_returned_stale": null,
-      "B_returned_stale": null,
-      "A_current_rank": 1,
-      "B_current_rank": 1,
-      "A_stale_rank": null,
-      "B_stale_rank": null,
-      "A_current_beats_stale": null,
-      "B_current_beats_stale": null,
-      "A_top": [
-        "fact:649",
-        "fact:264",
-        "fact:643",
-        "fact:238",
-        "fact:62"
-      ],
       "B_top": [
-        "fact:649",
-        "fact:264",
-        "fact:643",
-        "fact:238",
-        "fact:62"
+        "fact:814",
+        "fact:613",
+        "fact:805",
+        "incident:277",
+        "fact:816"
       ],
       "seed_overlap": 5
     },
     {
-      "id": "fact-03",
-      "class": "single-hop",
-      "query": "is the open-brain ollama GPU split pristine and working",
+      "id": "mh-02",
+      "class": "multi-hop",
+      "query": "What out-of-band mechanism caused the RLS trio to be enabled on dev/demo but not prod, and what is the fix direction?",
       "gold_current": [
-        163
+        357,
+        358
       ],
       "gold_stale": [],
       "A_hit": true,
@@ -547,59 +279,300 @@
       "A_current_beats_stale": null,
       "B_current_beats_stale": null,
       "A_top": [
-        "fact:163",
-        "incident:18",
-        "fact:25",
-        "rule:999",
-        "fact:424"
+        "incident:357",
+        "incident:355",
+        "incident:358",
+        "incident:343",
+        "rule:462"
       ],
       "B_top": [
-        "fact:163",
-        "incident:18",
-        "fact:25",
-        "rule:999",
-        "rule:39"
-      ],
-      "seed_overlap": 4
-    },
-    {
-      "id": "fact-single-01",
-      "class": "single-hop",
-      "query": "do custom subagents inherit the Archen working contract",
-      "gold_current": [
-        579
-      ],
-      "gold_stale": [],
-      "A_hit": true,
-      "B_hit": true,
-      "A_returned_stale": null,
-      "B_returned_stale": null,
-      "A_current_rank": 1,
-      "B_current_rank": 1,
-      "A_stale_rank": null,
-      "B_stale_rank": null,
-      "A_current_beats_stale": null,
-      "B_current_beats_stale": null,
-      "A_top": [
-        "fact:579",
-        "rule:443",
-        "rule:903",
-        "incident:281",
-        "fact:580"
-      ],
-      "B_top": [
-        "fact:579",
-        "rule:443",
-        "rule:903",
-        "incident:281",
-        "fact:580"
+        "incident:357",
+        "incident:355",
+        "incident:358",
+        "incident:343",
+        "rule:462"
       ],
       "seed_overlap": 5
     },
     {
-      "id": "fact-neg-01",
+      "id": "mh-03",
+      "class": "multi-hop",
+      "query": "Why did chasing an owner database DSN for cloud migrations waste time, and what should have been used instead?",
+      "gold_current": [
+        964,
+        963
+      ],
+      "gold_stale": [],
+      "A_hit": false,
+      "B_hit": false,
+      "A_returned_stale": null,
+      "B_returned_stale": null,
+      "A_current_rank": null,
+      "B_current_rank": null,
+      "A_stale_rank": null,
+      "B_stale_rank": null,
+      "A_current_beats_stale": null,
+      "B_current_beats_stale": null,
+      "A_top": [
+        "rule:992",
+        "fact:613",
+        "incident:279",
+        "incident:359",
+        "incident:360"
+      ],
+      "B_top": [
+        "rule:992",
+        "fact:613",
+        "incident:279",
+        "incident:359",
+        "incident:360"
+      ],
+      "seed_overlap": 5
+    },
+    {
+      "id": "mh-04",
+      "class": "multi-hop",
+      "query": "Migration 090's SECURITY DEFINER erase function needs a BYPASSRLS owner \u2014 what is the root-cause fix rather than a chown workaround?",
+      "gold_current": [
+        965,
+        966
+      ],
+      "gold_stale": [],
+      "A_hit": true,
+      "B_hit": true,
+      "A_returned_stale": null,
+      "B_returned_stale": null,
+      "A_current_rank": 1,
+      "B_current_rank": 1,
+      "A_stale_rank": null,
+      "B_stale_rank": null,
+      "A_current_beats_stale": null,
+      "B_current_beats_stale": null,
+      "A_top": [
+        "rule:965",
+        "incident:319",
+        "fact:818",
+        "incident:321",
+        "fact:843"
+      ],
+      "B_top": [
+        "rule:965",
+        "incident:319",
+        "fact:818",
+        "incident:321",
+        "fact:843"
+      ],
+      "seed_overlap": 5
+    },
+    {
+      "id": "mh-05",
+      "class": "multi-hop",
+      "query": "The automated DB migration pipeline is unbuilt \u2014 what is the smallest set of missing infra pieces, and does live AWS confirm the repo research?",
+      "gold_current": [
+        359,
+        360
+      ],
+      "gold_stale": [],
+      "A_hit": true,
+      "B_hit": true,
+      "A_returned_stale": null,
+      "B_returned_stale": null,
+      "A_current_rank": 1,
+      "B_current_rank": 1,
+      "A_stale_rank": null,
+      "B_stale_rank": null,
+      "A_current_beats_stale": null,
+      "B_current_beats_stale": null,
+      "A_top": [
+        "incident:359",
+        "rule:992",
+        "incident:360",
+        "fact:855",
+        "rule:108"
+      ],
+      "B_top": [
+        "incident:359",
+        "rule:992",
+        "incident:360",
+        "fact:855",
+        "rule:108"
+      ],
+      "seed_overlap": 5
+    },
+    {
+      "id": "mh-06",
+      "class": "multi-hop",
+      "query": "Why can't real-login e2e against the DEV environment pull its password from SSM, and how is the password supplied instead?",
+      "gold_current": [
+        573
+      ],
+      "gold_stale": [],
+      "A_hit": true,
+      "B_hit": true,
+      "A_returned_stale": null,
+      "B_returned_stale": null,
+      "A_current_rank": 1,
+      "B_current_rank": 1,
+      "A_stale_rank": null,
+      "B_stale_rank": null,
+      "A_current_beats_stale": null,
+      "B_current_beats_stale": null,
+      "A_top": [
+        "fact:573",
+        "rule:336",
+        "rule:605",
+        "fact:394",
+        "fact:822"
+      ],
+      "B_top": [
+        "fact:573",
+        "rule:336",
+        "rule:605",
+        "fact:394",
+        "fact:822"
+      ],
+      "seed_overlap": 5
+    },
+    {
+      "id": "mh-07",
+      "class": "multi-hop",
+      "query": "When applying the migration chain to prod, is the bootstrap fixture needed, and why?",
+      "gold_current": [
+        824
+      ],
+      "gold_stale": [],
+      "A_hit": true,
+      "B_hit": true,
+      "A_returned_stale": null,
+      "B_returned_stale": null,
+      "A_current_rank": 1,
+      "B_current_rank": 1,
+      "A_stale_rank": null,
+      "B_stale_rank": null,
+      "A_current_beats_stale": null,
+      "B_current_beats_stale": null,
+      "A_top": [
+        "fact:824",
+        "rule:108",
+        "fact:178",
+        "rule:303",
+        "incident:316"
+      ],
+      "B_top": [
+        "fact:824",
+        "rule:108",
+        "fact:178",
+        "rule:303",
+        "incident:316"
+      ],
+      "seed_overlap": 5
+    },
+    {
+      "id": "sh-01",
+      "class": "single-hop",
+      "query": "What do the /gmail/disconnect and /outlook/disconnect endpoints preserve versus clear?",
+      "gold_current": [
+        147
+      ],
+      "gold_stale": [],
+      "A_hit": false,
+      "B_hit": false,
+      "A_returned_stale": null,
+      "B_returned_stale": null,
+      "A_current_rank": null,
+      "B_current_rank": null,
+      "A_stale_rank": null,
+      "B_stale_rank": null,
+      "A_current_beats_stale": null,
+      "B_current_beats_stale": null,
+      "A_top": [
+        "fact:147",
+        "rule:184",
+        "rule:112",
+        "fact:339",
+        "rule:186"
+      ],
+      "B_top": [
+        "fact:147",
+        "rule:184",
+        "rule:112",
+        "fact:339",
+        "rule:186"
+      ],
+      "seed_overlap": 5
+    },
+    {
+      "id": "sh-02",
+      "class": "single-hop",
+      "query": "Where is the reusable QA test-email seeder script and what test user does it use?",
+      "gold_current": [
+        149
+      ],
+      "gold_stale": [],
+      "A_hit": true,
+      "B_hit": true,
+      "A_returned_stale": null,
+      "B_returned_stale": null,
+      "A_current_rank": 1,
+      "B_current_rank": 1,
+      "A_stale_rank": null,
+      "B_stale_rank": null,
+      "A_current_beats_stale": null,
+      "B_current_beats_stale": null,
+      "A_top": [
+        "fact:149",
+        "rule:936",
+        "fact:561",
+        "rule:401",
+        "rule:128"
+      ],
+      "B_top": [
+        "fact:149",
+        "rule:936",
+        "fact:561",
+        "rule:401",
+        "rule:128"
+      ],
+      "seed_overlap": 5
+    },
+    {
+      "id": "sh-03",
+      "class": "single-hop",
+      "query": "What is the naming convention for the dba IAM users across the three environments?",
+      "gold_current": [
+        927
+      ],
+      "gold_stale": [],
+      "A_hit": true,
+      "B_hit": true,
+      "A_returned_stale": null,
+      "B_returned_stale": null,
+      "A_current_rank": 1,
+      "B_current_rank": 1,
+      "A_stale_rank": null,
+      "B_stale_rank": null,
+      "A_current_beats_stale": null,
+      "B_current_beats_stale": null,
+      "A_top": [
+        "rule:927",
+        "fact:823",
+        "rule:1048",
+        "incident:277",
+        "fact:806"
+      ],
+      "B_top": [
+        "rule:927",
+        "fact:823",
+        "rule:1048",
+        "incident:277",
+        "fact:806"
+      ],
+      "seed_overlap": 5
+    },
+    {
+      "id": "dx-01",
       "class": "distractor",
-      "query": "what is the capital of France",
+      "query": "What is our Cassandra cluster's replication factor and repair schedule?",
       "gold_current": [],
       "gold_stale": [],
       "A_hit": null,
@@ -613,18 +586,82 @@
       "A_current_beats_stale": null,
       "B_current_beats_stale": null,
       "A_top": [
-        "fact:402",
-        "fact:16",
-        "fact:27",
-        "fact:30",
-        "fact:29"
+        "fact:298",
+        "fact:822",
+        "rule:5",
+        "fact:544",
+        "rule:954"
       ],
       "B_top": [
-        "fact:402",
-        "fact:16",
-        "fact:27",
-        "fact:30",
-        "fact:29"
+        "fact:298",
+        "fact:822",
+        "rule:5",
+        "fact:544",
+        "rule:954"
+      ],
+      "seed_overlap": 5
+    },
+    {
+      "id": "dx-02",
+      "class": "distractor",
+      "query": "How is our Elasticsearch index sharding configured for full-text search?",
+      "gold_current": [],
+      "gold_stale": [],
+      "A_hit": null,
+      "B_hit": null,
+      "A_returned_stale": null,
+      "B_returned_stale": null,
+      "A_current_rank": null,
+      "B_current_rank": null,
+      "A_stale_rank": null,
+      "B_stale_rank": null,
+      "A_current_beats_stale": null,
+      "B_current_beats_stale": null,
+      "A_top": [
+        "fact:643",
+        "fact:298",
+        "fact:338",
+        "fact:264",
+        "fact:301"
+      ],
+      "B_top": [
+        "fact:643",
+        "fact:298",
+        "fact:338",
+        "fact:264",
+        "fact:301"
+      ],
+      "seed_overlap": 5
+    },
+    {
+      "id": "dx-03",
+      "class": "distractor",
+      "query": "What is our GraphQL federation gateway's subgraph composition strategy?",
+      "gold_current": [],
+      "gold_stale": [],
+      "A_hit": null,
+      "B_hit": null,
+      "A_returned_stale": null,
+      "B_returned_stale": null,
+      "A_current_rank": null,
+      "B_current_rank": null,
+      "A_stale_rank": null,
+      "B_stale_rank": null,
+      "A_current_beats_stale": null,
+      "B_current_beats_stale": null,
+      "A_top": [
+        "fact:426",
+        "rule:226",
+        "fact:380",
+        "fact:266",
+        "fact:25"
+      ],
+      "B_top": [
+        "fact:426",
+        "rule:226",
+        "fact:380",
+        "fact:25",
+        "fact:266"
       ],
       "seed_overlap": 5
     }

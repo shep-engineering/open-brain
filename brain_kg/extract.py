@@ -32,12 +32,44 @@ RELATION_LABELS = [
 _model = None
 
 
+def _resolve_device() -> str:
+    """Prefer the GPU (RTX 5090) — CPU inference thermal-throttles the host.
+    OPEN_BRAIN_KG_DEVICE overrides ('cuda'|'cpu'). Falls back to cpu with a loud
+    warning if CUDA torch isn't available (so it's never silent again)."""
+    import os as _os
+    forced = _os.getenv("OPEN_BRAIN_KG_DEVICE")
+    try:
+        import torch
+        cuda_ok = torch.cuda.is_available()
+    except Exception:
+        cuda_ok = False
+    if forced:
+        return forced
+    if cuda_ok:
+        return "cuda"
+    import sys as _sys
+    print("WARNING: CUDA torch not available — GLiNER2 falling back to CPU "
+          "(this pins the CPU + thermal-throttles). Install CUDA torch for the GPU.",
+          file=_sys.stderr)
+    return "cpu"
+
+
 def _load():
-    """Load GLiNER2 once (process-wide). Slow (~seconds) + downloads on first use."""
+    """Load GLiNER2 once (process-wide) onto the GPU when available. Logs the
+    device at load time so device placement is NEVER ambiguous (handoff root-cause)."""
     global _model
     if _model is None:
-        from gliner2 import GLiNER2  # imported lazily so non-extract paths don't need torch
+        import sys as _sys
+        from gliner2 import GLiNER2  # lazy: non-extract paths don't need torch
+        device = _resolve_device()
         _model = GLiNER2.from_pretrained(MODEL_ID)
+        try:
+            _model = _model.to(device)
+        except Exception as exc:  # pragma: no cover
+            print(f"WARNING: could not move GLiNER2 to {device}: {exc}; staying on default",
+                  file=_sys.stderr)
+            device = "cpu(default)"
+        print(f"[brain_kg.extract] GLiNER2 {MODEL_ID} loaded on device={device}", file=_sys.stderr)
     return _model
 
 

@@ -83,5 +83,19 @@ def graph_recall(
         current = next_ids
         hop_seed_sim = next_seed_sim
 
+    # KG v3: entity-graph hop — reach facts linked by shared/related ENTITIES
+    # (the connections cosine misses). From the seed nodes, traverse the entity
+    # graph to other memory nodes and score them by the seed's inherited sim.
+    ent_hits = store.entity_connected_nodes(conn, frontier_ids)
+    for e in ent_hits:
+        # inherit the best seed similarity available (entities came from seeds)
+        base = max(seed_sim_by_id.values()) if seed_sim_by_id else 0.0
+        # entity links are weighted below a direct cosine hit but above nothing;
+        # a same-entity link is strong, a relation-hop slightly less.
+        rel_w = 0.9 if e["relation"] == "co_mention" else 0.75
+        score = base * rel_w * KG_HOP_DECAY
+        consider(e["kind"], e["memory_id"], e["headline"], score, e["active"],
+                 f"entity:{e['relation']}:{e['via_entity']}", None)
+
     ranked = sorted(scored.values(), key=lambda d: d["score"], reverse=True)
     return ranked[:k]

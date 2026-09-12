@@ -129,6 +129,45 @@ def outgoing_edges(conn, node_ids: list[int]) -> list[dict[str, Any]]:
         return list(cur.fetchall())
 
 
+def entity_connected_nodes(conn, node_ids: list[int]) -> list[dict[str, Any]]:
+    """From seed memory-node ids, reach OTHER memory nodes via the entity graph:
+    seed node -> its entities (kg_entity_mentions) -> connected entities
+    (kg_entity_edges, either direction) -> memory nodes that mention those
+    (kg_entity_mentions). Returns destination node fields + the relation + a
+    shared/linked entity name for the audit path. This is the KG v3 payload:
+    facts linked by MEANING (shared entities) that cosine never connects."""
+    if not node_ids:
+        return []
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            """
+            WITH seed_ent AS (
+                SELECT DISTINCT entity_id FROM kg_entity_mentions WHERE node_id = ANY(%s)
+            ),
+            linked_ent AS (
+                -- entities directly connected to a seed entity (either direction)
+                SELECT ee.dst_entity_id AS ent, ee.relation FROM kg_entity_edges ee
+                    JOIN seed_ent s ON s.entity_id = ee.src_entity_id WHERE ee.active
+                UNION ALL
+                SELECT ee.src_entity_id AS ent, ee.relation FROM kg_entity_edges ee
+                    JOIN seed_ent s ON s.entity_id = ee.dst_entity_id WHERE ee.active
+                UNION ALL
+                -- also the seed entities themselves (co-mention linking)
+                SELECT entity_id AS ent, 'co_mention'::text AS relation FROM seed_ent
+            )
+            SELECT DISTINCT n.id, n.kind, n.memory_id, n.project, n.headline,
+                   n.body, n.active, le.relation, en.display_name AS via_entity
+            FROM linked_ent le
+            JOIN kg_entity_mentions m ON m.entity_id = le.ent
+            JOIN kg_entities en ON en.id = le.ent
+            JOIN kg_nodes n ON n.id = m.node_id
+            WHERE n.id <> ALL(%s) AND n.active
+            """,
+            (node_ids, node_ids),
+        )
+        return list(cur.fetchall())
+
+
 def counts(conn) -> dict[str, int]:
     with conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM kg_nodes")
