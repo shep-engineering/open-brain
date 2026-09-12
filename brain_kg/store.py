@@ -113,16 +113,18 @@ def outgoing_edges(conn, node_ids: list[int]) -> list[dict[str, Any]]:
         cur.execute(
             """
             -- outgoing neighbor/same_project/supersedes
+            -- (n.active filter = defense-in-depth: a forgotten/superseded dest is
+            --  never surfaced even if a stale edge to it survives between rebuilds)
             SELECT e.src_id AS from_id, e.dst_id AS to_id, e.relation, e.weight,
                    n.id, n.kind, n.memory_id, n.project, n.headline, n.body, n.active
             FROM kg_edges e JOIN kg_nodes n ON n.id = e.dst_id
-            WHERE e.active AND e.src_id = ANY(%s)
+            WHERE e.active AND n.active AND e.src_id = ANY(%s)
             UNION ALL
             -- incoming supersedes: retired seed -> its corrector (current belief)
             SELECT e.dst_id AS from_id, e.src_id AS to_id, e.relation, e.weight,
                    n.id, n.kind, n.memory_id, n.project, n.headline, n.body, n.active
             FROM kg_edges e JOIN kg_nodes n ON n.id = e.src_id
-            WHERE e.active AND e.relation = 'supersedes' AND e.dst_id = ANY(%s)
+            WHERE e.active AND n.active AND e.relation = 'supersedes' AND e.dst_id = ANY(%s)
             """,
             (node_ids, node_ids),
         )

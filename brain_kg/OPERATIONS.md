@@ -27,13 +27,29 @@ Backing up a derived store is the brittle pattern — the backup drifts from the
 
 ## Recovery procedures
 
+### Keeping the graph current — the SYNC job (routine, cheap, NO GPU)
+```
+# from F:\open-brain — ingest new memories + deterministic pass + full edge-rebuild
+python -m brain_kg.sync            # run now
+python -m brain_kg.sync if-due     # rate-limited (OPEN_BRAIN_KG_SYNC_INTERVAL_HOURS, default 6) — for a boot hook
+```
+Loads NO model, so it's safe to fire opportunistically (boot/PostToolUse hook via `sync_if_due`). It only
+does the cheap layers: ingest new brain nodes, deterministic reference-entity pass over `det_done_at IS
+NULL` nodes, and a full edge-rebuild (kg_edges — required, not incremental, so new state supersedes old).
+Idempotent: with nothing new it does no deterministic work and skips the edge rebuild. Per-layer markers
+(`det_done_at`, `gliner_done_at`) mean a re-ingest never re-extracts an unchanged node.
+
+**GLiNER typed relations are NOT in the sync** (a boot-hook GPU load self-defeats — the embedder is
+hottest at boot). Run them explicitly/rarely (see B). They add entity richness but the deterministic
+layer already carries the retrieval win, so this is optional enrichment.
+
 ### A. Deterministic layer only (fast, NO GPU) — most corruption
 ```
 # from F:\open-brain
 python -m brain_kg.build_entity_graph det
 ```
 Reads the brain corpus, re-derives the reference entities (ticket/migration/env/role tokens) + mentions.
-Instant, no model, no GPU. Idempotent.
+Instant, no model, no GPU. Idempotent. (The sync above does this incrementally; this does the whole corpus.)
 
 ### B. Full rebuild incl GLiNER2 entity/relation extraction (HEAVY — GPU)
 Runs GLiNER2 over every active node on the **RTX 3080 Ti** (the 5090 stays free). **Warn before running:**

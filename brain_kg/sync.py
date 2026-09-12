@@ -37,6 +37,13 @@ def sync() -> dict[str, Any]:
     # ensure the schema (markers) exist
     kg0 = store.kg_conn()
     apply_schema(kg0)
+    # fingerprint the active-node set BEFORE ingest (DIFF-gate #3 fix): a
+    # forget/supersede-without-new-node DEACTIVATES a node with no new det work,
+    # so we must rebuild edges when the active set CHANGED, not only when new
+    # unmarked nodes appear — else stale edges to a now-inactive node linger.
+    with kg0.cursor() as c:
+        c.execute("SELECT count(*) FROM kg_nodes WHERE active")
+        active_before = c.fetchone()[0]
     kg0.close()
 
     # 1. ingest new brain memories (read-only on the brain; upserts kg_nodes)
@@ -45,21 +52,23 @@ def sync() -> dict[str, Any]:
     # 2. deterministic pass over only the unmarked nodes (stamps det_done_at)
     kg = store.kg_conn()
     todo = _unmarked_det_count(kg)
+    with kg.cursor() as c:
+        c.execute("SELECT count(*) FROM kg_nodes WHERE active")
+        active_after = c.fetchone()[0]
     kg.close()
     if todo > 0:
         det_report = build_entity_graph.build_deterministic_only(only_unmarked=True)
     else:
         det_report = {"nodes_processed": 0, "note": "no unmarked nodes — deterministic no-op"}
 
-    # 3. full edge-rebuild (REQUIRED, not incremental: new state must be compared
-    #    against ALL same-topic history to supersede the stale one). Cheap SQL/CPU,
-    #    no GPU. Rebuild the supersede/neighbor/same_project + entity-overlap edges.
-    #    We rebuild edges only when something changed (new nodes or new det work).
+    # 3. full edge-rebuild when the graph changed: new unmarked nodes (todo>0) OR
+    #    the active-node set shifted (a deactivation, e.g. forget/supersede). Cheap
+    #    SQL/CPU, no GPU. Rebuilds supersede/neighbor/same_project + entity-overlap
+    #    over the whole graph (required for correct new-state supersession).
     edges_report: dict[str, Any] = {"skipped": "nothing changed"}
-    if ingest_report.get("nodes_ingested", 0) and (todo > 0):
-        # a full rebuild wipes + rebuilds the derived edge tables (kg_edges +
-        # entity-overlap fact-supersede edges); entity mentions/entities persist.
+    if todo > 0 or active_after != active_before:
         edges_report = _rebuild_edges()
+        edges_report["trigger"] = "new_nodes" if todo > 0 else "active_set_changed"
 
     return {"ingest": {"nodes": ingest_report.get("nodes_ingested"),
                        "brain_unchanged": ingest_report.get("brain_unchanged")},
