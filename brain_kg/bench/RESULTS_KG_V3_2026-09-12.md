@@ -81,7 +81,38 @@ ran in an isolated venv (`brain_kg/.venv-kg`), never the brain runtime.
 
 ## Verdict + recommendation
 The thesis holds: **encoder entity extraction links same-topic facts that flat cosine (0.47 similarity)
-misses**, and that translates to a real recall win on stale-state queries — *on this small sample*. Worth
-keeping the entity graph as an adjacent, derived lane. Before treating it as production-ready: expand the
-bench (more discriminating queries), sweep the scoring constants, and re-run extraction on the GPU (now
-that torch cu128 works on the 5090) with a domain-tuned GLiNER2 label set to lift relation precision.
+misses**, and that translates to a real recall win on stale-state queries. Worth keeping the entity
+graph as an adjacent, derived lane. The pre-production checklist that stood here is now **done**:
+expanded the bench to 15 discriminating state-pairs (`queries_v3b.jsonl`), swept the scoring constants
+(60/60 settings, `sweep_fast.py`), and re-ran GLiNER2 extraction on the RTX 5090 with torch cu128.
+Remaining known-noisy item: GLiNER2 relation precision on a broad label set — but the *entity* layer
+(deterministic + GLiNER entities), not the typed relations, carries the win, so this is enrichment, not
+a blocker.
+
+## Productionization — the sync MVP (DIFF-gate clean, 2026-09-12)
+The graph is now **self-maintaining and forget-safe**, not a one-shot bench artifact:
+- `python -m brain_kg.sync` (and `sync if-due`, rate-limited for a boot hook) keeps the graph current
+  **incrementally**: ingest new brain nodes (read-only on the brain), a deterministic reference-entity
+  pass over only `det_done_at IS NULL` nodes, and a full `kg_edges` rebuild. **Loads no model, uses no
+  GPU** on this hot path — safe to fire opportunistically. GLiNER stays explicit (`build_entity_graph`).
+- **Per-layer sync markers** (`det_done_at` / `gliner_done_at`, not one boolean): a re-ingest never
+  re-extracts an unchanged node; a deferred GLiNER pass never falsely marks a node done for det.
+- **Durability & recovery** are documented in `brain_kg/OPERATIONS.md`: the KG is a derived, disposable
+  Postgres projection (~46 MB on the persistent volume) — reboot/gaming safe (retrieval is stateless
+  SQL; the GPU model is a build tool, never a runtime component); recovery = truncate + rebuild from the
+  brain (proven: wiped 926 entities + 4131 mentions, rebuilt exactly, bench unchanged).
+
+### DIFF gate on the sync MVP
+Independent re-derivation **confirmed 7/8 claims** (marker-survives-upsert, incremental pickup, no-op
+skips the rebuild, per-node OOM defer, brain proven read-only via a raised read-only-transaction error,
+bench +3 reproduces) and **found one defect**: a bare forget/supersede that adds no new node left a
+stale *active* edge pointing at the now-inactive node. **Fixed (commit `87827d9`) two ways:**
+1. `sync()` fingerprints the active-node set and rebuilds edges when `todo > 0` **or** the active set
+   changed (a deactivation), not only on new nodes.
+2. `store.outgoing_edges()` filters `n.active` on the destination (defense-in-depth) so a forgotten node
+   is never surfaced even if a stale edge survives between rebuilds.
+
+**Verified:** forgot test fact 899 → sync rebuilt via `trigger='active_set_changed'`, node 899 ends
+`active=false` with 0 edges; bench still **state-pair A 11/15 → B 14/15, net +3**, no single-hop
+regression; the live brain was untouched (all forgets are soft-deletes). Branch
+`feat/kg-v3-encoder-extraction` (~13 commits ahead of main), **branch-and-hold** — not pushed.
