@@ -93,10 +93,12 @@ def graph_recall(
     seed_base = max(seed_sim_by_id.values()) if seed_sim_by_id else 0.0
     # accumulate: key -> (support_score, kind, memory_id, headline, active, best_via)
     ent_support: dict[str, dict[str, Any]] = {}
+    from .config import (KG_ENT_SUPPORT_DECAY, KG_ENT_FLOOR,
+                         KG_ENT_COMENTION_W, KG_ENT_RELATION_W)
     for e in ent_hits:
         key = _key(e["kind"], e["memory_id"])
         # co-mention (shared entity) is the strong signal; a relation-hop is weaker.
-        contrib = 1.0 if e["relation"] == "co_mention" else 0.5
+        contrib = KG_ENT_COMENTION_W if e["relation"] == "co_mention" else KG_ENT_RELATION_W
         rec = ent_support.get(key)
         if rec is None:
             ent_support[key] = {"support": contrib, "kind": e["kind"],
@@ -113,8 +115,8 @@ def graph_recall(
         # More shared entities -> higher score, saturating toward the seed level.
         # An entity-connected fact with strong support should rank AMONG the seeds,
         # not far below them. Diminishing returns via 1 - 0.6^support.
-        support_factor = 1.0 - (0.6 ** rec["support"])   # 1 ent=.4, 2=.64, 3=.78, ...
-        score = seed_base * (0.5 + 0.5 * support_factor)  # in [0.5, 1.0] x seed_base
+        support_factor = 1.0 - (KG_ENT_SUPPORT_DECAY ** rec["support"])
+        score = seed_base * (KG_ENT_FLOOR + (1.0 - KG_ENT_FLOOR) * support_factor)
         consider(rec["kind"], rec["memory_id"], rec["headline"], score,
                  rec["active"], rec["via"], None)
 

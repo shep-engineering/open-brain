@@ -35,6 +35,13 @@ KG_RESULT_K = int(os.getenv("OPEN_BRAIN_KG_RESULT_K", "10"))
 # Edge-weight decay per hop from the seed (a 2-hop node counts less than a 1-hop).
 KG_HOP_DECAY = float(os.getenv("OPEN_BRAIN_KG_HOP_DECAY", "0.6"))
 
+# Entity-hop scoring (DIFF-gate flagged these as unswept; now config-driven so the
+# sweep harness can vary them). score = seed_base * (FLOOR + (1-FLOOR)*(1 - DECAY^support)).
+KG_ENT_SUPPORT_DECAY = float(os.getenv("OPEN_BRAIN_KG_ENT_SUPPORT_DECAY", "0.6"))
+KG_ENT_FLOOR = float(os.getenv("OPEN_BRAIN_KG_ENT_FLOOR", "0.5"))
+KG_ENT_COMENTION_W = float(os.getenv("OPEN_BRAIN_KG_ENT_COMENTION_W", "1.0"))
+KG_ENT_RELATION_W = float(os.getenv("OPEN_BRAIN_KG_ENT_RELATION_W", "0.5"))
+
 # Edge-construction params.
 KG_NEIGHBOR_K = int(os.getenv("OPEN_BRAIN_KG_NEIGHBOR_K", "5"))       # top-N cosine neighbors per node
 KG_NEIGHBOR_MIN_SIM = float(os.getenv("OPEN_BRAIN_KG_NEIGHBOR_MIN_SIM", "0.55"))
