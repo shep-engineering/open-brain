@@ -99,13 +99,24 @@ def _add_entity_edge(cur, src: int, dst: int, relation: str, prov: int | None) -
     )
 
 
-def build(limit: int | None = None) -> dict[str, Any]:
-    """Extract relations from every active KG node body, build the entity graph."""
+def build(limit: int | None = None, only_unmarked: bool = True) -> dict[str, Any]:
+    """Extract relations from active KG node bodies, build the entity graph.
+    only_unmarked=True (default): process only gliner_done_at IS NULL nodes and
+    NO-OP (without loading the model) when there are none — so re-runs are cheap
+    and incremental. Pass only_unmarked=False to force a full re-extraction."""
     kg = store.kg_conn()
+    marker = " AND gliner_done_at IS NULL" if only_unmarked else ""
+    # No-op guard (DIFF-gate #6): count work BEFORE loading GLiNER2 (~seconds+VRAM).
+    with kg.cursor() as cur:
+        cur.execute(f"SELECT count(*) FROM kg_nodes WHERE active AND body <> ''{marker}")
+        todo = cur.fetchone()[0]
+    if todo == 0:
+        kg.close()
+        return {"nodes_with_triples": 0, "note": "no unmarked nodes — GLiNER no-op (model not loaded)"}
     with kg.cursor() as cur:
         cur.execute(
-            "SELECT id, kind, memory_id, body FROM kg_nodes "
-            "WHERE active AND body <> '' ORDER BY id" + (f" LIMIT {int(limit)}" if limit else "")
+            f"SELECT id, kind, memory_id, body FROM kg_nodes "
+            f"WHERE active AND body <> ''{marker} ORDER BY id" + (f" LIMIT {int(limit)}" if limit else "")
         )
         nodes = cur.fetchall()
 
@@ -114,14 +125,22 @@ def build(limit: int | None = None) -> dict[str, Any]:
     n_edges = 0
     n_mentions = 0
     n_det_nodes = 0
+    n_deferred = 0
     for node_id, kind, memory_id, body in nodes:
-        triples: list[Triple] = extract(body, source_memory_id=memory_id)
+        # Per-node fault isolation (DIFF-gate #4): a mid-run OOM on one node must
+        # DEFER the rest (leave gliner_done_at NULL so the next run retries), not
+        # crash the whole extraction.
+        try:
+            triples: list[Triple] = extract(body, source_memory_id=memory_id)
+        except Exception as exc:  # e.g. CUDA OOM if the embedder expanded mid-run
+            print(f"[build] node {node_id} extract failed ({exc}); deferring rest",
+                  file=__import__("sys").stderr)
+            n_deferred += 1
+            break  # stop cleanly; unmarked nodes retry next run
         # Deterministic entities ALWAYS (coverage fix) — these link facts by
         # shared explicit references (ticket/migration/env/role) even when
         # GLiNER2 extracts nothing, closing the ~42% zero-entity gap.
         det_ents = deterministic_entities(body)
-        if not triples and not det_ents:
-            continue
         n_nodes += 1
         with kg.cursor() as cur:
             for t in triples:
@@ -144,13 +163,18 @@ def build(limit: int | None = None) -> dict[str, Any]:
                 n_mentions += 1
             if det_ents:
                 n_det_nodes += 1
+            # Stamp BOTH markers: this pass did GLiNER (even if 0 triples) AND the
+            # deterministic entities, so the node is fully extracted.
+            cur.execute("UPDATE kg_nodes SET gliner_done_at = NOW(), "
+                        "det_done_at = COALESCE(det_done_at, NOW()) WHERE id = %s", (node_id,))
         kg.commit()
 
     with kg.cursor() as cur:
         cur.execute("SELECT count(*) FROM kg_entities")
         n_entities = cur.fetchone()[0]
-    report = {"nodes_with_triples": n_nodes, "entities": n_entities,
-              "entity_edges_written": n_edges, "mentions_written": n_mentions}
+    report = {"nodes_processed": n_nodes, "entities": n_entities,
+              "entity_edges_written": n_edges, "mentions_written": n_mentions,
+              "deferred_on_error": n_deferred}
     kg.close()
     return report
 
