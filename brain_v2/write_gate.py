@@ -12,6 +12,7 @@ Merge is an invalid operation for RULE type. Full stop.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from .config import (
@@ -70,10 +71,29 @@ def check_severity(kind: str, severity: str | None) -> None:
         )
 
 
+# Any Unicode LETTER (not just ASCII), so a non-Latin-script headline is not
+# false-rejected. `[^\W\d_]` = a \w character that is neither a digit nor
+# underscore = a letter in any script.
+_HEADLINE_ALPHA = re.compile(r"[^\W\d_]", re.UNICODE)
+
+
 def check_headline(headline: str) -> None:
     if not headline or not headline.strip():
         raise WriteGateError("step 3 (headline): required, cannot be empty")
-    words = headline.strip().split()
+    stripped = headline.strip()
+    # Reject non-descriptive headlines (a bare number like "1"/"42", or pure
+    # punctuation). Such headlines embed poorly and pollute retrieval — the live
+    # corpus accumulated 55 of them (facts headlined "1","2","3"...). A single
+    # LETTER (any script) is enough to be descriptive: this admits real short
+    # headlines like "NIST", "RLS Pattern A", "ARC-822 done" while rejecting the
+    # junk. (Use a letter class, not \w which matches digits, nor str.isalpha()
+    # on the whole string which fails on multi-word headlines.)
+    if not _HEADLINE_ALPHA.search(stripped):
+        raise WriteGateError(
+            "step 3 (headline): non-descriptive — a headline needs at least one "
+            "letter (got a bare number or punctuation). Write a real headline."
+        )
+    words = stripped.split()
     if len(words) > HEADLINE_WORD_CAP:
         raise WriteGateError(
             f"step 3 (headline): >{HEADLINE_WORD_CAP} words ({len(words)}). "

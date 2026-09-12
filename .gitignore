@@ -56,3 +56,4 @@ backups/
 # Provenance/licensing not audited for public redistribution.
 *.pdf
 !docs/assets/**/*.pdf
+docs/planning/

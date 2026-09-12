@@ -95,7 +95,8 @@ def decay_facts(conn, *,
                    POWER(2, -EXTRACT(EPOCH FROM (NOW() - COALESCE(f.last_accessed, f.created_at)))
                          / (%s * 86400.0)) AS score,
                    mi.active,
-                   f.ttl IS NOT NULL AND f.ttl < NOW() AS ttl_expired
+                   f.ttl IS NOT NULL AND f.ttl < NOW() AS ttl_expired,
+                   f.superseded_by IS NOT NULL AS superseded
             FROM facts f
             JOIN memory_index mi ON mi.kind = 'fact' AND mi.memory_id = f.id
             """,
@@ -105,9 +106,15 @@ def decay_facts(conn, *,
 
         to_deactivate: list[int] = []
         to_reactivate: list[int] = []
-        for fid, score, active, ttl_expired_flag in rows:
+        for fid, score, active, ttl_expired_flag, superseded in rows:
             if ttl_expired_flag:
                 continue  # already handled in step 1
+            if superseded:
+                # A superseded fact is no longer the current belief. It stays
+                # inactive regardless of recency — decay must NEVER reactivate it,
+                # or the supersede silently self-reverts on the next maintenance
+                # run and the stale fact reappears alongside its replacement.
+                continue
             if active and score < threshold:
                 to_deactivate.append(fid)
             elif not active and score >= threshold:

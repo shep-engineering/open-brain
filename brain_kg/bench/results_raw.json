@@ -1,0 +1,632 @@
+{
+  "k": 5,
+  "rows": [
+    {
+      "id": "sup-01",
+      "class": "supersede-recall",
+      "query": "can I use a real leaked secret as test data for a hook",
+      "gold_current": [
+        1043
+      ],
+      "gold_stale": [
+        1042
+      ],
+      "A_hit": true,
+      "B_hit": true,
+      "A_returned_stale": false,
+      "B_returned_stale": false,
+      "A_current_rank": 1,
+      "B_current_rank": 1,
+      "A_stale_rank": null,
+      "B_stale_rank": null,
+      "A_current_beats_stale": true,
+      "B_current_beats_stale": true,
+      "A_top": [
+        "rule:1043",
+        "fact:288",
+        "rule:1030",
+        "fact:149",
+        "rule:102"
+      ],
+      "B_top": [
+        "rule:1043",
+        "fact:288",
+        "rule:1030",
+        "fact:149",
+        "rule:102"
+      ],
+      "seed_overlap": 5
+    },
+    {
+      "id": "sup-02",
+      "class": "supersede-recall",
+      "query": "is it ok to print a key id or DSN into the transcript",
+      "gold_current": [
+        1041
+      ],
+      "gold_stale": [
+        1038
+      ],
+      "A_hit": true,
+      "B_hit": true,
+      "A_returned_stale": false,
+      "B_returned_stale": false,
+      "A_current_rank": 1,
+      "B_current_rank": 1,
+      "A_stale_rank": null,
+      "B_stale_rank": null,
+      "A_current_beats_stale": true,
+      "B_current_beats_stale": true,
+      "A_top": [
+        "rule:1041",
+        "rule:155",
+        "fact:723",
+        "rule:13",
+        "rule:956"
+      ],
+      "B_top": [
+        "rule:1041",
+        "rule:155",
+        "fact:723",
+        "rule:13",
+        "rule:956"
+      ],
+      "seed_overlap": 5
+    },
+    {
+      "id": "sup-03",
+      "class": "supersede-recall",
+      "query": "how do I remediate a leaked secret, does SSM keep history",
+      "gold_current": [
+        1045
+      ],
+      "gold_stale": [
+        1044
+      ],
+      "A_hit": true,
+      "B_hit": true,
+      "A_returned_stale": false,
+      "B_returned_stale": false,
+      "A_current_rank": 1,
+      "B_current_rank": 1,
+      "A_stale_rank": null,
+      "B_stale_rank": null,
+      "A_current_beats_stale": true,
+      "B_current_beats_stale": true,
+      "A_top": [
+        "rule:1045",
+        "rule:1041",
+        "rule:336",
+        "fact:597",
+        "rule:1046"
+      ],
+      "B_top": [
+        "rule:1045",
+        "rule:1041",
+        "rule:336",
+        "fact:597",
+        "rule:1046"
+      ],
+      "seed_overlap": 5
+    },
+    {
+      "id": "sup-04",
+      "class": "supersede-recall",
+      "query": "must the aws profile name equal the IAM user name",
+      "gold_current": [
+        1048
+      ],
+      "gold_stale": [
+        1047
+      ],
+      "A_hit": true,
+      "B_hit": true,
+      "A_returned_stale": false,
+      "B_returned_stale": false,
+      "A_current_rank": 1,
+      "B_current_rank": 1,
+      "A_stale_rank": null,
+      "B_stale_rank": null,
+      "A_current_beats_stale": true,
+      "B_current_beats_stale": true,
+      "A_top": [
+        "rule:1048",
+        "rule:612",
+        "rule:880",
+        "rule:927",
+        "rule:558"
+      ],
+      "B_top": [
+        "rule:1048",
+        "rule:612",
+        "rule:880",
+        "rule:927",
+        "rule:558"
+      ],
+      "seed_overlap": 5
+    },
+    {
+      "id": "sup-05",
+      "class": "supersede-recall",
+      "query": "what counts as done for a go-live ticket, is a deployed image enough",
+      "gold_current": [
+        1027
+      ],
+      "gold_stale": [
+        942
+      ],
+      "A_hit": true,
+      "B_hit": true,
+      "A_returned_stale": false,
+      "B_returned_stale": false,
+      "A_current_rank": 1,
+      "B_current_rank": 1,
+      "A_stale_rank": null,
+      "B_stale_rank": null,
+      "A_current_beats_stale": true,
+      "B_current_beats_stale": true,
+      "A_top": [
+        "rule:1027",
+        "fact:870",
+        "rule:1059",
+        "fact:795",
+        "fact:782"
+      ],
+      "B_top": [
+        "rule:1027",
+        "fact:870",
+        "rule:1059",
+        "fact:795",
+        "rule:511"
+      ],
+      "seed_overlap": 4
+    },
+    {
+      "id": "sup-06",
+      "class": "supersede-recall",
+      "query": "under a don't-stop drive can I idle-stop or hand back control",
+      "gold_current": [
+        1009
+      ],
+      "gold_stale": [
+        996
+      ],
+      "A_hit": true,
+      "B_hit": true,
+      "A_returned_stale": false,
+      "B_returned_stale": false,
+      "A_current_rank": 1,
+      "B_current_rank": 1,
+      "A_stale_rank": null,
+      "B_stale_rank": null,
+      "A_current_beats_stale": true,
+      "B_current_beats_stale": true,
+      "A_top": [
+        "rule:1009",
+        "rule:917",
+        "rule:11",
+        "rule:1058",
+        "fact:621"
+      ],
+      "B_top": [
+        "rule:1009",
+        "rule:917",
+        "rule:11",
+        "rule:1058",
+        "fact:621"
+      ],
+      "seed_overlap": 5
+    },
+    {
+      "id": "sup-07",
+      "class": "supersede-recall",
+      "query": "how many credentials leaked this session and what do I do",
+      "gold_current": [
+        1037
+      ],
+      "gold_stale": [
+        1036
+      ],
+      "A_hit": false,
+      "B_hit": false,
+      "A_returned_stale": false,
+      "B_returned_stale": false,
+      "A_current_rank": null,
+      "B_current_rank": null,
+      "A_stale_rank": null,
+      "B_stale_rank": null,
+      "A_current_beats_stale": null,
+      "B_current_beats_stale": null,
+      "A_top": [
+        "rule:1041",
+        "rule:13",
+        "rule:1034",
+        "rule:37",
+        "fact:2"
+      ],
+      "B_top": [
+        "rule:1041",
+        "rule:13",
+        "rule:1034",
+        "rule:37",
+        "fact:2"
+      ],
+      "seed_overlap": 5
+    },
+    {
+      "id": "sup-08",
+      "class": "supersede-recall",
+      "query": "is Archen a financial processor that stores invoices",
+      "gold_current": [
+        1006
+      ],
+      "gold_stale": [
+        1004
+      ],
+      "A_hit": true,
+      "B_hit": true,
+      "A_returned_stale": false,
+      "B_returned_stale": false,
+      "A_current_rank": 1,
+      "B_current_rank": 1,
+      "A_stale_rank": null,
+      "B_stale_rank": null,
+      "A_current_beats_stale": true,
+      "B_current_beats_stale": true,
+      "A_top": [
+        "rule:1006",
+        "rule:491",
+        "incident:256",
+        "fact:79",
+        "fact:742"
+      ],
+      "B_top": [
+        "rule:1006",
+        "rule:491",
+        "fact:79",
+        "incident:256",
+        "fact:742"
+      ],
+      "seed_overlap": 5
+    },
+    {
+      "id": "single-01",
+      "class": "single-hop",
+      "query": "how do I remediate a leaked secret, does SSM keep history",
+      "gold_current": [
+        1045
+      ],
+      "gold_stale": [],
+      "A_hit": true,
+      "B_hit": true,
+      "A_returned_stale": null,
+      "B_returned_stale": null,
+      "A_current_rank": 1,
+      "B_current_rank": 1,
+      "A_stale_rank": null,
+      "B_stale_rank": null,
+      "A_current_beats_stale": null,
+      "B_current_beats_stale": null,
+      "A_top": [
+        "rule:1045",
+        "rule:1041",
+        "rule:336",
+        "fact:597",
+        "rule:1046"
+      ],
+      "B_top": [
+        "rule:1045",
+        "rule:1041",
+        "rule:336",
+        "fact:597",
+        "rule:1046"
+      ],
+      "seed_overlap": 5
+    },
+    {
+      "id": "single-02",
+      "class": "single-hop",
+      "query": "align IAM user profile and vault to the archen profile name",
+      "gold_current": [
+        1048
+      ],
+      "gold_stale": [],
+      "A_hit": true,
+      "B_hit": true,
+      "A_returned_stale": null,
+      "B_returned_stale": null,
+      "A_current_rank": 1,
+      "B_current_rank": 1,
+      "A_stale_rank": null,
+      "B_stale_rank": null,
+      "A_current_beats_stale": null,
+      "B_current_beats_stale": null,
+      "A_top": [
+        "rule:1048",
+        "rule:927",
+        "fact:823",
+        "task:20",
+        "fact:791"
+      ],
+      "B_top": [
+        "rule:1048",
+        "rule:927",
+        "fact:823",
+        "task:20",
+        "fact:791"
+      ],
+      "seed_overlap": 5
+    },
+    {
+      "id": "neg-01",
+      "class": "distractor",
+      "query": "what is the airspeed velocity of an unladen swallow",
+      "gold_current": [],
+      "gold_stale": [],
+      "A_hit": null,
+      "B_hit": null,
+      "A_returned_stale": null,
+      "B_returned_stale": null,
+      "A_current_rank": null,
+      "B_current_rank": null,
+      "A_stale_rank": null,
+      "B_stale_rank": null,
+      "A_current_beats_stale": null,
+      "B_current_beats_stale": null,
+      "A_top": [
+        "fact:27",
+        "fact:16",
+        "fact:28",
+        "fact:17",
+        "fact:358"
+      ],
+      "B_top": [
+        "fact:27",
+        "fact:16",
+        "fact:358",
+        "fact:28",
+        "fact:17"
+      ],
+      "seed_overlap": 5
+    },
+    {
+      "id": "neg-02",
+      "class": "distractor",
+      "query": "recipe for sourdough bread starter hydration",
+      "gold_current": [],
+      "gold_stale": [],
+      "A_hit": null,
+      "B_hit": null,
+      "A_returned_stale": null,
+      "B_returned_stale": null,
+      "A_current_rank": null,
+      "B_current_rank": null,
+      "A_stale_rank": null,
+      "B_stale_rank": null,
+      "A_current_beats_stale": null,
+      "B_current_beats_stale": null,
+      "A_top": [
+        "fact:27",
+        "fact:16",
+        "fact:29",
+        "fact:17",
+        "fact:28"
+      ],
+      "B_top": [
+        "fact:16",
+        "fact:27",
+        "fact:29",
+        "fact:17",
+        "fact:28"
+      ],
+      "seed_overlap": 5
+    },
+    {
+      "id": "state-01",
+      "class": "state-pair",
+      "query": "current demo deploy state and what remains to get to demo-green",
+      "gold_current": [
+        848
+      ],
+      "gold_stale": [
+        814,
+        832
+      ],
+      "A_hit": false,
+      "B_hit": false,
+      "A_returned_stale": false,
+      "B_returned_stale": false,
+      "A_current_rank": 14,
+      "B_current_rank": null,
+      "A_stale_rank": null,
+      "B_stale_rank": null,
+      "A_current_beats_stale": true,
+      "B_current_beats_stale": null,
+      "A_top": [
+        "rule:1027",
+        "fact:786",
+        "rule:805",
+        "incident:256",
+        "fact:686"
+      ],
+      "B_top": [
+        "rule:1027",
+        "fact:786",
+        "rule:805",
+        "incident:256",
+        "fact:686"
+      ],
+      "seed_overlap": 5
+    },
+    {
+      "id": "state-02",
+      "class": "state-pair",
+      "query": "current state of the dba agent database credential chain for dev and demo",
+      "gold_current": [
+        821
+      ],
+      "gold_stale": [
+        805
+      ],
+      "A_hit": true,
+      "B_hit": true,
+      "A_returned_stale": true,
+      "B_returned_stale": true,
+      "A_current_rank": 1,
+      "B_current_rank": 1,
+      "A_stale_rank": 2,
+      "B_stale_rank": 2,
+      "A_current_beats_stale": true,
+      "B_current_beats_stale": true,
+      "A_top": [
+        "fact:821",
+        "fact:805",
+        "rule:37",
+        "fact:822",
+        "fact:613"
+      ],
+      "B_top": [
+        "fact:821",
+        "fact:805",
+        "rule:37",
+        "fact:822",
+        "incident:277"
+      ],
+      "seed_overlap": 4
+    },
+    {
+      "id": "fact-02",
+      "class": "single-hop",
+      "query": "does memory_index.embedding embed the headline or headline plus body",
+      "gold_current": [
+        649
+      ],
+      "gold_stale": [],
+      "A_hit": true,
+      "B_hit": true,
+      "A_returned_stale": null,
+      "B_returned_stale": null,
+      "A_current_rank": 1,
+      "B_current_rank": 1,
+      "A_stale_rank": null,
+      "B_stale_rank": null,
+      "A_current_beats_stale": null,
+      "B_current_beats_stale": null,
+      "A_top": [
+        "fact:649",
+        "fact:264",
+        "fact:643",
+        "fact:238",
+        "fact:62"
+      ],
+      "B_top": [
+        "fact:649",
+        "fact:264",
+        "fact:643",
+        "fact:238",
+        "fact:62"
+      ],
+      "seed_overlap": 5
+    },
+    {
+      "id": "fact-03",
+      "class": "single-hop",
+      "query": "is the open-brain ollama GPU split pristine and working",
+      "gold_current": [
+        163
+      ],
+      "gold_stale": [],
+      "A_hit": true,
+      "B_hit": true,
+      "A_returned_stale": null,
+      "B_returned_stale": null,
+      "A_current_rank": 1,
+      "B_current_rank": 1,
+      "A_stale_rank": null,
+      "B_stale_rank": null,
+      "A_current_beats_stale": null,
+      "B_current_beats_stale": null,
+      "A_top": [
+        "fact:163",
+        "incident:18",
+        "fact:25",
+        "rule:999",
+        "fact:424"
+      ],
+      "B_top": [
+        "fact:163",
+        "incident:18",
+        "fact:25",
+        "rule:999",
+        "rule:39"
+      ],
+      "seed_overlap": 4
+    },
+    {
+      "id": "fact-single-01",
+      "class": "single-hop",
+      "query": "do custom subagents inherit the Archen working contract",
+      "gold_current": [
+        579
+      ],
+      "gold_stale": [],
+      "A_hit": true,
+      "B_hit": true,
+      "A_returned_stale": null,
+      "B_returned_stale": null,
+      "A_current_rank": 1,
+      "B_current_rank": 1,
+      "A_stale_rank": null,
+      "B_stale_rank": null,
+      "A_current_beats_stale": null,
+      "B_current_beats_stale": null,
+      "A_top": [
+        "fact:579",
+        "rule:443",
+        "rule:903",
+        "incident:281",
+        "fact:580"
+      ],
+      "B_top": [
+        "fact:579",
+        "rule:443",
+        "rule:903",
+        "incident:281",
+        "fact:580"
+      ],
+      "seed_overlap": 5
+    },
+    {
+      "id": "fact-neg-01",
+      "class": "distractor",
+      "query": "what is the capital of France",
+      "gold_current": [],
+      "gold_stale": [],
+      "A_hit": null,
+      "B_hit": null,
+      "A_returned_stale": null,
+      "B_returned_stale": null,
+      "A_current_rank": null,
+      "B_current_rank": null,
+      "A_stale_rank": null,
+      "B_stale_rank": null,
+      "A_current_beats_stale": null,
+      "B_current_beats_stale": null,
+      "A_top": [
+        "fact:402",
+        "fact:16",
+        "fact:27",
+        "fact:30",
+        "fact:29"
+      ],
+      "B_top": [
+        "fact:402",
+        "fact:16",
+        "fact:27",
+        "fact:30",
+        "fact:29"
+      ],
+      "seed_overlap": 5
+    }
+  ]
+}

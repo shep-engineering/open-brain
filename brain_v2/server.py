@@ -653,6 +653,36 @@ def supersede_rule_v2(old_id: int, new_headline: str, new_body: str,
 
 
 @mcp.tool()
+def supersede_fact_v2(old_id: int, new_headline: str, new_body: str,
+                      reason: str, project: str = "", tags: list[str] | None = None,
+                      ttl: str = "", source: str = "") -> str:
+    """Supersede a FACT. The OLD fact goes inactive in memory_index (search
+    stops returning it) and its superseded_by points at the NEW fact; the old
+    row is retained for audit. This is the correction path facts previously
+    lacked — when remember_fact_v2 returns a DuplicateHit whose hint says
+    'route to supersede(old_id=...)', THIS is the tool to call. Dedup is skipped
+    (the new fact is meant to overlap the old)."""
+    blocked = _check_write_gate(project)
+    if blocked:
+        return blocked
+    try:
+        with store.connect() as conn:
+            new = store.supersede_fact(
+                conn, old_id=old_id, new_headline=new_headline,
+                new_body=new_body, reason=reason,
+                project=project or None, tags=tags, ttl=ttl or None,
+                source=source,
+            )
+    except WriteGateError as exc:
+        return _err(f"write gate rejected: {exc}", step="write_gate")
+    except ValueError as exc:
+        return _err(str(exc))
+    except Exception as exc:
+        return _err(f"supersede failed: {exc}")
+    return _ok(new.to_dict())
+
+
+@mcp.tool()
 def update_task_status_v2(task_id: int, status: str, source: str = "") -> str:
     try:
         with store.connect() as conn:

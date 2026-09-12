@@ -8,6 +8,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Fact supersession — facts can finally be corrected (brain_v2 2.8.0).** Facts
+  had NO correction path: the `facts` table lacked any supersede/active column, so
+  a stale fact lived forever and search kept returning it. (861/871 facts were
+  active-and-immortal at diagnosis.) New `supersede_fact` / `supersede_fact_v2`
+  mirror the rule path: the old fact is retained for audit (body preserved,
+  recallable by id) but its `memory_index` row is deactivated so search stops
+  returning it; `facts` gains nullable `supersedes` / `superseded_by` /
+  `supersede_reason` (additive, idempotent ALTER). **`decay_facts` is now
+  superseded-aware** — it never reactivates a superseded fact (without this the
+  correction self-reverted on the next maintenance run, since a fresh superseded
+  fact scores ~1.0). Tests: 6 new + 56 regression green.
+- **capture_context surfaces the supersede path on a duplicate (brain_v2 2.8.0).**
+  When the most-used write path drops a near-duplicate, the result now carries the
+  dropped headline + an actionable hint to call `supersede_fact_v2`/
+  `supersede_rule_v2` if it's an update — so corrections are reachable from the
+  normal capture workflow, not just a direct supersede call.
+- **brain_kg — adjacent knowledge-graph experiment + head-to-head bench
+  (EXPERIMENTAL, not wired into the live brain).** A separate package/DB that
+  projects the brain corpus into a typed graph and benches graph retrieval vs the
+  brain's flat cosine. Honest finding: a cosine-derived graph does NOT beat the
+  brain without real encoder-based entity/relation extraction (same-topic facts
+  sit at 0.47–0.71 cosine — too low to link). Kept as the basis for a scoped v3.
+
+### Changed
+- **Write gate rejects non-descriptive headlines (brain_v2 2.8.0).**
+  `check_headline` now rejects a headline with no letter (any Unicode script), so
+  junk like `"1"`/`"42"`/`"—"` can't enter and pollute retrieval (the corpus had
+  accumulated 55 such rows). Real short headlines (NIST, Emergent, RLS Pattern A,
+  café) pass. `decompose._make_headline` strips leading list-enumerators so a
+  numbered item isn't turned into a bare-number headline and then dropped.
+  Write-time fix (future writes); cleaning the 55 existing rows is a separate step.
 - **Consolidation-candidate finder (brain_v2 2.7.0).** New read-only tool
   `consolidation_candidates_v2` / `store.consolidation_candidates` finds CLIQUES
   of active rules that are all mutually similar — candidates to review and merge
@@ -25,6 +56,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   near-dups. Threshold is uncalibrated; tune on real data.
 
 ### Fixed
+- **backup-brain.sh backs up the LIVE v2 brain (2026-09-12).** The script dumped
+  only `openbrain` (v1, decommissioned 2026-07-09), so `open_brain_v2` — the live
+  brain — had had NO automated backup since the cutover. Now dumps BOTH (v2 first),
+  skips a target whose container isn't running, and validates each dump carries the
+  "PostgreSQL database dump complete" marker before accepting it (a truncated dump
+  is not a backup). Per-DB 30-day pruning.
 - **Shared connection recovers from a dirty transaction (brain_v2 2.6.0).**
   `store.connect()` returns a process-wide singleton connection reused across
   every tool call. If any tool raised mid-transaction without its caller rolling
