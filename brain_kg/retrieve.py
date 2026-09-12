@@ -105,6 +105,10 @@ def graph_recall(
                                 "via": f"entity:{e['relation']}:{e['via_entity']}"}
         else:
             rec["support"] += contrib
+    # NOTE (DIFF-gate 2026-09-12): the constants below (0.6^support, co_mention
+    # 1.0 vs relation 0.5, 0.5 + 0.5*factor) are PRINCIPLED (monotonic in shared-
+    # entity count, not tuned to any gold) but UNSWEPT. Treat as a reasonable
+    # default, not an optimum; sweep them before calling the win production-ready.
     for key, rec in ent_support.items():
         # More shared entities -> higher score, saturating toward the seed level.
         # An entity-connected fact with strong support should rank AMONG the seeds,
