@@ -625,6 +625,25 @@ Revise a rule. Old rule goes DEPRECATED, new rule links to it. This is the ONLY 
 | `source` | string | No | Agent identifier |
 | `severity` | string | No | Override severity (defaults to old rule's severity) |
 
+#### `supersede_fact_v2`
+
+Correct a fact. The old fact is retained for audit (body preserved, still recallable by id) but its
+`memory_index` row is deactivated so search stops returning it; the new fact links back via
+`supersedes`. This is the correction path facts previously lacked — when `remember_fact_v2` returns a
+`DuplicateHit` whose hint says "route to supersede(...)", call this. Dedup is skipped (the new fact is
+meant to overlap the old). `decay_facts` never reactivates a superseded fact.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `old_id` | int | Yes | Fact to supersede |
+| `new_headline` | string | Yes | <=15 words, must contain a letter |
+| `new_body` | string | Yes | The corrected fact |
+| `reason` | string | Yes | Why the old fact is stale/wrong |
+| `project` | string | No | Defaults to the old fact's project |
+| `tags` | list | No | Tags for the new fact |
+| `ttl` | string | No | Optional expiry for the new fact |
+| `source` | string | No | Agent identifier |
+
 #### `update_task_status_v2`
 
 Transition a task's lifecycle state.
