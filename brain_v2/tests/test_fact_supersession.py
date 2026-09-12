@@ -80,6 +80,28 @@ def test_supersede_missing_fact_raises(conn):
                              new_body="x is y now.", reason="r", source="test")
 
 
+def test_capture_context_duplicate_surfaces_supersede_hint(conn):
+    """The correction path must be REACHABLE from the normal capture workflow:
+    when capture_context drops a near-duplicate fact, the result must tell the
+    agent it can supersede the existing one (else the correction never happens)."""
+    text = ("The staging deploy pipeline posts a validated check onto the dev "
+            "SHA after the full deployed suite passes on stage.")
+    first = store.capture_context(conn, context=text, source="test", project="test")
+    # find the stored fact id
+    stored = [r for r in first if r["action"] == "stored"]
+    assert stored, f"expected the fact to store first time: {first}"
+
+    # capture near-identical text again -> duplicate, must carry the hint
+    second = store.capture_context(conn, context=text, source="test", project="test")
+    dups = [r for r in second if r["action"] == "duplicate"]
+    assert dups, f"expected a duplicate on re-capture: {second}"
+    d = dups[0]
+    assert "hint" in d, "duplicate result lacks the supersede hint"
+    assert "supersede_fact_v2" in d["hint"]
+    assert str(d["id"]) in d["hint"]
+    assert d.get("dropped_headline"), "duplicate result should name the dropped chunk"
+
+
 def test_decay_does_not_reactivate_superseded_fact(conn):
     """THE regression the PLAN gate caught: a just-superseded fact scores ~1.0
     (last_accessed NULL -> created_at=now), so a naive decay would flip its

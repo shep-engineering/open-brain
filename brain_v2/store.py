@@ -902,14 +902,33 @@ def capture_context(conn, *, context: str, source: str = "",
                 )
 
             if isinstance(mem, DuplicateHit):
-                results.append({
+                # The new chunk was NOT stored — it's a near-duplicate of an
+                # existing memory. If the new content is actually an UPDATE, the
+                # agent should supersede the old one rather than lose the change.
+                # Surface an actionable hint so the correction path is reachable
+                # from the normal capture workflow (facts had no such path until
+                # supersede_fact; without this hint it stays invisible here).
+                supersede_tool = ("supersede_fact_v2" if chunk.kind == "fact"
+                                  else "supersede_rule_v2" if chunk.kind == "rule"
+                                  else None)
+                entry = {
                     "kind": chunk.kind,
                     "id": mem.existing_id,
                     "headline": mem.existing_headline,
                     "action": "duplicate",
                     "similarity": round(mem.similarity, 4),
-                })
-                log.info("capture_context: duplicate %s (id=%d, sim=%.3f): %s",
+                    "dropped_headline": chunk.headline,
+                }
+                if supersede_tool is not None:
+                    entry["hint"] = (
+                        f"new content NOT stored (near-duplicate of {chunk.kind} "
+                        f"{mem.existing_id}). If it is an UPDATE, call "
+                        f"{supersede_tool}(old_id={mem.existing_id}, ...) so the "
+                        f"correction replaces the stale memory."
+                    )
+                results.append(entry)
+                log.info("capture_context: duplicate %s (id=%d, sim=%.3f) — "
+                         "dropped new chunk; supersede available: %s",
                          chunk.kind, mem.existing_id, mem.similarity, chunk.headline[:60])
             else:
                 results.append({
