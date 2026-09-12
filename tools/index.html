@@ -1352,6 +1352,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#supersede_fact_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        supersede_fact_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#update_task_status_v2" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2807,6 +2818,17 @@
     <span class="md-ellipsis">
       
         supersede_rule_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#supersede_fact_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        supersede_fact_v2
       
     </span>
   </a>
@@ -4674,6 +4696,72 @@
 <td>string</td>
 <td>No</td>
 <td>Override severity (defaults to old rule's severity)</td>
+</tr>
+</tbody>
+</table>
+<h4 id="supersede_fact_v2"><code>supersede_fact_v2</code></h4>
+<p>Correct a fact. The old fact is retained for audit (body preserved, still recallable by id) but its
+<code>memory_index</code> row is deactivated so search stops returning it; the new fact links back via
+<code>supersedes</code>. This is the correction path facts previously lacked — when <code>remember_fact_v2</code> returns a
+<code>DuplicateHit</code> whose hint says "route to supersede(...)", call this. Dedup is skipped (the new fact is
+meant to overlap the old). <code>decay_facts</code> never reactivates a superseded fact.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>old_id</code></td>
+<td>int</td>
+<td>Yes</td>
+<td>Fact to supersede</td>
+</tr>
+<tr>
+<td><code>new_headline</code></td>
+<td>string</td>
+<td>Yes</td>
+<td>&lt;=15 words, must contain a letter</td>
+</tr>
+<tr>
+<td><code>new_body</code></td>
+<td>string</td>
+<td>Yes</td>
+<td>The corrected fact</td>
+</tr>
+<tr>
+<td><code>reason</code></td>
+<td>string</td>
+<td>Yes</td>
+<td>Why the old fact is stale/wrong</td>
+</tr>
+<tr>
+<td><code>project</code></td>
+<td>string</td>
+<td>No</td>
+<td>Defaults to the old fact's project</td>
+</tr>
+<tr>
+<td><code>tags</code></td>
+<td>list</td>
+<td>No</td>
+<td>Tags for the new fact</td>
+</tr>
+<tr>
+<td><code>ttl</code></td>
+<td>string</td>
+<td>No</td>
+<td>Optional expiry for the new fact</td>
+</tr>
+<tr>
+<td><code>source</code></td>
+<td>string</td>
+<td>No</td>
+<td>Agent identifier</td>
 </tr>
 </tbody>
 </table>
