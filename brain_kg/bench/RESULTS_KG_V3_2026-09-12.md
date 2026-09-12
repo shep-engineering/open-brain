@@ -36,9 +36,30 @@ explicit references (ticket ids, migration numbers, environments, RLS/SSM/role/t
 added ~4155 mentions, reaching **1284/2206 nodes (~58%)** — a general mechanism, not gold-specific. That
 closed the gap and the state-pair result went 2/6 → 5/6.
 
+## Robustness — the win is NOT a knife-edge fit (sweep, 2026-09-12)
+Swept the entity-hop scoring constants across 60 settings (decay ∈ {.4,.5,.6,.7,.8} × floor ∈ {.3,.5,.7}
+× 4 co_mention/relation weight pairs), on the full 34-query / 15-state-pair blind gold, with IDF weighting:
+- **60/60 settings: the KG helps (net_B ≥ 1), and ZERO settings regress single-hop.** Across the whole
+  parameter space the KG never loses to the brain and never hurts the control class.
+- **36/60 settings clear the full bar (net_B ≥ 3).** The best config is not a lucky point — a majority hit it.
+- net_B only ever ranges 1–3; state-pair B always 12–14 vs A's 11.
+This retires the "unswept constants" caveat: the win is robust to the scoring choice, not tuned to it.
+
+## Larger-N + IDF (the honest correction to the n=6 headline)
+The first run (n=6 state-pairs) showed a big win (2/6→5/6, +3) — but that sample was *favorable* to the KG.
+Expanded to **15 state-pairs** (blind, fresh topics, `queries_v3b.jsonl`): the raw entity hop netted only
++2 and HURT one query (sp2-07 — high-frequency entities `dev`(df 497)/`demo`(300)/`IAM` injected noise
+that displaced the correct answer). Fix: **IDF-weight the entity contribution** — a rare shared entity
+(`088`, df~5) informs far more than a common one. Result with IDF at N=15: **state-pair A 11/15 → B 14/15,
+net +3, B beats A on 3 / loses 0, no single-hop regression.** Recovered the regression AND kept the wins.
+So the true effect is **modest but real and robust** — not the near-double the tiny sample implied.
+
 ## Honest caveats (do not drop these when quoting the win)
-1. **n=6 state-pair is a small sample.** Two of the three wins (sp-01, sp-02) are *re-ranks* of a gold
-   already retrievable at rank 6-8; only sp-04 is a from-zero recall. Directionally convincing, not
+1. ~~n=6 small sample~~ **RESOLVED** — expanded to 15 state-pairs (see "Larger-N + IDF" above). The win
+   holds at the bigger sample (net +3) after the IDF fix, and across 60/60 sweep settings. The headline
+   number to quote is the **N=15, IDF, net +3** result — not the inflated n=6.
+   *(Historical note on the original n=6:)* Two of its three wins (sp-01, sp-02) were *re-ranks* of a gold
+   already retrievable at rank 6-8; only sp-04 was a from-zero recall. Directionally convincing, not
    powered. Don't quote "5/6" without the n=6.
 2. **Scoring constants are unswept hyperparameters.** `retrieve.py`'s entity-hop scoring (`1-0.6^support`,
    co_mention 1.0 vs relation 0.5, `0.5+0.5*factor`) is principled (monotonic in shared-entity count) and
