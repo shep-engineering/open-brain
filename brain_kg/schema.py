@@ -53,6 +53,59 @@ CREATE INDEX IF NOT EXISTS kg_edges_src_idx ON kg_edges (src_id) WHERE active;
 CREATE INDEX IF NOT EXISTS kg_edges_dst_idx ON kg_edges (dst_id) WHERE active;
 CREATE INDEX IF NOT EXISTS kg_edges_relation_idx ON kg_edges (relation) WHERE active;
 
+-- Relax the relation CHECK to admit GLiNER2 typed relations (KG v3). The old
+-- CHECK (supersedes/neighbor/same_project) rejected typed edges on first insert.
+-- We drop the hard CHECK entirely: the typed vocabulary is defined + bounded in
+-- brain_kg/extract.py (RELATION_LABELS), so the DB stays permissive and the app
+-- controls the set. Existing cosine-graph relations still work unchanged.
+DO $$ BEGIN
+    ALTER TABLE kg_edges DROP CONSTRAINT IF EXISTS kg_edges_relation_check;
+EXCEPTION WHEN undefined_object THEN NULL;
+END $$;
+
+-- ── ENTITIES (KG v3) ─────────────────────────────────────────────────
+-- Canonical entities extracted by GLiNER2, with their OWN id space (kg_nodes is
+-- memory-keyed UNIQUE(kind,memory_id) and cannot hold entities). canonical_key
+-- is the deterministic-ER normalized form (lowercase, punct/space stripped) so
+-- "088"/"the 088 migration"/"migration 088" collapse to one row.
+CREATE TABLE IF NOT EXISTS kg_entities (
+    id             SERIAL      PRIMARY KEY,
+    canonical_key  TEXT        NOT NULL UNIQUE,   -- normalized dedup key
+    label          TEXT,                          -- GLiNER2 entity label (migration/ticket/...)
+    display_name   TEXT        NOT NULL,          -- a representative surface form
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS kg_entities_label_idx ON kg_entities (label);
+
+-- Entity mentions: which memory (fact/rule/incident node) an entity appeared in.
+-- This is the entity<->memory bridge that lets graph_recall walk entity -> fact.
+CREATE TABLE IF NOT EXISTS kg_entity_mentions (
+    id             SERIAL      PRIMARY KEY,
+    entity_id      INTEGER     NOT NULL REFERENCES kg_entities(id) ON DELETE CASCADE,
+    node_id        INTEGER     NOT NULL REFERENCES kg_nodes(id)    ON DELETE CASCADE,
+    surface        TEXT,                          -- the raw span as it appeared
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT kg_entity_mentions_unique UNIQUE (entity_id, node_id)
+);
+CREATE INDEX IF NOT EXISTS kg_entity_mentions_entity_idx ON kg_entity_mentions (entity_id);
+CREATE INDEX IF NOT EXISTS kg_entity_mentions_node_idx   ON kg_entity_mentions (node_id);
+
+-- Typed entity->entity edges (the GLiNER2 relations). Separate table from the
+-- memory-node kg_edges so the cosine graph (fallback lane) stays untouched.
+CREATE TABLE IF NOT EXISTS kg_entity_edges (
+    id                   SERIAL      PRIMARY KEY,
+    src_entity_id        INTEGER     NOT NULL REFERENCES kg_entities(id) ON DELETE CASCADE,
+    dst_entity_id        INTEGER     NOT NULL REFERENCES kg_entities(id) ON DELETE CASCADE,
+    relation             TEXT        NOT NULL,     -- bounded by extract.RELATION_LABELS
+    weight               REAL        NOT NULL DEFAULT 1.0,
+    provenance_memory_id INTEGER,                  -- brain memory whose body asserted it
+    active               BOOLEAN     NOT NULL DEFAULT TRUE,
+    created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT kg_entity_edges_unique UNIQUE (src_entity_id, dst_entity_id, relation, provenance_memory_id)
+);
+CREATE INDEX IF NOT EXISTS kg_entity_edges_src_idx ON kg_entity_edges (src_entity_id) WHERE active;
+CREATE INDEX IF NOT EXISTS kg_entity_edges_dst_idx ON kg_entity_edges (dst_entity_id) WHERE active;
+
 -- ── INGEST RUNS ──────────────────────────────────────────────────────
 -- One row per ingest, with the mid-ingest brain-health probe result
 -- (PLAN-gate #1: prove the brain stayed responsive, not just row-count parity).
