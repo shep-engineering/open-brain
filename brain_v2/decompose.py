@@ -67,10 +67,26 @@ def _classify(text: str) -> tuple[str, str | None]:
     return "fact", None
 
 
+_LEADING_ENUMERATOR = re.compile(r"^\s*(?:\d+[.)]|[-*•])\s+")
+_HAS_ALPHA = re.compile(r"[^\W\d_]", re.UNICODE)  # any Unicode letter
+
+
 def _make_headline(text: str, max_words: int = 15) -> str:
-    """Extract a headline from text: first sentence, capped at max_words."""
-    # Take first sentence (up to first period, newline, or semicolon)
-    first = re.split(r"[.\n;]", text.strip(), maxsplit=1)[0].strip()
+    """Extract a headline from text: first sentence, capped at max_words.
+
+    Strips a leading list-enumerator (`1.`, `2)`, `-`, `*`, `•`) FIRST, so a
+    numbered list item like "1. Do the retry logic" does not yield the headline
+    "1" (which the write gate rejects as non-descriptive — the chunk is then
+    dropped, logged, and returned with action="rejected"). If the first-sentence
+    slice still has no letter, fall back to the
+    first max_words of the whole (de-enumerated) body so the headline is always
+    descriptive.
+    """
+    body = _LEADING_ENUMERATOR.sub("", text.strip())
+    first = re.split(r"[.\n;]", body, maxsplit=1)[0].strip()
+    if not _HAS_ALPHA.search(first):
+        # first "sentence" was numeric/punctuation only — use the body instead.
+        first = body.strip()
     words = first.split()
     if len(words) <= max_words:
         return first
