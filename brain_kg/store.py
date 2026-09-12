@@ -154,12 +154,19 @@ def entity_connected_nodes(conn, node_ids: list[int]) -> list[dict[str, Any]]:
                 UNION ALL
                 -- also the seed entities themselves (co-mention linking)
                 SELECT entity_id AS ent, 'co_mention'::text AS relation FROM seed_ent
+            ),
+            ent_df AS (
+                -- document frequency: how many distinct nodes mention each entity
+                SELECT entity_id, count(DISTINCT node_id) AS df FROM kg_entity_mentions
+                GROUP BY entity_id
             )
             SELECT DISTINCT n.id, n.kind, n.memory_id, n.project, n.headline,
-                   n.body, n.active, le.relation, en.display_name AS via_entity
+                   n.body, n.active, le.relation, en.display_name AS via_entity,
+                   df.df AS via_entity_df
             FROM linked_ent le
             JOIN kg_entity_mentions m ON m.entity_id = le.ent
             JOIN kg_entities en ON en.id = le.ent
+            JOIN ent_df df ON df.entity_id = le.ent
             JOIN kg_nodes n ON n.id = m.node_id
             WHERE n.id <> ALL(%s) AND n.active
             """,

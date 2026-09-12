@@ -89,8 +89,13 @@ def graph_recall(
     # entity-support score rather than a flat per-hit value. Scored to COMPETE
     # with the cosine seeds (the prior weight buried it below top-K — that caused
     # the tie).
+    import math
     ent_hits = store.entity_connected_nodes(conn, frontier_ids)
     seed_base = max(seed_sim_by_id.values()) if seed_sim_by_id else 0.0
+    # total active nodes for IDF (how "rare" a shared entity is).
+    with conn.cursor() as _c:
+        _c.execute("SELECT count(*) FROM kg_nodes WHERE active")
+        total_nodes = max(_c.fetchone()[0], 1)
     # accumulate: key -> (support_score, kind, memory_id, headline, active, best_via)
     ent_support: dict[str, dict[str, Any]] = {}
     from .config import (KG_ENT_SUPPORT_DECAY, KG_ENT_FLOOR,
@@ -98,7 +103,14 @@ def graph_recall(
     for e in ent_hits:
         key = _key(e["kind"], e["memory_id"])
         # co-mention (shared entity) is the strong signal; a relation-hop is weaker.
-        contrib = KG_ENT_COMENTION_W if e["relation"] == "co_mention" else KG_ENT_RELATION_W
+        base_w = KG_ENT_COMENTION_W if e["relation"] == "co_mention" else KG_ENT_RELATION_W
+        # IDF: a RARE shared entity ("088", df~5) is far more informative than a
+        # common one ("dev", df~497). Weight the contribution by normalized IDF in
+        # (0,1] so high-frequency entities inject little support (fixes the noise
+        # that displaced a correct answer at larger N — sp2-07).
+        df = max(int(e.get("via_entity_df") or 1), 1)
+        idf = math.log(total_nodes / df) / math.log(total_nodes)  # in (0, 1]
+        contrib = base_w * idf
         rec = ent_support.get(key)
         if rec is None:
             ent_support[key] = {"support": contrib, "kind": e["kind"],
