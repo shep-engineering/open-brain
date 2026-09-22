@@ -175,6 +175,6 @@ v2 uses a separate Postgres container. v1's data is never touched.
 | Decay | None | Ebbinghaus access-based for facts, 90-day archive for incidents |
 | Observability | `observability.py` + `telemetry.py` | Full stack + persistent `tool_events` table |
 | MCP namespace | `mcp__open-brain__*` | `mcp__open-brain-v2__*` |
-| Tool count | 26 | 39 |
+| Tool count | 26 | 42 |
 | Tests | ~90 | 203 (all real Postgres + real Ollama) |
-| Version | 0.14.0 | 2.0.0 |
+| Version | 0.14.0 | 2.8.0 |

@@ -55,6 +55,11 @@ exclude_docs: |
   # that must NOT ship to shep-engineering.github.io/open-brain/.
   # See brain memory #1055 / this file's git blame for rationale.
 
+  # A stray internal migration PLAN that sits at docs/ root (not under
+  # planning/), so the planning/ rule above does not catch it. It was
+  # building into the public site; exclude it explicitly.
+  embedding-migration-qwen3-plan.md
+
   # Third-party reference PDFs kept locally for convenience but never
   # published (provenance/licensing not audited for redistribution).
   *.pdf
