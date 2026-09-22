@@ -803,6 +803,32 @@ Run only the Ebbinghaus fact decay job.
 
 Run only the incident archive job (90-day default).
 
+#### `consolidation_candidates_v2`
+
+Find cliques of active rules that are all mutually similar — candidates to review and
+possibly consolidate (supersede into one canonical rule). Read-only: it never merges
+anything; the agent judges and uses `supersede_rule_v2`. Addresses rule pile-up beyond
+what the write-time similar-rule hint catches.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project` | string | No | Scope to a project (default: all). |
+| `threshold` | float | No | Similarity threshold; `-1.0` uses the server default. |
+| `limit` | int | No | Max candidate cliques to return (default 20). |
+
+#### `sweep_host_v2`
+
+Admin: reap stale `active_sessions` rows for a **non-local** host. When a machine's
+heartbeat agent stops (or the machine is down), its active rows can't be reaped by the
+local probe (which only sees local processes). Lets an operator explicitly mark another
+host's stale rows ended. Defaults to `dry_run=True`.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `host` | string | Yes | The non-local host whose stale rows to reap. |
+| `max_age_minutes` | int | No | Rows older than this are candidates (default 60). |
+| `dry_run` | bool | No | Preview without writing (default `True`). |
+
 ---
 
 ### Action Items

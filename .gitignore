@@ -57,4 +57,10 @@ backups/
 *.pdf
 !docs/assets/**/*.pdf
 docs/planning/
-brain_kg/.venv-kg/
+
+# Design/methodology — private (lives in degailen private repos, never public)
+brain_kg/bench/
+PLANNING.md
+*-plan.md
+open-brain-handoff-*.md
+HANDOFF_*.md
