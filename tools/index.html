@@ -1606,6 +1606,28 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#consolidation_candidates_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        consolidation_candidates_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sweep_host_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sweep_host_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -3073,6 +3095,28 @@
     <span class="md-ellipsis">
       
         archive_incidents_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#consolidation_candidates_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        consolidation_candidates_v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sweep_host_v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sweep_host_v2
       
     </span>
   </a>
@@ -5190,6 +5234,76 @@ meant to overlap the old). <code>decay_facts</code> never reactivates a supersed
 <p>Run only the Ebbinghaus fact decay job.</p>
 <h4 id="archive_incidents_v2"><code>archive_incidents_v2</code></h4>
 <p>Run only the incident archive job (90-day default).</p>
+<h4 id="consolidation_candidates_v2"><code>consolidation_candidates_v2</code></h4>
+<p>Find cliques of active rules that are all mutually similar — candidates to review and
+possibly consolidate (supersede into one canonical rule). Read-only: it never merges
+anything; the agent judges and uses <code>supersede_rule_v2</code>. Addresses rule pile-up beyond
+what the write-time similar-rule hint catches.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>project</code></td>
+<td>string</td>
+<td>No</td>
+<td>Scope to a project (default: all).</td>
+</tr>
+<tr>
+<td><code>threshold</code></td>
+<td>float</td>
+<td>No</td>
+<td>Similarity threshold; <code>-1.0</code> uses the server default.</td>
+</tr>
+<tr>
+<td><code>limit</code></td>
+<td>int</td>
+<td>No</td>
+<td>Max candidate cliques to return (default 20).</td>
+</tr>
+</tbody>
+</table>
+<h4 id="sweep_host_v2"><code>sweep_host_v2</code></h4>
+<p>Admin: reap stale <code>active_sessions</code> rows for a <strong>non-local</strong> host. When a machine's
+heartbeat agent stops (or the machine is down), its active rows can't be reaped by the
+local probe (which only sees local processes). Lets an operator explicitly mark another
+host's stale rows ended. Defaults to <code>dry_run=True</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>host</code></td>
+<td>string</td>
+<td>Yes</td>
+<td>The non-local host whose stale rows to reap.</td>
+</tr>
+<tr>
+<td><code>max_age_minutes</code></td>
+<td>int</td>
+<td>No</td>
+<td>Rows older than this are candidates (default 60).</td>
+</tr>
+<tr>
+<td><code>dry_run</code></td>
+<td>bool</td>
+<td>No</td>
+<td>Preview without writing (default <code>True</code>).</td>
+</tr>
+</tbody>
+</table>
 <hr />
 <h3 id="action-items">Action Items</h3>
 <h4 id="acknowledge_action_item_v2"><code>acknowledge_action_item_v2</code></h4>
